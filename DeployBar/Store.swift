@@ -27,6 +27,69 @@ final class Store: ObservableObject {
     // 배포 성공 후 릴리즈노트 창을 열도록 뷰에 보내는 신호
     @Published var openNotesSignal = 0
 
+    // ── 온디바이스 번역 브리지 (배포 자동 릴리즈노트용; LogView 가 실행) ──
+    struct TranslationRequest: Equatable { let text: String; let source: String; let target: String }
+    @Published var pendingTranslation: TranslationRequest?
+    private var translationCont: CheckedContinuation<String?, Never>?
+
+    func translate(_ text: String, toLanguage lang: String) async -> String? {
+        await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            translationCont = cont
+            pendingTranslation = TranslationRequest(text: text, source: "ko", target: lang)
+            // 안전장치: 번역 뷰가 없거나 지연되면 30초 후 nil 로 진행
+            Task { try? await Task.sleep(nanoseconds: 30_000_000_000); fulfillTranslation(nil) }
+        }
+    }
+    func fulfillTranslation(_ result: String?) {
+        guard let c = translationCont else { return }
+        translationCont = nil
+        pendingTranslation = nil
+        c.resume(returning: result)
+    }
+
+    // 배포 직후 앱의 App Store 언어를 조회해 필요한 언어만 릴리즈노트를 자동 반영
+    private func applyReleaseNotes(_ app: ManagedApp, into job: Job) async {
+        let st = statuses.first { $0.path == app.path }
+        let draft = await ReleaseNotes.draft(app, liveVersion: st?.liveVersion, localVersion: st?.localVersion)
+        if draft.ko.isEmpty {
+            job.lines.append("📝 릴리즈노트: 반영할 사용자 변경사항 없음 — 건너뜀")
+            return
+        }
+        do {
+            guard let target = try await ReleaseNotes.editableVersionAndLocales(app) else {
+                job.lines.append("📝 릴리즈노트 보류 — 편집 가능한 App Store 버전이 없습니다. ASC 에서 새 버전을 만든 뒤 [릴리즈노트]로 적용하세요.")
+                return
+            }
+            let names = target.locales.map { $0.locale }.joined(separator: ", ")
+            job.lines.append("📝 릴리즈노트 자동 반영 (v\(target.versionString)) — 이 앱 언어: \(names)")
+            var en = draft.en   // AI 키가 있으면 이미 채워져 있음
+            for loc in target.locales {
+                var text = ""
+                if loc.locale == "ko" {
+                    text = draft.ko
+                } else if loc.locale.hasPrefix("en") {
+                    if en.isEmpty {
+                        job.lines.append("   … 영어 번역 중 (온디바이스)")
+                        en = await translate(draft.ko, toLanguage: "en") ?? ""
+                    }
+                    text = en
+                } else {
+                    job.lines.append("   – \(loc.locale): 한/영 외 언어, 건너뜀")
+                    continue
+                }
+                guard !text.isEmpty else { job.lines.append("   – \(loc.locale): 내용 없음, 건너뜀"); continue }
+                do {
+                    try await ASCClient.patchWhatsNew(localizationId: loc.id, whatsNew: text)
+                    job.lines.append("   ✓ \(loc.locale) 반영 완료")
+                } catch {
+                    job.lines.append("   ✗ \(loc.locale) 실패: \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            job.lines.append("📝 릴리즈노트 실패: \(error.localizedDescription)")
+        }
+    }
+
     private var didStartInitialLoad = false
     private var isRefreshing = false
     private static var cacheURL: URL { Config.supportDir.appendingPathComponent("status-cache.json") }
@@ -91,6 +154,7 @@ final class Store: ObservableObject {
             let res = try await Deployer.deploy(app, lane: lane, onLog: onLog)
             c.finish(); await consumer.value
             job.lines.append("✅ \(app.name) — v\(res.version) (build \(res.build))")
+            await applyReleaseNotes(app, into: job)   // 언어별 릴리즈노트 자동 반영
             return true
         } catch {
             c.finish(); await consumer.value
@@ -99,18 +163,14 @@ final class Store: ObservableObject {
         }
     }
 
-    // 개별 배포
+    // 개별 배포 (원 버튼: 빌드→업로드→언어별 릴리즈노트까지 자동)
     func startDeploy(_ app: ManagedApp, lane: Deployer.Lane) {
         let job = Job(title: "\(laneLabel(lane)) · \(app.name)")
         self.job = job
         Task {
-            let ok = await runOneDeploy(app, lane: lane, into: job)
+            _ = await runOneDeploy(app, lane: lane, into: job)
             job.running = false
             await refresh(fresh: true)
-            if ok {   // 배포 성공 시 릴리즈노트 초안 준비 + 창 열기
-                await loadNotes(app)
-                openNotesSignal += 1
-            }
         }
     }
 

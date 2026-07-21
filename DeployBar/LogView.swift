@@ -1,4 +1,5 @@
 import SwiftUI
+import Translation
 
 struct LogView: View {
     @EnvironmentObject var store: Store
@@ -40,5 +41,15 @@ struct LogView: View {
         }
         .foregroundStyle(Color(white: 0.85))
         .frame(minWidth: 480, minHeight: 320)
+        // 배포 자동 릴리즈노트의 온디바이스 번역 실행 지점
+        .translationTask(store.pendingTranslation.map {
+            TranslationSession.Configuration(
+                source: Locale.Language(identifier: $0.source),
+                target: Locale.Language(identifier: $0.target))
+        }) { session in
+            guard let req = store.pendingTranslation else { return }
+            let out = try? await session.translate(req.text).targetText
+            store.fulfillTranslation(out)
+        }
     }
 }

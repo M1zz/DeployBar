@@ -89,6 +89,24 @@ enum ReleaseNotes {
         return (parsed?["ko"] as? String ?? "", parsed?["en"] as? String ?? "")
     }
 
+    // 편집 가능한 App Store 버전과 그 버전이 지원하는 언어(로케일) 목록
+    struct EditableVersion {
+        let versionId: String
+        let versionString: String
+        let locales: [ASCClient.Localization]
+    }
+
+    static func editableVersionAndLocales(_ app: ManagedApp) async throws -> EditableVersion? {
+        let r = AppRepo.resolve(app)
+        let info = try AppRepo.buildSettings(r)
+        guard let id = try await ASCClient.appId(bundleId: info.bundleId) else { return nil }
+        let vers = try await ASCClient.appStoreVersions(appId: id)
+        let editableStates = ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"]
+        guard let editable = vers.first(where: { editableStates.contains($0.state) }) else { return nil }
+        let locs = try await ASCClient.versionLocalizations(versionId: editable.id)
+        return EditableVersion(versionId: editable.id, versionString: editable.versionString, locales: locs)
+    }
+
     struct UploadResult { let version: String; let locales: [String] }
 
     static func upload(_ app: ManagedApp, ko: String, en: String) async throws -> UploadResult {
