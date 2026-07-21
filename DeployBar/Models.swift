@@ -26,7 +26,7 @@ struct BuildInfo {
     var team: String?
 }
 
-enum DeployState: String {
+enum DeployState: String, Codable {
     case dev, ready, deployed, error
     var label: String {
         switch self {
@@ -38,7 +38,7 @@ enum DeployState: String {
     }
 }
 
-struct AppStatus: Identifiable {
+struct AppStatus: Identifiable, Codable {
     var name: String
     var path: String
     var id: String { path }

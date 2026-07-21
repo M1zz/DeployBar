@@ -24,10 +24,34 @@ final class Store: ObservableObject {
     @Published var notesLoading = false
     private var notesApp: ManagedApp?
 
+    private var didStartInitialLoad = false
+    private var isRefreshing = false
+    private static var cacheURL: URL { Config.supportDir.appendingPathComponent("status-cache.json") }
+
+    init() {
+        // 지난 조회 결과를 디스크에서 즉시 로드 (백그라운드 갱신 전까지 표시)
+        if let data = try? Data(contentsOf: Self.cacheURL),
+           let cached = try? JSONDecoder().decode([AppStatus].self, from: data) {
+            statuses = cached
+        }
+    }
+
+    // 최초 1회만 조회를 시작한다. 뷰(팝오버)가 닫혀도 취소되지 않도록 별도 Task 로 실행.
+    func loadIfNeeded() {
+        guard !didStartInitialLoad else { return }
+        didStartInitialLoad = true
+        Task { await refresh(fresh: false) }
+    }
+
     func refresh(fresh: Bool) async {
+        if isRefreshing { return }   // 중복 조회 방지
+        isRefreshing = true
         loading = true
-        statuses = await Status.all(fresh: fresh)
+        let result = await Status.all(fresh: fresh)
+        statuses = result
         loading = false
+        isRefreshing = false
+        if let data = try? JSONEncoder().encode(result) { try? data.write(to: Self.cacheURL) }
     }
 
     func app(named path: String) -> ManagedApp? {

@@ -67,7 +67,7 @@ struct ContentView: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
         }
         .frame(width: 460)
-        .task { if store.statuses.isEmpty { await store.refresh(fresh: false) } }
+        .onAppear { store.loadIfNeeded() }
     }
 }
 
@@ -95,31 +95,31 @@ struct CompactRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle().fill(color).frame(width: 9, height: 9)
+        HStack(spacing: 12) {
+            Circle().fill(color).frame(width: 11, height: 11)
 
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    Text(status.name).font(.system(size: 13, weight: .semibold))
-                    Text(status.state.label).font(.caption2.weight(.medium)).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text(status.name).font(.system(size: 15, weight: .semibold))
+                    Text(status.state.label).font(.caption.weight(.semibold)).foregroundStyle(color)
                 }
                 Text(detail)
-                    .font(.caption2)
+                    .font(.subheadline)
                     .foregroundStyle(status.state == .error ? .red : .secondary)
                     .lineLimit(1)
             }
 
-            Spacer(minLength: 6)
+            Spacer(minLength: 8)
 
             if status.state != .error {
                 Button {
                     openLog()
                     if let app = store.app(named: status.path) { store.startDeploy(app, lane: .beta) }
                 } label: {
-                    Text("배포").frame(minWidth: 34)
+                    Text("배포").frame(minWidth: 40)
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(store.job?.running == true)
 
                 Button {
@@ -131,11 +131,11 @@ struct CompactRow: View {
                     Image(systemName: "doc.text")
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
                 .help("릴리즈노트")
             }
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+        .padding(.horizontal, 12).padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
     }
 }
