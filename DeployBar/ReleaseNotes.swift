@@ -3,27 +3,37 @@ import Foundation
 enum ReleaseNotes {
     struct Draft { var commits: [String]; var ko: String; var en: String; var note: String? }
 
-    static func draft(_ app: ManagedApp) async -> Draft {
-        let r = AppRepo.resolve(app)
-        let tag = GitInfo.lastDeployTag(app.path)
-        let commits = GitInfo.commitsSince(app.path, tag: tag)
-        _ = r
-        if commits.isEmpty { return Draft(commits: [], ko: "", en: "", note: "새 커밋 없음") }
+    static func draft(_ app: ManagedApp, liveVersion: String? = nil, localVersion: String? = nil) async -> Draft {
+        // 기준점 = "직전 릴리즈" → 이 값 이후의 커밋이 이번 버전의 변경사항이다.
+        // 1) App Store 라이브 버전의 태그 (사용자가 현재 쓰는 버전 = 직전 릴리즈)
+        // 2) 방금 만든 현재 버전 태그를 제외한 가장 최근 태그
+        // 3) 아무 태그도 없으면 최근 커밋 (부정확할 수 있음 → note 로 안내)
+        var baseTag: String?
+        var baseLabel: String
+        if let lv = liveVersion, let t = GitInfo.tagForVersion(app.path, lv) {
+            baseTag = t; baseLabel = "App Store v\(lv) 이후 변경사항"
+        } else if let t = GitInfo.mostRecentTag(app.path, excludingVersion: localVersion) {
+            baseTag = t; baseLabel = "\(t) 이후 변경사항"
+        } else {
+            baseTag = nil; baseLabel = "최근 커밋 기준 (직전 릴리즈 태그가 없어 부정확할 수 있음)"
+        }
+        let commits = GitInfo.commitsSince(app.path, tag: baseTag)
+        if commits.isEmpty { return Draft(commits: [], ko: "", en: "", note: "\(baseLabel) — 새 커밋 없음") }
         // AI 키가 있으면 다듬은 ko/en 을, 없으면 커밋에서 자동 정리한 초안을 넣는다.
         if let key = Config.anthropicKey {
             do {
                 let (ko, en) = try await callAnthropic(commits: commits, key: key)
-                return Draft(commits: commits, ko: ko, en: en, note: nil)
+                return Draft(commits: commits, ko: ko, en: en, note: baseLabel)
             } catch {
                 let ko = heuristicNotes(commits)
-                return Draft(commits: commits, ko: ko, en: "", note: "AI 호출 실패(\(error.localizedDescription)) — 커밋 기반 초안으로 대체")
+                return Draft(commits: commits, ko: ko, en: "", note: "\(baseLabel) · AI 호출 실패(\(error.localizedDescription)) — 커밋 기반 초안으로 대체")
             }
         }
         let ko = heuristicNotes(commits)
-        let note = ko.isEmpty
+        let tail = ko.isEmpty
             ? "사용자 대상 변경이 없어 보입니다 — 커밋을 확인하고 직접 작성하세요."
             : "커밋에서 자동 정리한 초안입니다. 다듬고 영어(en)를 채우려면 config.env 에 ANTHROPIC_API_KEY 를 넣으세요."
-        return Draft(commits: commits, ko: ko, en: "", note: note)
+        return Draft(commits: commits, ko: ko, en: "", note: "\(baseLabel) · \(tail)")
     }
 
     // API 키 없이 커밋 메시지에서 "적당히" 릴리즈노트 초안을 만든다.

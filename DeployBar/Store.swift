@@ -116,7 +116,8 @@ final class Store: ObservableObject {
         notesAppName = app.name
         notesCommits = []; notesKo = ""; notesEn = ""; notesMsg = ""
         notesLoading = true
-        let d = await ReleaseNotes.draft(app)
+        let st = statuses.first(where: { $0.path == app.path })
+        let d = await ReleaseNotes.draft(app, liveVersion: st?.liveVersion, localVersion: st?.localVersion)
         notesCommits = d.commits
         notesKo = d.ko
         notesEn = d.en
