@@ -1,0 +1,37 @@
+# XcodeGen 설정 — 이 파일에서 DeployBar.xcodeproj 를 생성한다.
+# 재생성: xcodegen generate
+name: DeployBar
+options:
+  bundleIdPrefix: com.leeo
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+  xcodeVersion: "26.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: QGAQ3AY3R3
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  DeployBar:
+    type: application
+    platform: macOS
+    sources:
+      - path: DeployBar
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.leeo.deploybar
+        PRODUCT_NAME: DeployBar
+        GENERATE_INFOPLIST_FILE: "YES"
+        # 메뉴바 전용 앱 (Dock 아이콘 없음)
+        INFOPLIST_KEY_LSUIElement: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: 배포 콘솔
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # xcodebuild/altool 서브프로세스 실행을 위해 App Sandbox 미사용
+        ENABLE_APP_SANDBOX: "NO"
+        ENABLE_HARDENED_RUNTIME: "YES"
+        COMBINE_HIDPI_IMAGES: "YES"
