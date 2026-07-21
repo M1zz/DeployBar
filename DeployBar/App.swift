@@ -22,6 +22,8 @@ struct DeployBarApp: App {
         }
         // 최초 실행 시 apps.json / 설정 파일이 존재하도록 시드
         _ = AppRepo.registry()
+        // 배포 성공·실패 알림 권한 요청
+        Notifier.requestAuth()
     }
 
     var body: some Scene {

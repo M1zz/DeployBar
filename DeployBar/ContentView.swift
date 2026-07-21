@@ -93,6 +93,11 @@ struct CompactRow: View {
         }
     }
 
+    private var reviewColor: Color {
+        guard let s = status.reviewState else { return .blue }
+        return (s.contains("REJECT") || s == "INVALID_BINARY") ? .red : .blue
+    }
+
     private var detail: String {
         if status.state == .loading { return "조회 중…" }
         if status.state == .error { return status.error ?? "오류" }
@@ -115,6 +120,11 @@ struct CompactRow: View {
                     .font(.subheadline)
                     .foregroundStyle(status.state == .error ? .red : .secondary)
                     .lineLimit(1)
+                if let review = status.reviewLabel {
+                    Text("🔍 \(review)\(status.reviewVersion.map { " · v\($0)" } ?? "")")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(reviewColor)
+                }
             }
 
             Spacer(minLength: 8)

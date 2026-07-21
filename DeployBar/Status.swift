@@ -31,9 +31,14 @@ enum Status {
         do {
             if let id = try await ASCClient.appId(bundleId: info.bundleId) {
                 let vers = try await ASCClient.appStoreVersions(appId: id)
-                let ready = vers.first { $0.state == "READY_FOR_SALE" } ?? vers.first
-                st.liveVersion = ready?.versionString
-                st.liveState = ready?.state
+                let ready = vers.first { $0.state == "READY_FOR_SALE" }
+                st.liveVersion = (ready ?? vers.first)?.versionString
+                st.liveState = (ready ?? vers.first)?.state
+                // 심사/준비 등 진행 중인 버전(판매 중이 아닌)이 있으면 표시
+                if let inflight = vers.first(where: { ASCState.isInflight($0.state) }) {
+                    st.reviewState = inflight.state
+                    st.reviewVersion = inflight.versionString
+                }
                 st.ascBuild = try await ASCClient.latestBuild(appId: id)
             } else {
                 st.ascError = "ASC 에서 앱을 찾지 못함 (bundleId 불일치)"

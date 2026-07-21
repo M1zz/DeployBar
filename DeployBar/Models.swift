@@ -55,4 +55,37 @@ struct AppStatus: Identifiable, Codable {
     var dirty: Bool = false
     var branch: String?
     var error: String?
+    // 심사 파이프라인 상태 (READY_FOR_SALE 이 아닌 진행 중 버전)
+    var reviewState: String?
+    var reviewVersion: String?
+
+    var reviewLabel: String? {
+        guard let s = reviewState else { return nil }
+        return ASCState.label(s)
+    }
+}
+
+// App Store Connect appStoreState → 한국어 라벨
+enum ASCState {
+    static func label(_ state: String) -> String? {
+        switch state {
+        case "PREPARE_FOR_SUBMISSION": return "제출 준비"
+        case "WAITING_FOR_REVIEW": return "심사 대기"
+        case "IN_REVIEW": return "심사 중"
+        case "PENDING_DEVELOPER_RELEASE": return "출시 대기"
+        case "PENDING_APPLE_RELEASE": return "출시 대기"
+        case "PROCESSING_FOR_APP_STORE": return "처리 중"
+        case "REJECTED", "METADATA_REJECTED": return "거부됨"
+        case "DEVELOPER_REJECTED": return "개발자 취소"
+        case "INVALID_BINARY": return "바이너리 오류"
+        case "READY_FOR_SALE": return "판매 중"
+        default: return nil
+        }
+    }
+    // 진행 중(파이프라인) 상태인지
+    static func isInflight(_ state: String) -> Bool {
+        ["PREPARE_FOR_SUBMISSION", "WAITING_FOR_REVIEW", "IN_REVIEW",
+         "PENDING_DEVELOPER_RELEASE", "PENDING_APPLE_RELEASE", "PROCESSING_FOR_APP_STORE",
+         "REJECTED", "METADATA_REJECTED", "DEVELOPER_REJECTED", "INVALID_BINARY"].contains(state)
+    }
 }

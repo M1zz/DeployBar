@@ -143,8 +143,10 @@ final class Store: ObservableObject {
 
     @Published var batchRunning = false
 
-    // 앱 하나를 배포하고 로그를 job 에 스트리밍. 성공 여부 반환.
-    private func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, into job: Job) async -> Bool {
+    enum DeployOutcome { case success(version: String, build: Int); case failure(String) }
+
+    // 앱 하나를 배포하고 로그를 job 에 스트리밍. 결과 반환.
+    private func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, into job: Job) async -> DeployOutcome {
         var cont: AsyncStream<String>.Continuation!
         let stream = AsyncStream<String> { cont = $0 }
         let c = cont!
@@ -155,11 +157,12 @@ final class Store: ObservableObject {
             c.finish(); await consumer.value
             job.lines.append("✅ \(app.name) — v\(res.version) (build \(res.build))")
             await applyReleaseNotes(app, into: job)   // 언어별 릴리즈노트 자동 반영
-            return true
+            return .success(version: res.version, build: res.build)
         } catch {
             c.finish(); await consumer.value
-            job.lines.append("❌ \(app.name) — \(error.localizedDescription)")
-            return false
+            let msg = error.localizedDescription
+            job.lines.append("❌ \(app.name) — \(msg)")
+            return .failure(msg)
         }
     }
 
@@ -168,9 +171,15 @@ final class Store: ObservableObject {
         let job = Job(title: "\(laneLabel(lane)) · \(app.name)")
         self.job = job
         Task {
-            _ = await runOneDeploy(app, lane: lane, into: job)
+            let outcome = await runOneDeploy(app, lane: lane, into: job)
             job.running = false
             await refresh(fresh: true)
+            switch outcome {
+            case .success(let v, let b):
+                Notifier.notify(title: "✅ \(app.name) 배포 완료", body: "v\(v) (build \(b))")
+            case .failure(let m):
+                Notifier.notify(title: "❌ \(app.name) 배포 실패", body: m)
+            }
         }
     }
 
@@ -188,16 +197,25 @@ final class Store: ObservableObject {
         batchRunning = true
         Task {
             var ok = 0
+            var fails: [String] = []
             for (i, app) in targets.enumerated() {
                 job.lines.append("")
                 job.lines.append("━━━━━━ [\(i + 1)/\(targets.count)] \(app.name) ━━━━━━")
-                if await runOneDeploy(app, lane: lane, into: job) { ok += 1 }
+                switch await runOneDeploy(app, lane: lane, into: job) {
+                case .success: ok += 1
+                case .failure(let m): fails.append("\(app.name): \(m)")
+                }
             }
             job.lines.append("")
             job.lines.append("══════ 전체 완료 — 성공 \(ok)/\(targets.count) ══════")
             job.running = false
             batchRunning = false
             await refresh(fresh: true)
+            if fails.isEmpty {
+                Notifier.notify(title: "✅ 전체 배포 완료", body: "\(ok)/\(targets.count) 성공")
+            } else {
+                Notifier.notify(title: "⚠️ 전체 배포 — 실패 \(fails.count)건", body: fails.joined(separator: "\n"))
+            }
         }
     }
 
