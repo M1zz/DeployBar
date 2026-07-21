@@ -4,7 +4,7 @@ name: DeployBar
 options:
   bundleIdPrefix: com.leeo
   deploymentTarget:
-    macOS: "13.0"
+    macOS: "15.0"
   createIntermediateGroups: true
   xcodeVersion: "26.0"
 
