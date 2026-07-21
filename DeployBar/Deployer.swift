@@ -26,8 +26,17 @@ enum Deployer {
             return Result(version: info.marketingVersion, build: Int(info.buildNumber) ?? 0)
         }
 
-        // 2) 빌드번호 +1
-        let newBuild = try bump(r, onLog: onLog)
+        // 2) 빌드번호 설정 — ASC 에 이미 올라간 최신 빌드보다 반드시 커야 업로드된다
+        onLog("🔎 App Store 최신 빌드 확인 중…")
+        var ascBuild = 0
+        if let id = try? await ASCClient.appId(bundleId: info.bundleId),
+           let b = try? await ASCClient.latestBuild(appId: id), let n = Int(b) {
+            ascBuild = n
+        }
+        let localBuild = Int(info.buildNumber) ?? 0
+        let newBuild = max(localBuild, ascBuild) + 1
+        onLog("🔢 빌드번호: 로컬 \(localBuild) · ASC \(ascBuild) → \(newBuild)")
+        try await setBuild(r, to: newBuild, onLog: onLog)
 
         // 3) archive
         let archivePath = workDir.appendingPathComponent("\(r.scheme).xcarchive").path
@@ -57,10 +66,15 @@ enum Deployer {
         let ipaPath = exportDir.appendingPathComponent(ipa).path
         onLog("📦 IPA: \(ipaPath)")
         let asc = Config.asc
-        try await Shell.run("/usr/bin/xcrun", [
+        let uploadOutput = try await Shell.run("/usr/bin/xcrun", [
             "altool", "--upload-app", "-f", ipaPath, "-t", "ios",
             "--apiKey", asc.keyId, "--apiIssuer", asc.issuer,
         ], cwd: cwd, onLog: onLog)
+        // altool 은 업로드 실패에도 종료코드 0 을 반환할 수 있으므로 출력으로 실패를 판정한다
+        let lower = uploadOutput.lowercased()
+        if lower.contains("failed to upload") || lower.contains("error:") || lower.contains("\"errors\"") {
+            throw err("업로드 실패 — App Store Connect 가 거부했습니다. 위 로그를 확인하세요.")
+        }
 
         onLog("🚀 [\(r.scheme)] 업로드 완료 — v\(info.marketingVersion) (build \(newBuild))")
         if GitInfo.isRepo(r.path) {
@@ -72,29 +86,42 @@ enum Deployer {
         return Result(version: info.marketingVersion, build: newBuild)
     }
 
-    // 빌드번호 +1 (VERSION_XCCONFIG 우선, 없으면 agvtool)
-    private static func bump(_ r: ResolvedApp, onLog: @escaping @Sendable (String) -> Void) throws -> Int {
+    // 빌드번호를 지정한 값으로 설정 (VERSION_XCCONFIG 우선, 없으면 agvtool)
+    private static func setBuild(_ r: ResolvedApp, to target: Int, onLog: @escaping @Sendable (String) -> Void) async throws {
         if let xc = r.versionXcconfig {
             let file = URL(fileURLWithPath: r.path).appendingPathComponent(xc)
             guard let content = try? String(contentsOf: file, encoding: .utf8) else { throw err("VERSION_XCCONFIG 없음: \(file.path)") }
             let lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            var current = 0, found = false
+            var found = false
             let updated = lines.map { line -> String in
-                if let range = line.range(of: #"^CURRENT_PROJECT_VERSION\s*=\s*(\d+)"#, options: .regularExpression) {
-                    let digits = line[range].components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-                    current = Int(digits) ?? 0
+                if line.range(of: #"^\s*CURRENT_PROJECT_VERSION\s*="#, options: .regularExpression) != nil {
                     found = true
-                    return "CURRENT_PROJECT_VERSION = \(current + 1)"
+                    return "CURRENT_PROJECT_VERSION = \(target)"
                 }
                 return line
             }
             guard found else { throw err("\(xc) 에서 CURRENT_PROJECT_VERSION 을 찾지 못함") }
             try updated.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
-            onLog("🔢 빌드번호: \(current) → \(current + 1) (\(xc))")
-            return current + 1
+            onLog("🔢 \(xc): CURRENT_PROJECT_VERSION = \(target)")
+        } else if r.projFlag == "-project" {
+            // xcconfig 가 없는 앱: project.pbxproj 의 CURRENT_PROJECT_VERSION 을 직접 설정
+            // (agvtool 은 VERSIONING_SYSTEM=apple-generic 이 아니면 동작하지 않음)
+            let pbxproj = URL(fileURLWithPath: r.projContainer).appendingPathComponent("project.pbxproj")
+            guard let content = try? String(contentsOf: pbxproj, encoding: .utf8) else {
+                throw err("project.pbxproj 를 읽지 못함: \(r.projContainer)")
+            }
+            guard content.range(of: #"CURRENT_PROJECT_VERSION = [^;]+;"#, options: .regularExpression) != nil else {
+                throw err("project.pbxproj 에서 CURRENT_PROJECT_VERSION 을 찾지 못함. VERSION_XCCONFIG 설정을 권장합니다.")
+            }
+            let updated = content.replacingOccurrences(
+                of: #"CURRENT_PROJECT_VERSION = [^;]+;"#,
+                with: "CURRENT_PROJECT_VERSION = \(target);",
+                options: .regularExpression)
+            try updated.write(to: pbxproj, atomically: true, encoding: .utf8)
+            onLog("🔢 project.pbxproj: CURRENT_PROJECT_VERSION = \(target)")
         } else {
-            onLog("🔢 빌드번호 +1 (agvtool)")
-            return 0
+            try await Shell.run("/usr/bin/xcrun", ["agvtool", "new-version", "-all", "\(target)"],
+                                cwd: URL(fileURLWithPath: r.path), onLog: onLog)
         }
     }
 
