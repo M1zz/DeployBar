@@ -27,8 +27,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.leeo.deploybar
         PRODUCT_NAME: DeployBar
         GENERATE_INFOPLIST_FILE: "YES"
-        # 메뉴바 전용 앱 (Dock 아이콘 없음)
-        INFOPLIST_KEY_LSUIElement: "YES"
+        # Dock 아이콘 + 실행 시 창 표시 (메뉴바 아이콘은 보조). 노치에 가려 못 찾는 문제 해결.
         INFOPLIST_KEY_CFBundleDisplayName: 배포 콘솔
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # xcodebuild/altool 서브프로세스 실행을 위해 App Sandbox 미사용

@@ -25,6 +25,16 @@ struct DeployBarApp: App {
     }
 
     var body: some Scene {
+        // 실행 시 뜨는 메인 창 (노치에 가린 메뉴바 아이콘을 못 찾아도 항상 보임).
+        // WindowGroup 은 MenuBarExtra 가 있어도 실행 시 창을 자동으로 연다.
+        WindowGroup("배포 콘솔", id: "dashboard") {
+            ContentView()
+                .environmentObject(store)
+                .frame(minWidth: 460, minHeight: 420)
+        }
+        .defaultSize(width: 460, height: 600)
+        .windowResizability(.contentMinSize)
+
         MenuBarExtra {
             ContentView()
                 .environmentObject(store)
