@@ -27,9 +27,10 @@ struct BuildInfo {
 }
 
 enum DeployState: String, Codable {
-    case dev, ready, deployed, error
+    case loading, dev, ready, deployed, error
     var label: String {
         switch self {
+        case .loading: return "조회 중…"
         case .dev: return "개발 중"
         case .ready: return "배포 준비완료"
         case .deployed: return "배포 완료"

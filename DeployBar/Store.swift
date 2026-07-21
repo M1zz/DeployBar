@@ -29,10 +29,12 @@ final class Store: ObservableObject {
     private static var cacheURL: URL { Config.supportDir.appendingPathComponent("status-cache.json") }
 
     init() {
-        // 지난 조회 결과를 디스크에서 즉시 로드 (백그라운드 갱신 전까지 표시)
+        // 지난 조회 결과를 디스크에서 즉시 로드. 없으면 앱 이름만이라도 즉시 표시("조회 중").
         if let data = try? Data(contentsOf: Self.cacheURL),
            let cached = try? JSONDecoder().decode([AppStatus].self, from: data) {
             statuses = cached
+        } else {
+            statuses = AppRepo.registry().map { AppStatus(name: $0.name, path: $0.path, state: .loading) }
         }
     }
 
@@ -43,15 +45,30 @@ final class Store: ObservableObject {
         Task { await refresh(fresh: false) }
     }
 
+    // 앱을 하나씩 조회해 즉시 화면에 반영한다 (전체를 기다리지 않음 → 멈춘 것처럼 안 보임).
     func refresh(fresh: Bool) async {
         if isRefreshing { return }   // 중복 조회 방지
         isRefreshing = true
         loading = true
-        let result = await Status.all(fresh: fresh)
-        statuses = result
+        if fresh { AppRepo.clearCache() }
+
+        let apps = AppRepo.registry()
+        // 기존 값은 유지하고, 처음 보는 앱은 "조회 중"으로 자리부터 잡는다.
+        var working: [AppStatus] = apps.map { app in
+            statuses.first(where: { $0.path == app.path })
+                ?? AppStatus(name: app.name, path: app.path, state: .loading)
+        }
+        statuses = working
+
+        for (i, app) in apps.enumerated() {
+            let st = await Status.of(app, fresh: fresh)
+            working[i] = st
+            statuses = working   // 앱별 완료 즉시 반영
+        }
+
         loading = false
         isRefreshing = false
-        if let data = try? JSONEncoder().encode(result) { try? data.write(to: Self.cacheURL) }
+        if let data = try? JSONEncoder().encode(working) { try? data.write(to: Self.cacheURL) }
     }
 
     func app(named path: String) -> ManagedApp? {

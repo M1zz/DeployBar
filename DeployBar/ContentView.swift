@@ -28,25 +28,17 @@ struct ContentView: View {
             .padding(.horizontal, 14).padding(.vertical, 10)
             Divider()
 
-            if store.loading && store.statuses.isEmpty {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("상태 조회 중… 첫 조회는 수십 초").font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(16)
-            } else {
-                ScrollView {
-                    VStack(spacing: 6) {
-                        ForEach(store.statuses) { st in
-                            CompactRow(status: st,
-                                       openLog: { openWindow(id: "log") },
-                                       openNotes: { openWindow(id: "notes") })
-                        }
+            ScrollView {
+                VStack(spacing: 6) {
+                    ForEach(store.statuses) { st in
+                        CompactRow(status: st,
+                                   openLog: { openWindow(id: "log") },
+                                   openNotes: { openWindow(id: "notes") })
                     }
-                    .padding(8)
                 }
-                .frame(maxHeight: 460)
+                .padding(8)
             }
+            .frame(maxHeight: 460)
 
             Divider()
             HStack {
@@ -79,6 +71,7 @@ struct CompactRow: View {
 
     private var color: Color {
         switch status.state {
+        case .loading: return .secondary
         case .dev: return .gray
         case .ready: return .orange
         case .deployed: return .green
@@ -87,6 +80,7 @@ struct CompactRow: View {
     }
 
     private var detail: String {
+        if status.state == .loading { return "조회 중…" }
         if status.state == .error { return status.error ?? "오류" }
         let local = "v\(status.localVersion ?? "?")(\(status.localBuild ?? "?"))"
         let live = status.liveVersion.map { "스토어 v\($0)" } ?? "미등록"
@@ -111,7 +105,9 @@ struct CompactRow: View {
 
             Spacer(minLength: 8)
 
-            if status.state != .error {
+            if status.state == .loading {
+                ProgressView().controlSize(.small)
+            } else if status.state != .error {
                 Button {
                     openLog()
                     if let app = store.app(named: status.path) { store.startDeploy(app, lane: .beta) }
