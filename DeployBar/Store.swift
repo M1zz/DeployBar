@@ -78,36 +78,74 @@ final class Store: ObservableObject {
         AppRepo.registry().first { $0.path == path }
     }
 
-    func startDeploy(_ app: ManagedApp, lane: Deployer.Lane) {
-        let title: String
-        switch lane {
-        case .beta: title = "TestFlight · \(app.name)"
-        case .appstore: title = "App Store · \(app.name)"
-        case .check: title = "게이트 · \(app.name)"
-        }
-        let job = Job(title: title)
-        self.job = job
+    @Published var batchRunning = false
 
+    // 앱 하나를 배포하고 로그를 job 에 스트리밍. 성공 여부 반환.
+    private func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, into job: Job) async -> Bool {
         var cont: AsyncStream<String>.Continuation!
         let stream = AsyncStream<String> { cont = $0 }
         let c = cont!
         let onLog: @Sendable (String) -> Void = { c.yield($0) }
+        let consumer = Task { for await line in stream { job.lines.append(line) } }
+        do {
+            let res = try await Deployer.deploy(app, lane: lane, onLog: onLog)
+            c.finish(); await consumer.value
+            job.lines.append("✅ \(app.name) — v\(res.version) (build \(res.build))")
+            return true
+        } catch {
+            c.finish(); await consumer.value
+            job.lines.append("❌ \(app.name) — \(error.localizedDescription)")
+            return false
+        }
+    }
 
-        Task { for await line in stream { job.lines.append(line) } }
+    // 개별 배포
+    func startDeploy(_ app: ManagedApp, lane: Deployer.Lane) {
+        let job = Job(title: "\(laneLabel(lane)) · \(app.name)")
+        self.job = job
         Task {
-            do {
-                let res = try await Deployer.deploy(app, lane: lane, onLog: onLog)
-                job.lines.append("✅ 완료 — v\(res.version) (build \(res.build))")
-                c.finish(); job.running = false
-                await refresh(fresh: true)
-                // 배포 후 릴리즈노트 초안을 준비하고 창을 연다
+            let ok = await runOneDeploy(app, lane: lane, into: job)
+            job.running = false
+            await refresh(fresh: true)
+            if ok {   // 배포 성공 시 릴리즈노트 초안 준비 + 창 열기
                 await loadNotes(app)
                 openNotesSignal += 1
-            } catch {
-                job.lines.append("❌ 실패: \(error.localizedDescription)")
-                job.error = error.localizedDescription
-                c.finish(); job.running = false
             }
+        }
+    }
+
+    // 전체 배포 — '배포 준비완료' 상태의 앱을 순차로 배포
+    func deployAll(lane: Deployer.Lane) {
+        let targets = statuses.filter { $0.state == .ready }.compactMap { app(named: $0.path) }
+        let job = Job(title: "전체 배포 · \(targets.count)개")
+        self.job = job
+        guard !targets.isEmpty else {
+            job.lines.append("배포할 앱이 없습니다 — '배포 준비완료'(🟡) 상태인 앱만 대상입니다.")
+            job.lines.append("개발 중(⚪️)이거나 이미 배포 완료(🟢)인 앱은 제외됩니다.")
+            job.running = false
+            return
+        }
+        batchRunning = true
+        Task {
+            var ok = 0
+            for (i, app) in targets.enumerated() {
+                job.lines.append("")
+                job.lines.append("━━━━━━ [\(i + 1)/\(targets.count)] \(app.name) ━━━━━━")
+                if await runOneDeploy(app, lane: lane, into: job) { ok += 1 }
+            }
+            job.lines.append("")
+            job.lines.append("══════ 전체 완료 — 성공 \(ok)/\(targets.count) ══════")
+            job.running = false
+            batchRunning = false
+            await refresh(fresh: true)
+        }
+    }
+
+    private func laneLabel(_ lane: Deployer.Lane) -> String {
+        switch lane {
+        case .beta: return "TestFlight"
+        case .appstore: return "App Store"
+        case .check: return "게이트"
         }
     }
 

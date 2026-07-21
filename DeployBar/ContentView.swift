@@ -42,14 +42,26 @@ struct ContentView: View {
             .frame(height: min(CGFloat(max(store.statuses.count, 1)) * 72 + 16, 480))
 
             Divider()
-            HStack {
-                Text("\(store.statuses.count)개 앱").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                let readyCount = store.statuses.filter { $0.state == .ready }.count
+                Button {
+                    openWindow(id: "log")
+                    store.deployAll(lane: .appstore)
+                } label: {
+                    Label("전체 배포\(readyCount > 0 ? " (\(readyCount))" : "")", systemImage: "square.stack.3d.up.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(store.job?.running == true || readyCount == 0)
+                .help("배포 준비완료(🟡) 앱을 순차로 App Store 에 배포")
+
                 Spacer()
+                Text("\(store.statuses.count)개 앱").font(.caption).foregroundStyle(.secondary)
                 Button {
                     NSApplication.shared.terminate(nil)
                 } label: {
-                    Label("종료", systemImage: "power")
-                        .font(.caption.weight(.medium))
+                    Label("종료", systemImage: "power").font(.caption.weight(.medium))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -112,13 +124,14 @@ struct CompactRow: View {
             } else if status.state != .error {
                 Button {
                     openLog()
-                    if let app = store.app(named: status.path) { store.startDeploy(app, lane: .beta) }
+                    if let app = store.app(named: status.path) { store.startDeploy(app, lane: .appstore) }
                 } label: {
                     Text("배포").frame(minWidth: 40)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
                 .disabled(store.job?.running == true)
+                .help("App Store 에 배포 (게이트→빌드→업로드)")
 
                 Button {
                     if let app = store.app(named: status.path) {
