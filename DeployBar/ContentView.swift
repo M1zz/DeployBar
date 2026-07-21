@@ -61,6 +61,7 @@ struct ContentView: View {
         }
         .frame(width: 460)
         .onAppear { store.loadIfNeeded() }
+        .onChange(of: store.openNotesSignal) { _ in openWindow(id: "notes") }
     }
 }
 

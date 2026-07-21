@@ -24,6 +24,9 @@ final class Store: ObservableObject {
     @Published var notesLoading = false
     private var notesApp: ManagedApp?
 
+    // 배포 성공 후 릴리즈노트 창을 열도록 뷰에 보내는 신호
+    @Published var openNotesSignal = 0
+
     private var didStartInitialLoad = false
     private var isRefreshing = false
     private static var cacheURL: URL { Config.supportDir.appendingPathComponent("status-cache.json") }
@@ -97,6 +100,9 @@ final class Store: ObservableObject {
                 job.lines.append("✅ 완료 — v\(res.version) (build \(res.build))")
                 c.finish(); job.running = false
                 await refresh(fresh: true)
+                // 배포 후 릴리즈노트 초안을 준비하고 창을 연다
+                await loadNotes(app)
+                openNotesSignal += 1
             } catch {
                 job.lines.append("❌ 실패: \(error.localizedDescription)")
                 job.error = error.localizedDescription

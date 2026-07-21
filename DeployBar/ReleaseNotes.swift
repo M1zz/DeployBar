@@ -9,15 +9,42 @@ enum ReleaseNotes {
         let commits = GitInfo.commitsSince(app.path, tag: tag)
         _ = r
         if commits.isEmpty { return Draft(commits: [], ko: "", en: "", note: "새 커밋 없음") }
-        guard let key = Config.anthropicKey else {
-            return Draft(commits: commits, ko: "", en: "", note: "ANTHROPIC_API_KEY 미설정 — 커밋 목록만. 직접 작성하세요.")
+        // AI 키가 있으면 다듬은 ko/en 을, 없으면 커밋에서 자동 정리한 초안을 넣는다.
+        if let key = Config.anthropicKey {
+            do {
+                let (ko, en) = try await callAnthropic(commits: commits, key: key)
+                return Draft(commits: commits, ko: ko, en: en, note: nil)
+            } catch {
+                let ko = heuristicNotes(commits)
+                return Draft(commits: commits, ko: ko, en: "", note: "AI 호출 실패(\(error.localizedDescription)) — 커밋 기반 초안으로 대체")
+            }
         }
-        do {
-            let (ko, en) = try await callAnthropic(commits: commits, key: key)
-            return Draft(commits: commits, ko: ko, en: en, note: nil)
-        } catch {
-            return Draft(commits: commits, ko: "", en: "", note: "AI 호출 실패: \(error.localizedDescription)")
+        let ko = heuristicNotes(commits)
+        let note = ko.isEmpty
+            ? "사용자 대상 변경이 없어 보입니다 — 커밋을 확인하고 직접 작성하세요."
+            : "커밋에서 자동 정리한 초안입니다. 다듬고 영어(en)를 채우려면 config.env 에 ANTHROPIC_API_KEY 를 넣으세요."
+        return Draft(commits: commits, ko: ko, en: "", note: note)
+    }
+
+    // API 키 없이 커밋 메시지에서 "적당히" 릴리즈노트 초안을 만든다.
+    // - 내부 작업(chore/build/refactor 등) 제외, 사용자 대상 변경만
+    // - conventional prefix(feat:, fix(scope): 등) 제거, 최대 8줄
+    private static func heuristicNotes(_ commits: [String]) -> String {
+        let skip = ["chore", "build", "ci", "docs", "test", "refactor", "style", "perf", "merge", "revert", "wip", "bump"]
+        var lines: [String] = []
+        for c in commits {
+            let lower = c.lowercased()
+            if skip.contains(where: { lower.hasPrefix($0) }) { continue }
+            var s = c
+            if let range = s.range(of: "^[a-zA-Z]+(\\([^)]*\\))?!?:\\s*", options: .regularExpression) {
+                s.removeSubrange(range)
+            }
+            s = s.trimmingCharacters(in: .whitespaces)
+            if s.isEmpty { continue }
+            lines.append("· \(s)")
+            if lines.count >= 8 { break }
         }
+        return lines.joined(separator: "\n")
     }
 
     private static func callAnthropic(commits: [String], key: String) async throws -> (String, String) {
