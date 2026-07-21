@@ -102,6 +102,16 @@ struct CompactRow: View {
     private var displayLabel: String { status.reviewLabel ?? status.state.label }
     private var displayColor: Color { status.reviewLabel != nil ? reviewColor : color }
 
+    // 배포 버튼은 '준비완료'일 때만 활성화 — 이미 배포됨/개발 중 앱의 실수 방지
+    private var deployHelp: String {
+        switch status.state {
+        case .ready: return "App Store 에 배포 (게이트→빌드→업로드)"
+        case .deployed: return "이미 최신 버전입니다. 새로 배포하려면 # 로 버전을 올리세요."
+        case .dev: return "커밋되지 않은 변경이 있습니다. 커밋 후 배포하세요."
+        default: return ""
+        }
+    }
+
     private var detail: String {
         if status.state == .loading { return "조회 중…" }
         if status.state == .error { return status.error ?? "오류" }
@@ -156,8 +166,8 @@ struct CompactRow: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
-                .disabled(store.job?.running == true)
-                .help("App Store 에 배포 (게이트→빌드→업로드)")
+                .disabled(store.job?.running == true || status.state != .ready)
+                .help(deployHelp)
 
                 Button {
                     if let app = store.app(named: status.path) {
