@@ -38,7 +38,8 @@ struct ContentView: View {
                 }
                 .padding(8)
             }
-            .frame(maxHeight: 460)
+            // 팝오버에서 ScrollView 높이가 0으로 찌부러지지 않도록 명시적 높이 지정
+            .frame(height: min(CGFloat(max(store.statuses.count, 1)) * 72 + 16, 480))
 
             Divider()
             HStack {
