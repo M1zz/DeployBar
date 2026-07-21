@@ -98,6 +98,10 @@ struct CompactRow: View {
         return (s.contains("REJECT") || s == "INVALID_BINARY") ? .red : .blue
     }
 
+    // 진행 중 심사 상태가 있으면 그걸 메인 뱃지로, 없으면 로컬 상태
+    private var displayLabel: String { status.reviewLabel ?? status.state.label }
+    private var displayColor: Color { status.reviewLabel != nil ? reviewColor : color }
+
     private var detail: String {
         if status.state == .loading { return "조회 중…" }
         if status.state == .error { return status.error ?? "오류" }
@@ -109,22 +113,20 @@ struct CompactRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Circle().fill(color).frame(width: 11, height: 11)
+            Circle().fill(displayColor).frame(width: 11, height: 11)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
                     Text(status.name).font(.system(size: 15, weight: .semibold))
-                    Text(status.state.label).font(.caption.weight(.semibold)).foregroundStyle(color)
+                    Text(displayLabel).font(.caption.weight(.semibold)).foregroundStyle(displayColor)
+                    if status.reviewLabel != nil, let v = status.reviewVersion {
+                        Text("v\(v)").font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
                 Text(detail)
                     .font(.subheadline)
                     .foregroundStyle(status.state == .error ? .red : .secondary)
                     .lineLimit(1)
-                if let review = status.reviewLabel {
-                    Text("🔍 \(review)\(status.reviewVersion.map { " · v\($0)" } ?? "")")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(reviewColor)
-                }
             }
 
             Spacer(minLength: 8)
