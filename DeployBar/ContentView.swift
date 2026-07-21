@@ -50,12 +50,21 @@ struct ContentView: View {
 
             Divider()
             HStack {
-                Button("종료") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.borderless).foregroundStyle(.secondary).font(.caption)
-                Spacer()
                 Text("\(store.statuses.count)개 앱").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Label("종료", systemImage: "power")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(.red)
+                .keyboardShortcut("q", modifiers: .command)
+                .help("배포 콘솔 종료 (⌘Q)")
             }
-            .padding(.horizontal, 14).padding(.vertical, 7)
+            .padding(.horizontal, 12).padding(.vertical, 8)
         }
         .frame(width: 460)
         .task { if store.statuses.isEmpty { await store.refresh(fresh: false) } }
