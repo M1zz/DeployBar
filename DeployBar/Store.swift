@@ -219,6 +219,15 @@ final class Store: ObservableObject {
         }
     }
 
+    // 수동 버전 올리기 (patch/minor/major)
+    func bumpVersion(_ app: ManagedApp, _ kind: Deployer.VersionBump) async {
+        guard let cur = statuses.first(where: { $0.path == app.path })?.localVersion else { return }
+        let next = Deployer.bumpVersion(cur, kind)
+        Deployer.applyMarketingVersion(app, to: next)
+        AppRepo.clearCache()
+        await refresh(fresh: true)
+    }
+
     private func laneLabel(_ lane: Deployer.Lane) -> String {
         switch lane {
         case .beta: return "TestFlight"

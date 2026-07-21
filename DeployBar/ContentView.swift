@@ -134,6 +134,20 @@ struct CompactRow: View {
             if status.state == .loading {
                 ProgressView().controlSize(.small)
             } else if status.state != .error {
+                if let cur = status.localVersion, let app = store.app(named: status.path) {
+                    Menu {
+                        Button("패치 +0.0.1  →  \(Deployer.bumpVersion(cur, .patch))") { Task { await store.bumpVersion(app, .patch) } }
+                        Button("마이너 +0.1.0  →  \(Deployer.bumpVersion(cur, .minor))") { Task { await store.bumpVersion(app, .minor) } }
+                        Button("메이저 +1.0.0  →  \(Deployer.bumpVersion(cur, .major))") { Task { await store.bumpVersion(app, .major) } }
+                    } label: {
+                        Image(systemName: "number")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .controlSize(.regular)
+                    .fixedSize()
+                    .help("앱 버전 올리기 (현재 v\(cur))")
+                    .disabled(store.job?.running == true)
+                }
                 Button {
                     openLog()
                     if let app = store.app(named: status.path) { store.startDeploy(app, lane: .appstore) }

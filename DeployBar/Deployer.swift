@@ -83,6 +83,10 @@ enum Deployer {
                 onLog("🏷  태그: \(tag)")
             }
         }
+        // 다음 개발 버전으로 마케팅 버전 +0.0.1 (배포엔 영향 없음)
+        let nextVersion = nextPatchVersion(info.marketingVersion)
+        setMarketingVersion(r, to: nextVersion, onLog: onLog)
+        onLog("📈 다음 개발 버전: \(info.marketingVersion) → \(nextVersion)")
         return Result(version: info.marketingVersion, build: newBuild)
     }
 
@@ -123,6 +127,70 @@ enum Deployer {
             try await Shell.run("/usr/bin/xcrun", ["agvtool", "new-version", "-all", "\(target)"],
                                 cwd: URL(fileURLWithPath: r.path), onLog: onLog)
         }
+    }
+
+    enum VersionBump { case patch, minor, major }
+
+    // "4.4.0" → patch:4.4.1 / minor:4.5.0 / major:5.0.0
+    static func bumpVersion(_ v: String, _ kind: VersionBump) -> String {
+        var p = v.split(separator: ".").map { Int($0) ?? 0 }
+        while p.count < 3 { p.append(0) }
+        switch kind {
+        case .patch: p[2] += 1
+        case .minor: p[1] += 1; p[2] = 0
+        case .major: p[0] += 1; p[1] = 0; p[2] = 0
+        }
+        return "\(p[0]).\(p[1]).\(p[2])"
+    }
+
+    static func nextPatchVersion(_ v: String) -> String { bumpVersion(v, .patch) }
+
+    // 수동 버전 설정 진입점 (UI 에서 호출)
+    @discardableResult
+    static func applyMarketingVersion(_ app: ManagedApp, to version: String) -> String {
+        let r = AppRepo.resolve(app)
+        var msg = ""
+        setMarketingVersion(r, to: version) { msg = $0 }
+        return msg
+    }
+
+    // MARKETING_VERSION 을 지정 값으로 설정 (xcconfig 에 있으면 거기, 없으면 pbxproj)
+    private static func setMarketingVersion(_ r: ResolvedApp, to version: String, onLog: @escaping @Sendable (String) -> Void) {
+        // 1) VERSION_XCCONFIG 에 MARKETING_VERSION 이 있으면 거기서
+        if let xc = r.versionXcconfig {
+            let file = URL(fileURLWithPath: r.path).appendingPathComponent(xc)
+            if let content = try? String(contentsOf: file, encoding: .utf8) {
+                let lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+                var found = false
+                let updated = lines.map { line -> String in
+                    if line.range(of: #"^\s*MARKETING_VERSION\s*="#, options: .regularExpression) != nil {
+                        found = true
+                        return "MARKETING_VERSION = \(version)"
+                    }
+                    return line
+                }
+                if found {
+                    try? updated.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+                    onLog("📈 \(xc): MARKETING_VERSION = \(version)")
+                    return
+                }
+            }
+        }
+        // 2) project.pbxproj
+        if r.projFlag == "-project" {
+            let pbxproj = URL(fileURLWithPath: r.projContainer).appendingPathComponent("project.pbxproj")
+            if let content = try? String(contentsOf: pbxproj, encoding: .utf8),
+               content.range(of: #"MARKETING_VERSION = [^;]+;"#, options: .regularExpression) != nil {
+                let updated = content.replacingOccurrences(
+                    of: #"MARKETING_VERSION = [^;]+;"#,
+                    with: "MARKETING_VERSION = \(version);",
+                    options: .regularExpression)
+                try? updated.write(to: pbxproj, atomically: true, encoding: .utf8)
+                onLog("📈 project.pbxproj: MARKETING_VERSION = \(version)")
+                return
+            }
+        }
+        onLog("⚠️ MARKETING_VERSION 을 찾지 못해 버전 자동 증가를 건너뜀")
     }
 
     private static func writeExportOptions(_ dir: URL, team: String?) throws -> URL {
