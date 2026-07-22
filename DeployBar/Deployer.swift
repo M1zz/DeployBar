@@ -6,13 +6,25 @@ enum Deployer {
 
     struct Result { let version: String; let build: Int }
 
-    static func deploy(_ app: ManagedApp, lane: Lane, onLog: @escaping @Sendable (String) -> Void) async throws -> Result {
+    // versionBump: nil = 빌드만 올리기(버전 유지), .patch/.minor/.major = 그만큼 버전 올린 뒤 배포(빌드 1부터)
+    static func deploy(_ app: ManagedApp, lane: Lane, versionBump: VersionBump? = nil, onLog: @escaping @Sendable (String) -> Void) async throws -> Result {
         let r = AppRepo.resolve(app)
         guard r.exists else { throw err("Xcode 프로젝트 없음: \(r.path)") }
         let info = try AppRepo.buildSettings(r, fresh: true)
+        var marketingVersion = info.marketingVersion
         let cwd = URL(fileURLWithPath: r.path)
         let workDir = cwd.appendingPathComponent("build/deploy-console")
         try? FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+
+        // 0) 최신 코드 반영: 배포 전 git pull (원격의 최신 커밋을 먼저 가져온다)
+        if GitInfo.isRepo(r.path) {
+            onLog("⬇️  git pull …")
+            do {
+                try await Shell.run("/usr/bin/git", ["pull", "--ff-only"], cwd: cwd, onLog: onLog)
+            } catch {
+                throw err("git pull 실패 — 원격과 동기화 후 다시 배포하세요. (\(error.localizedDescription))")
+            }
+        }
 
         // 1) 게이트
         if let predeploy = r.predeploy {
@@ -26,16 +38,29 @@ enum Deployer {
             return Result(version: info.marketingVersion, build: Int(info.buildNumber) ?? 0)
         }
 
-        // 2) 빌드번호 설정 — ASC 에 이미 올라간 최신 빌드보다 반드시 커야 업로드된다
-        onLog("🔎 App Store 최신 빌드 확인 중…")
+        // 1.5) 버전 처리 — 배포 전에 결정한다. 올릴지(버전), 유지할지(빌드만) 여기서 갈린다.
+        if let bump = versionBump {
+            let next = bumpVersion(marketingVersion, bump)
+            onLog("⬆️  버전 올리기: \(marketingVersion) → \(next)")
+            setMarketingVersion(r, to: next, onLog: onLog)
+            marketingVersion = next
+            AppRepo.clearCache()   // 이후 상태 조회가 새 버전을 읽도록
+        } else {
+            onLog("🔁 빌드만 올리기 — 버전 유지 (v\(marketingVersion))")
+        }
+
+        // 2) 빌드번호 설정 — 같은 마케팅 버전 안에서만 증가시키고, 새 버전이면 1부터 다시 시작한다.
+        //    (App Store 는 빌드번호를 마케팅 버전별로만 고유하면 되므로 버전이 바뀌면 1 로 리셋 가능)
+        onLog("🔎 App Store 최신 빌드 확인 중… (v\(marketingVersion))")
         var ascBuild = 0
         if let id = try? await ASCClient.appId(bundleId: info.bundleId),
-           let b = try? await ASCClient.latestBuild(appId: id), let n = Int(b) {
-            ascBuild = n
+           let n = try? await ASCClient.latestBuild(appId: id, marketingVersion: marketingVersion) {
+            ascBuild = n ?? 0
         }
-        let localBuild = Int(info.buildNumber) ?? 0
-        let newBuild = max(localBuild, ascBuild) + 1
-        onLog("🔢 빌드번호: 로컬 \(localBuild) · ASC \(ascBuild) → \(newBuild)")
+        let newBuild = ascBuild + 1
+        onLog(ascBuild == 0
+            ? "🔢 빌드번호: v\(marketingVersion) 첫 빌드 → \(newBuild)"
+            : "🔢 빌드번호: v\(marketingVersion) · ASC \(ascBuild) → \(newBuild)")
         try await setBuild(r, to: newBuild, onLog: onLog)
 
         // 3) archive
@@ -76,18 +101,15 @@ enum Deployer {
             throw err("업로드 실패 — App Store Connect 가 거부했습니다. 위 로그를 확인하세요.")
         }
 
-        onLog("🚀 [\(r.scheme)] 업로드 완료 — v\(info.marketingVersion) (build \(newBuild))")
+        onLog("🚀 [\(r.scheme)] 업로드 완료 — v\(marketingVersion) (build \(newBuild))")
         if GitInfo.isRepo(r.path) {
-            let tag = "deploy-\(r.scheme)-\(info.marketingVersion)-\(newBuild)"
-            if GitInfo.tag(r.path, name: tag, message: "deploy-bar: \(info.marketingVersion) (\(newBuild))") {
+            let tag = "deploy-\(r.scheme)-\(marketingVersion)-\(newBuild)"
+            if GitInfo.tag(r.path, name: tag, message: "deploy-bar: \(marketingVersion) (\(newBuild))") {
                 onLog("🏷  태그: \(tag)")
             }
         }
-        // 다음 개발 버전으로 마케팅 버전 +0.0.1 (배포엔 영향 없음)
-        let nextVersion = nextPatchVersion(info.marketingVersion)
-        setMarketingVersion(r, to: nextVersion, onLog: onLog)
-        onLog("📈 다음 개발 버전: \(info.marketingVersion) → \(nextVersion)")
-        return Result(version: info.marketingVersion, build: newBuild)
+        // 버전은 사용자가 '버전 올리기'를 고를 때만 바뀐다 — 배포 후 자동 증가 없음
+        return Result(version: marketingVersion, build: newBuild)
     }
 
     // 빌드번호를 지정한 값으로 설정 (VERSION_XCCONFIG 우선, 없으면 agvtool)

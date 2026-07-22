@@ -74,6 +74,16 @@ enum ASCClient {
         return (data?.first?["attributes"] as? [String: Any])?["version"] as? String
     }
 
+    // 특정 마케팅 버전(preReleaseVersion.version)에 이미 올라간 최신 빌드번호.
+    // 그 버전으로 올라간 빌드가 아직 없으면 nil → 호출측에서 1부터 시작한다.
+    static func latestBuild(appId: String, marketingVersion: String) async throws -> Int? {
+        let v = marketingVersion.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? marketingVersion
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&filter[preReleaseVersion.version]=\(v)&limit=200&fields[builds]=version")
+        let data = j["data"] as? [[String: Any]] ?? []
+        let nums = data.compactMap { ($0["attributes"] as? [String: Any])?["version"] as? String }.compactMap { Int($0) }
+        return nums.max()
+    }
+
     // ── 릴리즈노트 업로드 ──
     struct Localization { let id: String; let locale: String }
 

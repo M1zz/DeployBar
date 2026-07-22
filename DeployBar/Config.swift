@@ -12,6 +12,8 @@ enum Config {
     }
 
     static var appsJSON: URL { supportDir.appendingPathComponent("apps.json") }
+    // 관리에서 잠시 빼둔(숨긴) 앱 목록 — 폴더는 그대로 두고 화면에서만 제외
+    static var hiddenJSON: URL { supportDir.appendingPathComponent("hidden.json") }
     static var configEnv: URL { supportDir.appendingPathComponent("config.env") }
 
     static func loadEnv(_ url: URL) -> [String: String] {

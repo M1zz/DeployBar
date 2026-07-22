@@ -41,6 +41,33 @@ struct ContentView: View {
             // 팝오버에서 ScrollView 높이가 0으로 찌부러지지 않도록 명시적 높이 지정
             .frame(height: min(CGFloat(max(store.statuses.count, 1)) * 72 + 16, 480))
 
+            if !store.hidden.isEmpty {
+                Divider()
+                DisclosureGroup {
+                    VStack(spacing: 2) {
+                        ForEach(store.hidden) { app in
+                            HStack(spacing: 8) {
+                                Image(systemName: "eye.slash")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(app.name).font(.subheadline)
+                                Spacer()
+                                Button("되돌리기") { store.unhideApp(app.path) }
+                                    .buttonStyle(.borderless)
+                                    .controlSize(.small)
+                                    .help("다시 관리 대상으로 되돌립니다")
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    }
+                    .padding(.top, 4)
+                } label: {
+                    Text("관리 안 함 (\(store.hidden.count))")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 6)
+            }
+
             Divider()
             HStack(spacing: 10) {
                 let readyCount = store.statuses.filter { $0.state == .ready }.count
@@ -105,7 +132,10 @@ struct CompactRow: View {
     // 배포 버튼은 '준비완료'일 때만 활성화 — 이미 배포됨/개발 중 앱의 실수 방지
     private var deployHelp: String {
         switch status.state {
-        case .ready: return "App Store 에 배포 (게이트→빌드→업로드)"
+        case .ready:
+            return status.commitsSinceDeploy > 0
+                ? "마지막 배포 후 커밋 \(status.commitsSinceDeploy)개 — 같은 버전에 새 빌드로 배포"
+                : "App Store 에 배포 (게이트→빌드→업로드)"
         case .deployed: return "이미 최신 버전입니다. 새로 배포하려면 # 로 버전을 올리세요."
         case .dev: return "커밋되지 않은 변경이 있습니다. 커밋 후 배포하세요."
         default: return ""
@@ -118,7 +148,8 @@ struct CompactRow: View {
         let local = "v\(status.localVersion ?? "?")(\(status.localBuild ?? "?"))"
         let live = status.liveVersion.map { "스토어 v\($0)" } ?? "미등록"
         let dirty = status.dirty ? " ✎" : ""
-        return "\(local) · \(live)\(dirty)"
+        let commits = (!status.dirty && status.commitsSinceDeploy > 0) ? " · 배포 후 \(status.commitsSinceDeploy)커밋" : ""
+        return "\(local) · \(live)\(dirty)\(commits)"
     }
 
     var body: some View {
@@ -158,16 +189,34 @@ struct CompactRow: View {
                     .help("앱 버전 올리기 (현재 v\(cur))")
                     .disabled(store.job?.running == true)
                 }
-                Button {
-                    openLog()
-                    if let app = store.app(named: status.path) { store.startDeploy(app, lane: .appstore) }
-                } label: {
-                    Text("배포").frame(minWidth: 40)
+                if let cur = status.localVersion, let app = store.app(named: status.path) {
+                    Menu {
+                        Button("빌드만 올리기  ·  v\(cur) 유지") {
+                            openLog(); store.startDeploy(app, lane: .appstore, versionBump: nil)
+                        }
+                        Divider()
+                        Button("패치 올려 배포  →  v\(Deployer.bumpVersion(cur, .patch))") {
+                            openLog(); store.startDeploy(app, lane: .appstore, versionBump: .patch)
+                        }
+                        Button("마이너 올려 배포  →  v\(Deployer.bumpVersion(cur, .minor))") {
+                            openLog(); store.startDeploy(app, lane: .appstore, versionBump: .minor)
+                        }
+                        Button("메이저 올려 배포  →  v\(Deployer.bumpVersion(cur, .major))") {
+                            openLog(); store.startDeploy(app, lane: .appstore, versionBump: .major)
+                        }
+                    } label: {
+                        Text("배포").frame(minWidth: 40)
+                    } primaryAction: {
+                        // 기본 클릭 = 빌드만 올리기 (가장 흔한 경우)
+                        openLog(); store.startDeploy(app, lane: .appstore, versionBump: nil)
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .fixedSize()
+                    .disabled(store.job?.running == true || status.state != .ready)
+                    .help(deployHelp)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .disabled(store.job?.running == true || status.state != .ready)
-                .help(deployHelp)
 
                 Button {
                     if let app = store.app(named: status.path) {
@@ -184,5 +233,13 @@ struct CompactRow: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
+        .contextMenu {
+            Button {
+                store.hideApp(status.path)
+            } label: {
+                Label("관리에서 빼기", systemImage: "eye.slash")
+            }
+            .help("폴더는 그대로 두고 목록·배포 대상에서만 잠시 제외합니다")
+        }
     }
 }

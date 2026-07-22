@@ -14,6 +14,8 @@ final class Store: ObservableObject {
     @Published var statuses: [AppStatus] = []
     @Published var loading = false
     @Published var job: Job?
+    // 관리에서 잠시 빼둔 앱들
+    @Published var hidden: [ManagedApp] = []
 
     // 릴리즈노트 편집 상태
     @Published var notesAppName = ""
@@ -102,6 +104,23 @@ final class Store: ObservableObject {
         } else {
             statuses = AppRepo.registry().map { AppStatus(name: $0.name, path: $0.path, state: .loading) }
         }
+        hidden = AppRepo.hiddenApps()
+    }
+
+    // 앱을 관리에서 잠시 뺀다 — 목록·배포 대상에서 제외하되 폴더는 그대로 둔다
+    func hideApp(_ path: String) {
+        guard let st = statuses.first(where: { $0.path == path }) else { return }
+        AppRepo.hide(ManagedApp(name: st.name, path: st.path))
+        statuses.removeAll { $0.path == path }
+        hidden = AppRepo.hiddenApps()
+        if let data = try? JSONEncoder().encode(statuses) { try? data.write(to: Self.cacheURL) }
+    }
+
+    // 다시 관리 대상으로 되돌리고 상태를 조회한다
+    func unhideApp(_ path: String) {
+        AppRepo.unhide(path)
+        hidden = AppRepo.hiddenApps()
+        Task { await refresh(fresh: false) }
     }
 
     // 최초 1회만 조회를 시작한다. 뷰(팝오버)가 닫혀도 취소되지 않도록 별도 Task 로 실행.
@@ -146,14 +165,14 @@ final class Store: ObservableObject {
     enum DeployOutcome { case success(version: String, build: Int); case failure(String) }
 
     // 앱 하나를 배포하고 로그를 job 에 스트리밍. 결과 반환.
-    private func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, into job: Job) async -> DeployOutcome {
+    private func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump?, into job: Job) async -> DeployOutcome {
         var cont: AsyncStream<String>.Continuation!
         let stream = AsyncStream<String> { cont = $0 }
         let c = cont!
         let onLog: @Sendable (String) -> Void = { c.yield($0) }
         let consumer = Task { for await line in stream { job.lines.append(line) } }
         do {
-            let res = try await Deployer.deploy(app, lane: lane, onLog: onLog)
+            let res = try await Deployer.deploy(app, lane: lane, versionBump: versionBump, onLog: onLog)
             c.finish(); await consumer.value
             job.lines.append("✅ \(app.name) — v\(res.version) (build \(res.build))")
             await applyReleaseNotes(app, into: job)   // 언어별 릴리즈노트 자동 반영
@@ -167,11 +186,12 @@ final class Store: ObservableObject {
     }
 
     // 개별 배포 (원 버튼: 빌드→업로드→언어별 릴리즈노트까지 자동)
-    func startDeploy(_ app: ManagedApp, lane: Deployer.Lane) {
+    // versionBump nil = 빌드만 올리기, .patch/.minor/.major = 버전 올려 배포
+    func startDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump? = nil) {
         let job = Job(title: "\(laneLabel(lane)) · \(app.name)")
         self.job = job
         Task {
-            let outcome = await runOneDeploy(app, lane: lane, into: job)
+            let outcome = await runOneDeploy(app, lane: lane, versionBump: versionBump, into: job)
             job.running = false
             await refresh(fresh: true)
             switch outcome {
@@ -201,7 +221,7 @@ final class Store: ObservableObject {
             for (i, app) in targets.enumerated() {
                 job.lines.append("")
                 job.lines.append("━━━━━━ [\(i + 1)/\(targets.count)] \(app.name) ━━━━━━")
-                switch await runOneDeploy(app, lane: lane, into: job) {
+                switch await runOneDeploy(app, lane: lane, versionBump: nil, into: job) {
                 case .success: ok += 1
                 case .failure(let m): fails.append("\(app.name): \(m)")
                 }

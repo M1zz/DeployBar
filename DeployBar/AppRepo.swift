@@ -12,21 +12,77 @@ final class BuildCache: @unchecked Sendable {
 enum AppRepo {
     static let cache = BuildCache()
 
-    static let seed: [ManagedApp] = [
-        .init(name: "클립키보드", path: "/Users/hyunholee/Documents/workspace/Auto/클립키보드"),
-        .init(name: "두번알림", path: "/Users/hyunholee/Documents/workspace/Auto/두번알림"),
-        .init(name: "장표스냅", path: "/Users/hyunholee/Documents/workspace/Auto/장표스냅"),
-        .init(name: "달빛", path: "/Users/hyunholee/Documents/workspace/Auto/달빛"),
-    ]
+    // 관리 대상 앱들이 모여 있는 루트 — 이 아래에서 앱을 자동 발견한다.
+    static let root = "/Users/hyunholee/Documents/workspace/Auto"
+    // 자동 발견에서 제외할 폴더 (배포 도구 자신 등). Swift 패키지(xcodeproj 없음)는 자동으로 빠진다.
+    static let excludedDirs: Set<String> = ["DeployBar"]
+
+    // root 바로 아래 폴더 중 .xcodeproj/.xcworkspace 를 가진 것을 배포 대상 앱으로 발견한다.
+    static func discover() -> [ManagedApp] {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(atPath: root) else { return [] }
+        var apps: [ManagedApp] = []
+        for name in entries.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }) {
+            if name.hasPrefix(".") || excludedDirs.contains(name) { continue }
+            let dir = "\(root)/\(name)"
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else { continue }
+            let files = (try? fm.contentsOfDirectory(atPath: dir)) ?? []
+            let hasProject = files.contains { $0.hasSuffix(".xcodeproj") || $0.hasSuffix(".xcworkspace") }
+            if hasProject { apps.append(ManagedApp(name: name, path: dir)) }
+        }
+        return apps
+    }
 
     static func registry() -> [ManagedApp] {
+        var byPath: [String: ManagedApp] = [:]
+        var order: [String] = []
+        // 1) 폴더 자동 발견 — 항상 최신 폴더 구성을 반영
+        for a in discover() where byPath[a.path] == nil {
+            byPath[a.path] = a; order.append(a.path)
+        }
+        // 2) apps.json 에 있으나 root 밖(다른 위치)에 수동 등록한 앱은 그대로 유지
         if let data = try? Data(contentsOf: Config.appsJSON),
            let wrap = try? JSONDecoder().decode([String: [ManagedApp]].self, from: data),
-           let apps = wrap["apps"] {
-            return apps
+           let saved = wrap["apps"] {
+            for a in saved where byPath[a.path] == nil && !a.path.hasPrefix("\(root)/") {
+                byPath[a.path] = a; order.append(a.path)
+            }
         }
-        save(seed)
-        return seed
+        let all = order.compactMap { byPath[$0] }
+        // apps.json 에는 숨긴 앱까지 전부 유지 — 되돌릴 때 root 밖 수동 등록 앱도 복원되도록
+        save(all)
+        // 관리에서 잠시 빼둔 앱만 화면·배포 대상에서 제외
+        let hidden = Set(hiddenApps().map { $0.path })
+        return all.filter { !hidden.contains($0.path) }
+    }
+
+    // ── 관리에서 잠시 빼두기(숨김) ──────────────────────────────
+    static func hiddenApps() -> [ManagedApp] {
+        guard let data = try? Data(contentsOf: Config.hiddenJSON),
+              let wrap = try? JSONDecoder().decode([String: [ManagedApp]].self, from: data),
+              let saved = wrap["hidden"] else { return [] }
+        return saved
+    }
+
+    private static func saveHidden(_ apps: [ManagedApp]) {
+        let wrap = ["hidden": apps]
+        if let data = try? JSONEncoder.pretty.encode(wrap) {
+            try? data.write(to: Config.hiddenJSON)
+        }
+    }
+
+    // 앱을 관리 목록에서 뺀다 (폴더는 그대로 둔다)
+    static func hide(_ app: ManagedApp) {
+        var h = hiddenApps()
+        guard !h.contains(where: { $0.path == app.path }) else { return }
+        h.append(app)
+        saveHidden(h)
+    }
+
+    // 다시 관리 대상으로 되돌린다
+    static func unhide(_ path: String) {
+        saveHidden(hiddenApps().filter { $0.path != path })
     }
 
     static func save(_ apps: [ManagedApp]) {

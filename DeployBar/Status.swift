@@ -49,13 +49,20 @@ enum Status {
             st.ascError = error.localizedDescription
         }
 
+        // 마지막 배포(deploy-*) 태그 이후 새 커밋이 있으면 같은 버전이라도 배포할 게 있는 것.
+        // 배포 태그가 있어야만(=이 툴로 배포한 이력) 신호로 쓴다. 태그가 없으면 숫자 비교로만 판정.
+        if GitInfo.isRepo(app.path), let tag = GitInfo.lastDeployTag(app.path) {
+            st.commitsSinceDeploy = GitInfo.commitsSince(app.path, tag: tag).count
+        }
+
         // 판정
         let verAhead = st.liveVersion != nil ? cmpVer(st.localVersion, st.liveVersion) > 0 : true
         let buildAhead = st.ascBuild != nil
             && cmpVer(st.localVersion, st.liveVersion) == 0
             && (Int(st.localBuild ?? "0") ?? 0) > (Int(st.ascBuild ?? "0") ?? 0)
+        let commitsAhead = st.commitsSinceDeploy > 0
         if st.dirty { st.state = .dev }
-        else if verAhead || buildAhead { st.state = .ready }
+        else if verAhead || buildAhead || commitsAhead { st.state = .ready }
         else { st.state = .deployed }
         return st
     }

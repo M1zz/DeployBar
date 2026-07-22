@@ -55,6 +55,8 @@ struct AppStatus: Identifiable, Codable {
     var dirty: Bool = false
     var branch: String?
     var error: String?
+    // 마지막 배포 태그(deploy-*) 이후 HEAD 까지의 새 커밋 수 (같은 버전 재배포 신호)
+    var commitsSinceDeploy: Int = 0
     // 심사 파이프라인 상태 (READY_FOR_SALE 이 아닌 진행 중 버전)
     var reviewState: String?
     var reviewVersion: String?
