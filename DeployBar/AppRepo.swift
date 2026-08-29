@@ -34,27 +34,48 @@ enum AppRepo {
         return apps
     }
 
+    // apps.json 에 저장된 목록 — 이 **배열 순서가 곧 배포 순서**다.
+    static func savedApps() -> [ManagedApp] {
+        guard let data = try? Data(contentsOf: Config.appsJSON),
+              let wrap = try? JSONDecoder().decode([String: [ManagedApp]].self, from: data),
+              let saved = wrap["apps"] else { return [] }
+        return saved
+    }
+
     static func registry() -> [ManagedApp] {
-        var byPath: [String: ManagedApp] = [:]
-        var order: [String] = []
-        // 1) 폴더 자동 발견 — 항상 최신 폴더 구성을 반영
-        for a in discover() where byPath[a.path] == nil {
-            byPath[a.path] = a; order.append(a.path)
-        }
-        // 2) apps.json 에 있으나 root 밖(다른 위치)에 수동 등록한 앱은 그대로 유지
-        if let data = try? Data(contentsOf: Config.appsJSON),
-           let wrap = try? JSONDecoder().decode([String: [ManagedApp]].self, from: data),
-           let saved = wrap["apps"] {
-            for a in saved where byPath[a.path] == nil && !a.path.hasPrefix("\(root)/") {
-                byPath[a.path] = a; order.append(a.path)
+        let discovered = discover()
+        let byPath = Dictionary(discovered.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+        var ordered: [ManagedApp] = []
+        var seen = Set<String>()
+
+        // 1) 저장된 순서를 먼저 그대로 따른다 — 사용자가 정한 배포 순서를 폴더 이름순이 덮어쓰지 않게.
+        for a in savedApps() where !seen.contains(a.path) {
+            if let d = byPath[a.path] {
+                ordered.append(d); seen.insert(a.path)          // root 안: 폴더가 아직 있는 것만
+            } else if !a.path.hasPrefix("\(root)/") {
+                ordered.append(a); seen.insert(a.path)          // root 밖에 수동 등록한 앱은 유지
             }
         }
-        let all = order.compactMap { byPath[$0] }
+        // 2) 새로 생긴 폴더는 뒤에 붙인다 (기존 순서를 흔들지 않는다)
+        for d in discovered where !seen.contains(d.path) {
+            ordered.append(d); seen.insert(d.path)
+        }
+
         // apps.json 에는 숨긴 앱까지 전부 유지 — 되돌릴 때 root 밖 수동 등록 앱도 복원되도록
-        save(all)
+        save(ordered)
         // 관리에서 잠시 빼둔 앱만 화면·배포 대상에서 제외
         let hidden = Set(hiddenApps().map { $0.path })
-        return all.filter { !hidden.contains($0.path) }
+        return ordered.filter { !hidden.contains($0.path) }
+    }
+
+    /// 화면에 보이는 앱들의 새 순서를 저장한다. 숨긴 앱은 목록 끝에 그대로 남긴다.
+    static func reorder(visible paths: [String]) {
+        let all = savedApps()
+        let byPath = Dictionary(all.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+        var out = paths.compactMap { byPath[$0] }
+        let placed = Set(paths)
+        out.append(contentsOf: all.filter { !placed.contains($0.path) })
+        save(out)
     }
 
     // ── 관리에서 잠시 빼두기(숨김) ──────────────────────────────

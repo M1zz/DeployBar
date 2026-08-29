@@ -150,6 +150,35 @@ final class Store: ObservableObject {
         hidden = AppRepo.hiddenApps()
     }
 
+    // ── 배포 순서 ───────────────────────────────────────────────────────
+    // statuses 배열의 순서가 곧 화면 순서이자 '전체 배포' 순서다.
+    // 화면을 먼저 바꾸고 apps.json 에 반영한다 (조회를 다시 돌리지 않아 즉시 반응).
+
+    func moveApps(from source: IndexSet, to destination: Int) {
+        statuses.move(fromOffsets: source, toOffset: destination)
+        persistOrder()
+    }
+
+    /// 한 칸 위/아래로 (offset: -1 = 위, +1 = 아래)
+    func moveApp(_ path: String, by offset: Int) {
+        guard let i = statuses.firstIndex(where: { $0.path == path }) else { return }
+        let j = i + offset
+        guard statuses.indices.contains(j) else { return }
+        statuses.swapAt(i, j)
+        persistOrder()
+    }
+
+    /// 폴더 이름순으로 되돌린다
+    func resetOrder() {
+        statuses.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        persistOrder()
+    }
+
+    private func persistOrder() {
+        AppRepo.reorder(visible: statuses.map { $0.path })
+        if let data = try? JSONEncoder().encode(statuses) { try? data.write(to: Self.cacheURL) }
+    }
+
     // 앱을 관리에서 잠시 뺀다 — 목록·배포 대상에서 제외하되 폴더는 그대로 둔다
     func hideApp(_ path: String) {
         guard let st = statuses.first(where: { $0.path == path }) else { return }
@@ -249,17 +278,22 @@ final class Store: ObservableObject {
 
     // 전체 배포 — '배포 준비완료' 상태의 앱을 순차로 배포
     func deployAll(lane: Deployer.Lane) {
-        let targets = statuses.filter { $0.state == .ready }.compactMap { app(named: $0.path) }
+        // statuses 순서 = 사용자가 정한 배포 순서. 막힌 앱(체크리스트 ❌)은 어차피 실패하므로 뺀다.
+        let targets = statuses
+            .filter { $0.state == .ready && $0.readiness.canDeploy }
+            .compactMap { app(named: $0.path) }
         let job = Job(title: "전체 배포 · \(targets.count)개")
         self.job = job
         guard !targets.isEmpty else {
-            job.lines.append("배포할 앱이 없습니다 — '배포 준비완료'(🟡) 상태인 앱만 대상입니다.")
-            job.lines.append("개발 중(⚪️)이거나 이미 배포 완료(🟢)인 앱은 제외됩니다.")
+            job.lines.append("배포할 앱이 없습니다 — 막힌 곳 없는 '배포 준비완료' 앱만 대상입니다.")
+            job.lines.append("개발 중이거나 이미 배포 완료인 앱, 체크리스트에 ❌ 가 있는 앱은 제외됩니다.")
             job.running = false
             return
         }
         batchRunning = true
         Task {
+            job.lines.append("배포 순서: \(targets.map { $0.name }.joined(separator: " → "))")
+            job.lines.append("(순서는 대시보드 헤더의 ↑↓ 버튼에서 바꿉니다)")
             var ok = 0
             var fails: [String] = []
             for (i, app) in targets.enumerated() {
