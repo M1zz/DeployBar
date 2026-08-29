@@ -181,10 +181,22 @@ DeployBar/
     ├── Deployer.swift       # 게이트→빌드번호+1→archive→export→altool
     ├── ReleaseNotes.swift   # git 커밋→언어별 초안→ASC 업로드
     ├── GitInfo.swift · Shell.swift · Models.swift
-    └── Assets.xcassets      # AppIcon
+    └── Assets.xcassets      # AppIcon(앱 아이콘) · MenuBarIcon(메뉴바 템플릿)
 ```
 
 프로젝트를 다시 생성하려면: `xcodegen generate`
+
+### 아이콘
+
+가로 막대(메뉴바) 위로 솟는 화살표 = "메뉴바에서 올린다". 업로드 글리프라 16px 에서도 뜻이 읽힌다.
+앱 아이콘과 메뉴바 아이콘이 **같은 도형 상수**에서 나오므로 서로 어긋나지 않는다.
+
+```bash
+swift scripts/make_icon.swift    # 10개 크기 + 메뉴바 템플릿 3장 재생성
+```
+
+색·비율을 바꾸려면 스크립트 맨 위 상수만 만지면 된다. 메뉴바 이미지는 템플릿이라
+밝은/어두운 메뉴바에 맞춰 macOS 가 알아서 칠한다.
 
 ## 설정 (`~/Library/Application Support/DeployBar/`)
 

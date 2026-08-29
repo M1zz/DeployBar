@@ -121,7 +121,9 @@ struct DeployBarApp: App {
             ContentView()
                 .environmentObject(store)
         } label: {
-            Image(systemName: "arrow.up.circle.fill")
+            // 앱 아이콘과 같은 도형에서 뽑은 템플릿 이미지 (scripts/make_icon.swift).
+            // 템플릿이라 밝은/어두운 메뉴바에 맞춰 macOS 가 알아서 칠한다.
+            Image("MenuBarIcon").renderingMode(.template)
         }
         .menuBarExtraStyle(.window)
 
