@@ -17,6 +17,20 @@ struct ResolvedApp {
     var versionXcconfig: String?
     var predeploy: String?
     var exists: Bool
+    // 이 앱이 지원하는 App Store 언어 (deploy.env 의 LOCALES). 비면 .xcstrings/ASC 에서 자동 판단.
+    var locales: [String] = []
+    // 다국어 게이트 강도 (deploy.env 의 LOCALIZATION_GATE): strict 는 번역 구멍이 있으면 배포 중단
+    var localizationGate: String = "warn"
+    // 플랫폼 강제 지정 (deploy.env 의 PLATFORM=ios|macos). 자동 판별이 틀릴 때만 쓴다.
+    var platformOverride: String?
+}
+
+// 배포 대상 플랫폼 — archive destination·altool 타입·export 산출물이 다르다.
+enum Platform: String {
+    case iOS, macOS
+    var destination: String { self == .macOS ? "generic/platform=macOS" : "generic/platform=iOS" }
+    var altoolType: String { self == .macOS ? "macos" : "ios" }   // xcrun altool -t
+    var exportExt: String { self == .macOS ? "pkg" : "ipa" }      // export 산출물 확장자
 }
 
 struct BuildInfo {
@@ -24,6 +38,7 @@ struct BuildInfo {
     var marketingVersion: String
     var buildNumber: String
     var team: String?
+    var platform: Platform = .iOS
 }
 
 enum DeployState: String, Codable {
@@ -60,6 +75,8 @@ struct AppStatus: Identifiable, Codable {
     // 심사 파이프라인 상태 (READY_FOR_SALE 이 아닌 진행 중 버전)
     var reviewState: String?
     var reviewVersion: String?
+    // "지금 배포하려면 뭐가 필요한가" — 카드에서 바로 보여 주는 체크리스트
+    var readiness: Readiness = Readiness()
 
     var reviewLabel: String? {
         guard let s = reviewState else { return nil }

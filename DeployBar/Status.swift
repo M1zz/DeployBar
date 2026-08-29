@@ -64,6 +64,9 @@ enum Status {
         if st.dirty { st.state = .dev }
         else if verAhead || buildAhead || commitsAhead { st.state = .ready }
         else { st.state = .deployed }
+
+        // 상태가 정해진 뒤에 준비 체크리스트를 만든다 (판정 결과를 그대로 쓴다)
+        st.readiness = Readiness.evaluate(app, status: st)
         return st
     }
 

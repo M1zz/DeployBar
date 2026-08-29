@@ -1,9 +1,24 @@
 import Foundation
 
 enum ReleaseNotes {
-    struct Draft { var commits: [String]; var ko: String; var en: String; var note: String? }
+    /// 한 버전의 릴리즈노트 초안. texts 는 App Store 로케일 → 문구.
+    /// 값이 비어 있는 로케일은 "아직 못 채운 언어" 로, 호출측(Store)이 온디바이스 번역으로 메운다.
+    struct Draft {
+        var commits: [String]
+        var base: String                    // 기준 한국어 원문 (번역의 출발점)
+        var texts: [String: String]
+        var note: String?
 
-    static func draft(_ app: ManagedApp, liveVersion: String? = nil, localVersion: String? = nil) async -> Draft {
+        var filled: [String] { texts.filter { !$0.value.isEmpty }.keys.sorted() }
+        var empty: [String] { texts.filter { $0.value.isEmpty }.keys.sorted() }
+    }
+
+    /// 릴리즈노트 초안을 만든다.
+    /// - locales: 이 앱이 App Store 에서 지원하는 로케일. 비우면 ko/en 만 만든다.
+    static func draft(_ app: ManagedApp,
+                      liveVersion: String? = nil,
+                      localVersion: String? = nil,
+                      locales: [String] = []) async -> Draft {
         // 기준점 = "직전 릴리즈" → 이 값 이후의 커밋이 이번 버전의 변경사항이다.
         // 1) App Store 라이브 버전의 태그 (사용자가 현재 쓰는 버전 = 직전 릴리즈)
         // 2) 방금 만든 현재 버전 태그를 제외한 가장 최근 태그
@@ -17,23 +32,40 @@ enum ReleaseNotes {
         } else {
             baseTag = nil; baseLabel = "최근 커밋 기준 (직전 릴리즈 태그가 없어 부정확할 수 있음)"
         }
+
+        let targets = Locales.sorted(locales.isEmpty ? ["ko", "en-US"] : locales)
+        var texts = Dictionary(uniqueKeysWithValues: targets.map { ($0, "") })
+
         let commits = GitInfo.commitsSince(app.path, tag: baseTag)
-        if commits.isEmpty { return Draft(commits: [], ko: "", en: "", note: "\(baseLabel) — 새 커밋 없음") }
-        // AI 키가 있으면 다듬은 ko/en 을, 없으면 커밋에서 자동 정리한 초안을 넣는다.
+        if commits.isEmpty {
+            return Draft(commits: [], base: "", texts: texts, note: "\(baseLabel) — 새 커밋 없음")
+        }
+
+        // AI 키가 있으면 한 번의 호출로 모든 언어를 한꺼번에 만든다.
         if let key = Config.anthropicKey {
             do {
-                let (ko, en) = try await callAnthropic(commits: commits, key: key)
-                return Draft(commits: commits, ko: ko, en: en, note: baseLabel)
+                let produced = try await callAnthropic(commits: commits, locales: targets, key: key)
+                for (loc, text) in produced where texts[loc] != nil { texts[loc] = text }
+                let base = texts.first { Locales.isKorean($0.key) }?.value
+                    ?? produced["ko"] ?? heuristicNotes(commits)
+                let missing = texts.filter { $0.value.isEmpty }.keys.sorted()
+                let tail = missing.isEmpty ? "" : " · 미생성: \(missing.joined(separator: ", "))"
+                return Draft(commits: commits, base: base, texts: texts, note: baseLabel + tail)
             } catch {
-                let ko = heuristicNotes(commits)
-                return Draft(commits: commits, ko: ko, en: "", note: "\(baseLabel) · AI 호출 실패(\(error.localizedDescription)) — 커밋 기반 초안으로 대체")
+                let base = heuristicNotes(commits)
+                for loc in targets where Locales.isKorean(loc) { texts[loc] = base }
+                return Draft(commits: commits, base: base, texts: texts,
+                             note: "\(baseLabel) · AI 호출 실패(\(error.localizedDescription)) — 커밋 기반 초안 + 온디바이스 번역으로 대체")
             }
         }
-        let ko = heuristicNotes(commits)
-        let tail = ko.isEmpty
+
+        // AI 키가 없으면 커밋에서 뽑은 한국어 초안만 만들고, 나머지 언어는 온디바이스 번역에 맡긴다.
+        let base = heuristicNotes(commits)
+        for loc in targets where Locales.isKorean(loc) { texts[loc] = base }
+        let tail = base.isEmpty
             ? "사용자 대상 변경이 없어 보입니다 — 커밋을 확인하고 직접 작성하세요."
-            : "커밋에서 자동 정리한 초안입니다. 다듬고 영어(en)를 채우려면 config.env 에 ANTHROPIC_API_KEY 를 넣으세요."
-        return Draft(commits: commits, ko: ko, en: "", note: "\(baseLabel) · \(tail)")
+            : "커밋 기반 초안입니다. 언어별 문구 품질을 높이려면 config.env 에 ANTHROPIC_API_KEY 를 넣으세요."
+        return Draft(commits: commits, base: base, texts: texts, note: "\(baseLabel) · \(tail)")
     }
 
     // API 키 없이 커밋 메시지에서 "적당히" 릴리즈노트 초안을 만든다.
@@ -57,18 +89,31 @@ enum ReleaseNotes {
         return lines.joined(separator: "\n")
     }
 
-    private static func callAnthropic(commits: [String], key: String) async throws -> (String, String) {
+    // 커밋 → 언어별 릴리즈노트. 로케일 하나하나 부르지 않고 한 번에 받는다(호출 1회, 톤 일관).
+    private static func callAnthropic(commits: [String], locales: [String], key: String) async throws -> [String: String] {
+        let localeList = locales
+            .map { "  \"\($0)\": \"\(Locales.displayName($0)) 로 쓴 릴리즈노트\"" }
+            .joined(separator: ",\n")
         let prompt = """
-        다음은 iOS 앱의 마지막 배포 이후 git 커밋 메시지입니다. 이를 바탕으로 App Store 릴리즈노트를 작성하세요.
-        규칙: 사용자 관점의 개선/신기능 중심, 내부 리팩터링·빌드 설정은 제외, 기술용어 배제, 각 항목 한 줄, 3~5개.
-        한국어(ko)와 영어(en) 두 버전을 만들고 JSON {"ko":"...","en":"..."} 형식으로만 답하세요.
+        다음은 iOS/macOS 앱의 마지막 배포 이후 git 커밋 메시지입니다. 이를 바탕으로 App Store 릴리즈노트를 작성하세요.
+
+        규칙:
+        - 사용자 관점의 개선·신기능 중심. 내부 리팩터링·빌드 설정·테스트는 제외.
+        - 기술용어 배제, 각 항목 한 줄, 3~5개.
+        - 번역이 아니라 각 언어권에서 자연스럽게 읽히도록 현지화할 것. 언어마다 항목 수와 순서는 동일하게.
+        - 앱 이름·고유명사는 그대로 둘 것.
+
+        아래 JSON 형식으로만 답하세요. 모든 키를 빠짐없이 채우세요.
+        {
+        \(localeList)
+        }
 
         커밋:
         \(commits.map { "- \($0)" }.joined(separator: "\n"))
         """
         let payload: [String: Any] = [
             "model": Config.anthropicModel,
-            "max_tokens": 1024,
+            "max_tokens": 4096,
             "messages": [["role": "user", "content": prompt]],
         ]
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
@@ -83,10 +128,16 @@ enum ReleaseNotes {
         let j = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let content = (j?["content"] as? [[String: Any]]) ?? []
         let text = content.compactMap { $0["text"] as? String }.joined()
-        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") else { return ("", "") }
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") else { return [:] }
         let jsonStr = String(text[start...end])
-        let parsed = (try? JSONSerialization.jsonObject(with: Data(jsonStr.utf8))) as? [String: Any]
-        return (parsed?["ko"] as? String ?? "", parsed?["en"] as? String ?? "")
+        let parsed = (try? JSONSerialization.jsonObject(with: Data(jsonStr.utf8))) as? [String: Any] ?? [:]
+        var out: [String: String] = [:]
+        for loc in locales {
+            // 정확히 일치하는 키가 없으면 같은 언어의 키라도 받아들인다 ("en" ↔ "en-US")
+            if let v = parsed[loc] as? String { out[loc] = v }
+            else if let hit = parsed.first(where: { Locales.sameLanguage($0.key, loc) })?.value as? String { out[loc] = hit }
+        }
+        return out
     }
 
     // 편집 가능한 App Store 버전과 그 버전이 지원하는 언어(로케일) 목록
@@ -94,43 +145,39 @@ enum ReleaseNotes {
         let versionId: String
         let versionString: String
         let locales: [ASCClient.Localization]
+        var localeCodes: [String] { Locales.sorted(locales.map { $0.locale }) }
     }
+
+    private static let editableStates = ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"]
 
     static func editableVersionAndLocales(_ app: ManagedApp) async throws -> EditableVersion? {
         let r = AppRepo.resolve(app)
         let info = try AppRepo.buildSettings(r)
         guard let id = try await ASCClient.appId(bundleId: info.bundleId) else { return nil }
         let vers = try await ASCClient.appStoreVersions(appId: id)
-        let editableStates = ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"]
         guard let editable = vers.first(where: { editableStates.contains($0.state) }) else { return nil }
         let locs = try await ASCClient.versionLocalizations(versionId: editable.id)
         return EditableVersion(versionId: editable.id, versionString: editable.versionString, locales: locs)
     }
 
-    struct UploadResult { let version: String; let locales: [String] }
+    struct UploadResult { let version: String; let locales: [String]; let skipped: [String] }
 
-    static func upload(_ app: ManagedApp, ko: String, en: String) async throws -> UploadResult {
-        let r = AppRepo.resolve(app)
-        let info = try AppRepo.buildSettings(r)
-        guard let id = try await ASCClient.appId(bundleId: info.bundleId) else {
-            throw NSError(domain: "DeployBar", code: 20, userInfo: [NSLocalizedDescriptionKey: "ASC 에서 앱을 찾지 못함"])
-        }
-        let vers = try await ASCClient.appStoreVersions(appId: id)
-        let editableStates = ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"]
-        guard let editable = vers.first(where: { editableStates.contains($0.state) }) else {
+    /// 언어별 문구를 App Store 에 반영한다. texts 에 없거나 빈 언어는 건드리지 않는다.
+    static func upload(_ app: ManagedApp, texts: [String: String]) async throws -> UploadResult {
+        guard let target = try await editableVersionAndLocales(app) else {
             throw NSError(domain: "DeployBar", code: 21, userInfo: [NSLocalizedDescriptionKey: "편집 가능한 App Store 버전이 없습니다 (먼저 새 버전을 준비하세요)"])
         }
-        let locs = try await ASCClient.versionLocalizations(versionId: editable.id)
         var updated: [String] = []
-        for loc in locs {
-            let text: String?
-            if loc.locale == "ko" { text = ko }
-            else if loc.locale.hasPrefix("en") { text = en }
-            else { text = nil }
-            guard let whatsNew = text, !whatsNew.isEmpty else { continue }
+        var skipped: [String] = []
+        for loc in target.locales {
+            // 정확히 일치하는 로케일 우선, 없으면 같은 언어의 문구를 재사용 ("en" 문구를 "en-GB" 에)
+            let text = texts[loc.locale] ?? texts.first { Locales.sameLanguage($0.key, loc.locale) && !$0.value.isEmpty }?.value
+            guard let whatsNew = text, !whatsNew.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                skipped.append(loc.locale); continue
+            }
             try await ASCClient.patchWhatsNew(localizationId: loc.id, whatsNew: whatsNew)
             updated.append(loc.locale)
         }
-        return UploadResult(version: editable.versionString, locales: updated)
+        return UploadResult(version: target.versionString, locales: updated, skipped: skipped)
     }
 }

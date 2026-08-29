@@ -106,6 +106,11 @@ enum AppRepo {
         let envA = Config.loadEnv(dir.appendingPathComponent("deploy.env"))
         let envB = Config.loadEnv(dir.appendingPathComponent("fastlane/.env"))
         func pick(_ k: String) -> String? { envA[k] ?? envB[k] }
+        // LOCALES=ko,en-US,ja  (쉼표/공백 구분). 비면 .xcstrings·ASC 에서 자동 판단한다.
+        let locales = (pick("LOCALES") ?? "")
+            .split(whereSeparator: { $0 == "," || $0 == " " })
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
         return ResolvedApp(
             name: app.name,
             path: app.path,
@@ -114,7 +119,10 @@ enum AppRepo {
             scheme: pick("SCHEME") ?? base,
             versionXcconfig: pick("VERSION_XCCONFIG"),
             predeploy: pick("PREDEPLOY_SCRIPT"),
-            exists: exists
+            exists: exists,
+            locales: locales,
+            localizationGate: pick("LOCALIZATION_GATE") ?? "warn",
+            platformOverride: pick("PLATFORM")
         )
     }
 
@@ -141,11 +149,27 @@ enum AppRepo {
               let bid = bs["PRODUCT_BUNDLE_IDENTIFIER"] as? String else {
             throw NSError(domain: "DeployBar", code: 3, userInfo: [NSLocalizedDescriptionKey: "앱 타겟을 찾지 못함: \(r.name)"])
         }
+        // 플랫폼 판별.
+        // ⚠️ SDKROOT 만 보면 안 된다: -destination 없이 -showBuildSettings 를 부르면
+        //    iOS 앱이어도 SDKROOT 가 MacOSX SDK 로 잡히는 타겟이 있다(멀티플랫폼/Catalyst).
+        //    그대로 믿으면 iOS 앱을 macOS 로 archive 하고 altool -t macos 로 올려 버린다.
+        //    → SUPPORTED_PLATFORMS 에 iphoneos 가 있으면 iOS 로 본다. deploy.env 의 PLATFORM 이 최우선.
+        let sdkroot = (bs["SDKROOT"] as? String ?? "").lowercased()
+        let supported = (bs["SUPPORTED_PLATFORMS"] as? String ?? "").lowercased()
+        var isMac = supported.isEmpty
+            ? sdkroot.contains("macosx")
+            : (supported.contains("macosx") && !supported.contains("iphoneos"))
+        switch r.platformOverride?.lowercased() {
+        case "macos", "mac", "osx": isMac = true
+        case "ios", "iphoneos": isMac = false
+        default: break
+        }
         let info = BuildInfo(
             bundleId: bid,
             marketingVersion: bs["MARKETING_VERSION"] as? String ?? "?",
             buildNumber: bs["CURRENT_PROJECT_VERSION"] as? String ?? "?",
-            team: bs["DEVELOPMENT_TEAM"] as? String
+            team: bs["DEVELOPMENT_TEAM"] as? String,
+            platform: isMac ? .macOS : .iOS
         )
         cache.set(r.path, info)
         return info

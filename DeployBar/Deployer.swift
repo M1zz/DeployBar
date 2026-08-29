@@ -26,7 +26,19 @@ enum Deployer {
             }
         }
 
-        // 1) 게이트
+        // 1) 게이트 — 먼저 다국어(내장), 그다음 앱별 스크립트
+        //    번역 구멍은 빌드가 아니라 사용자가 보는 화면의 문제라 xcodebuild 로는 절대 안 잡힌다.
+        let gateMode = Localization.Mode(r.localizationGate)
+        if gateMode == .off {
+            onLog("🌐 다국어 검사: LOCALIZATION_GATE=off — 건너뜀")
+        } else {
+            let report = Localization.scan(r.path, expected: r.locales)
+            for line in Localization.summaryLines(report, mode: gateMode) { onLog(line) }
+            if gateMode == .strict && !report.ok {
+                throw err("다국어 검사 실패 — 번역 문제 \(report.issues.count)건. 번역을 채운 뒤 다시 배포하세요.")
+            }
+        }
+
         if let predeploy = r.predeploy {
             onLog("🛡  배포 전 게이트: \(predeploy)")
             try await Shell.run("/bin/sh", [predeploy], cwd: cwd, onLog: onLog)
@@ -63,12 +75,13 @@ enum Deployer {
             : "🔢 빌드번호: v\(marketingVersion) · ASC \(ascBuild) → \(newBuild)")
         try await setBuild(r, to: newBuild, onLog: onLog)
 
-        // 3) archive
+        // 3) archive — 플랫폼(iOS/macOS)에 맞는 destination 사용
+        onLog("🖥  플랫폼: \(info.platform.rawValue) (destination \(info.platform.destination))")
         let archivePath = workDir.appendingPathComponent("\(r.scheme).xcarchive").path
         try await Shell.run("/usr/bin/xcodebuild", [
             "archive", r.projFlag, r.projContainer,
             "-scheme", r.scheme, "-configuration", "Release",
-            "-destination", "generic/platform=iOS",
+            "-destination", info.platform.destination,
             "-archivePath", archivePath,
             "-allowProvisioningUpdates", "-quiet",
         ], cwd: cwd, onLog: onLog)
@@ -85,14 +98,17 @@ enum Deployer {
             "-allowProvisioningUpdates",
         ], cwd: cwd, onLog: onLog)
 
-        // 5) altool 업로드
-        let ipas = (try? FileManager.default.contentsOfDirectory(atPath: exportDir.path)) ?? []
-        guard let ipa = ipas.first(where: { $0.hasSuffix(".ipa") }) else { throw err("export 결과에서 .ipa 를 찾지 못함") }
-        let ipaPath = exportDir.appendingPathComponent(ipa).path
-        onLog("📦 IPA: \(ipaPath)")
+        // 5) altool 업로드 — 산출물(iOS: .ipa / macOS: .pkg)과 -t 타입을 플랫폼에 맞춘다
+        let ext = info.platform.exportExt
+        let artifacts = (try? FileManager.default.contentsOfDirectory(atPath: exportDir.path)) ?? []
+        guard let file = artifacts.first(where: { $0.hasSuffix(".\(ext)") }) else {
+            throw err("export 결과에서 .\(ext) 를 찾지 못함")
+        }
+        let uploadPath = exportDir.appendingPathComponent(file).path
+        onLog("📦 \(ext.uppercased()): \(uploadPath)")
         let asc = Config.asc
         let uploadOutput = try await Shell.run("/usr/bin/xcrun", [
-            "altool", "--upload-app", "-f", ipaPath, "-t", "ios",
+            "altool", "--upload-app", "-f", uploadPath, "-t", info.platform.altoolType,
             "--apiKey", asc.keyId, "--apiIssuer", asc.issuer,
         ], cwd: cwd, onLog: onLog)
         // altool 은 업로드 실패에도 종료코드 0 을 반환할 수 있으므로 출력으로 실패를 판정한다
