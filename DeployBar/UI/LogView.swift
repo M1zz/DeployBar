@@ -81,22 +81,11 @@ private struct FailurePanel: View {
                 }
                 Spacer(minLength: 8)
                 if let fix = failure.fix, let app = store.app(named: failure.path) {
-                    Button(fix.label) {
-                        switch fix {
-                        case .configure: Task { await store.autoConfigure(app) }
-                        case .bumpPatch: Task { await store.bumpVersion(app, .patch) }
-                        case .openNotes:
-                            store.openNotesSignal += 1
-                            Task { await store.loadNotes(app) }
-                        case .reveal: NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: app.path)
-                        case .ignoreNoise: Task { await store.ignoreXcodeNoise(app) }
-                        }
-                    }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    Button(fix.label) { store.apply(fix, to: app) }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
                 }
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(failure.promptText, forType: .string)
+                    Clipboard.copy(failure.promptText)
                     copied = true
                     Task { try? await Task.sleep(nanoseconds: 1_800_000_000); copied = false }
                 } label: {

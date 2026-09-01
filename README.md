@@ -204,26 +204,46 @@ git pull → 다국어 게이트 → 릴리즈노트 게이트 → predeploy.sh 
 DeployBar/
 ├── project.yml              # XcodeGen 설정 (프로젝트의 단일 소스)
 ├── DeployBar.xcodeproj      # xcodegen generate 로 생성
-└── DeployBar/               # 소스
-    ├── App.swift            # @main, MenuBarExtra + 로그/노트 창, CLI 모드
-    ├── ContentView.swift    # 앱 카드 대시보드
-    ├── LogView.swift        # 배포 로그(실시간 스트리밍) + 온디바이스 번역 실행 지점
-    ├── NotesView.swift      # 언어별 릴리즈노트 편집
-    ├── Store.swift          # 상태/작업 관리 (ObservableObject)
-    ├── Config.swift         # ASC 자격증명 로드 (fastlane-shared/asc.env 재사용)
-    ├── ASCClient.swift      # App Store Connect API (CryptoKit ES256 JWT + URLSession)
-    ├── AppRepo.swift        # 앱 레지스트리 + deploy.env 해석 + 플랫폼 판별
-    ├── Locales.swift        # ASC 로케일 ↔ 표시이름 ↔ 번역 언어 매핑
-    ├── Localization.swift   # .xcstrings 다국어 게이트
-    ├── Readiness.swift      # "지금 배포하려면 뭐가 필요한가" 체크리스트
-    ├── Scaffold.swift       # 배포 규칙 점검(doctor) + 자동 설정
-    ├── GuideView.swift      # 앱 안 사용법
-    ├── Status.swift         # 개발중/준비완료/완료 판정
-    ├── Deployer.swift       # 게이트→빌드번호+1→archive→export→altool
-    ├── ReleaseNotes.swift   # git 커밋→언어별 초안→ASC 업로드
-    ├── GitInfo.swift · Shell.swift · Models.swift
-    └── Assets.xcassets      # AppIcon(앱 아이콘) · MenuBarIcon(메뉴바 템플릿)
+└── DeployBar/
+    ├── App.swift            # @main, MenuBarExtra + 로그/노트/사용법 창
+    ├── CLI.swift            # --status · --audit · --builds · --prompt · --doctor …
+    │
+    ├── Core/                # 도메인 — 뷰도 네트워크도 모르는 층
+    │   ├── Models.swift         # ManagedApp · AppStatus · ASCState
+    │   ├── Status.swift         # 앱 하나의 지금 상태를 모아 판정
+    │   ├── Readiness.swift      # "지금 배포하려면 뭐가 필요한가" 체크리스트
+    │   ├── DeployError.swift    # 실패 + '지금 할 일' + 붙여넣을 지시문
+    │   ├── AppRepo.swift        # 앱 레지스트리 · deploy.env 해석 · 발견/제외 판정
+    │   ├── Localization.swift   # .xcstrings 다국어 게이트
+    │   ├── GitInfo · Shell · Config · Locales · Clipboard
+    │
+    ├── Services/            # 바깥과 이야기하는 층
+    │   ├── ASCClient.swift      # App Store Connect API (ES256 JWT + URLSession)
+    │   ├── Deployer.swift       # 게이트 → 빌드번호 → archive → export → altool
+    │   ├── ReleaseNotes.swift   # 커밋 → 언어별 초안 → ASC 업로드
+    │   ├── Scaffold.swift       # 배포 규칙 점검(doctor) + 자동 설정
+    │   └── Notifier.swift
+    │
+    ├── Store/               # 화면이 보는 상태 (@MainActor ObservableObject)
+    │   ├── Store.swift          # 상태·조회·순서 (+ 저장 프로퍼티 전부)
+    │   ├── Store+Deploy.swift   # 한 앱 배포 · 전체 배포
+    │   ├── Store+ReleaseNotes.swift  # 번역 브리지 · 자동 반영 · 노트 편집
+    │   ├── Store+Scaffold.swift # 자동 설정 · 점검 · 버전 올리기
+    │   └── Store+Fix.swift      # [자동 설정] 같은 '한 번에 되는 것' 실행
+    │
+    ├── UI/
+    │   ├── ContentView.swift    # 대시보드 뼈대
+    │   ├── AppCard.swift        # 앱 한 줄 (이름 · 버전 두 개 · 상태 · 버튼)
+    │   ├── ReadinessChecklist.swift  # 펼쳤을 때의 체크리스트
+    │   ├── SummaryBar.swift     # 상단 요약 = 필터
+    │   ├── AppFilter.swift · OrderEditor.swift
+    │   └── LogView · NotesView · GuideView
+    │
+    └── Assets.xcassets      # AppIcon · MenuBarIcon(메뉴바 템플릿)
 ```
+
+의존 방향은 한쪽이다: `UI → Store → Services → Core`.
+Core 는 SwiftUI 를 import 하지 않으므로 CLI(`--status`)가 화면 없이 같은 판정을 쓴다.
 
 프로젝트를 다시 생성하려면: `xcodegen generate`
 
