@@ -71,23 +71,9 @@ struct ContentView: View {
             }
             .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 9)
 
-            // 배너를 놓쳐도 여기서 보인다 — 알림은 지나가면 끝이다
-            if !store.lastChanges.isEmpty && !editingOrder {
-                HStack(spacing: 8) {
-                    Text(store.lastChanges.first ?? "")
-                        .font(.caption).lineLimit(1)
-                    if store.lastChanges.count > 1 {
-                        Text("외 \(store.lastChanges.count - 1)건")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 4)
-                    Button("지우기") { store.lastChanges.removeAll() }
-                        .buttonStyle(.plain).font(.caption2).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 14).padding(.vertical, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.green.opacity(0.12))
-                .help(store.lastChanges.joined(separator: "\n"))
+            // 변화 알림은 앱 안에서, 사람이 닫을 때까지 (시스템 알림 권한과 무관하게)
+            if !store.notices.isEmpty && !editingOrder {
+                ChangeBanner()
             }
 
             Divider()

@@ -188,18 +188,21 @@ final class Store: ObservableObject {
         skipped = AppRepo.skipped()
     }
 
-    /// 지난 조회 이후 달라진 것을 배너로 알리고, 마지막 알림 시각을 남긴다.
-    /// 같은 변화를 두 번 알리지 않도록 statuses 를 갱신한 뒤에만 부른다.
+    /// 지난 조회 이후 달라진 것을 콘솔 상단 배너에 올린다.
+    /// 시스템 알림은 앱이 뒤에 있을 때를 위한 보조일 뿐, 권한이 없어도 배너는 뜬다.
     func announce(_ events: [StatusChange.Event]) {
         for e in events {
+            notices.insert(e, at: 0)
             Notifier.notify(title: e.title, body: e.body)
-            lastChanges.insert(e.title, at: 0)
         }
-        if lastChanges.count > 8 { lastChanges.removeLast(lastChanges.count - 8) }
+        if notices.count > 12 { notices.removeLast(notices.count - 12) }
     }
 
-    /// 최근에 알린 변화 — 배너를 놓쳐도 콘솔에서 볼 수 있게
-    @Published var lastChanges: [String] = []
+    /// 콘솔 상단에 쌓이는 변화 알림. 사람이 닫을 때까지 남는다 — 지나가면 못 본다.
+    @Published var notices: [StatusChange.Event] = []
+
+    func dismiss(_ id: UUID) { notices.removeAll { $0.id == id } }
+    func dismissAll() { notices.removeAll() }
 
     @Published var batchRunning = false
 
