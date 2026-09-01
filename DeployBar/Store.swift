@@ -6,6 +6,9 @@ final class Job: ObservableObject {
     @Published var lines: [String] = []
     @Published var running = true
     @Published var error: String?
+    /// 마지막 실패를 구조로 들고 있는다 — 로그 창이 '지금 할 일' 을 그릴 수 있도록.
+    /// 문자열만 남기면 사람이 수백 줄 로그를 거슬러 올라가 원인을 찾아야 한다.
+    @Published var failure: DeployError?
     init(title: String) { self.title = title }
 }
 
@@ -14,6 +17,8 @@ final class Store: ObservableObject {
     @Published var statuses: [AppStatus] = []
     @Published var loading = false
     @Published var job: Job?
+    /// 루트에 있는데 자동 발견에서 빠진 폴더 (이유 포함)
+    @Published var skipped: [AppRepo.Skipped] = []
     // 관리에서 잠시 빼둔 앱들
     @Published var hidden: [ManagedApp] = []
 
@@ -91,7 +96,8 @@ final class Store: ObservableObject {
                 continue
             }
             log?("   … \(loc) (\(Locales.displayName(loc))) 번역 중")
-            if let t = await translate(base, toLanguage: loc), !t.isEmpty {
+            if let t = await translate(base, toLanguage: loc).map(ReleaseNotes.sanitize), !t.isEmpty {
+                // 번역 결과에도 같은 문구 규칙을 적용한다 (특수기호·이모지 없이 간결하게)
                 out[loc] = t; cache[lang] = t
             } else {
                 failed.append(loc)
@@ -118,8 +124,14 @@ final class Store: ObservableObject {
                                                  localVersion: st?.localVersion,
                                                  locales: codes)
             if draft.base.isEmpty && draft.filled.isEmpty {
-                job.lines.append("   반영할 사용자 변경사항 없음 — 건너뜀")
+                // 조용히 건너뛰면 '이 버전의 새로운 기능' 이 빈 채로 배포된다 — 왜 비었는지 말한다
+                job.lines.append("   ⚠️ 릴리즈노트를 만들지 못했습니다 — \(draft.note ?? "직전 릴리즈 이후 커밋이 없습니다")")
+                job.lines.append("   → [릴리즈노트] 창에서 직접 입력하면 이 버전에 반영됩니다")
                 return
+            }
+            if Config.anthropicKey == nil {
+                job.lines.append("   ℹ️ ANTHROPIC_API_KEY 가 없어 커밋 제목을 그대로 씁니다 (사용자용 문구가 아닐 수 있음)")
+                job.lines.append("     ~/Library/Application Support/DeployBar/config.env 에 키를 넣으면 언어별로 다듬어 만듭니다")
             }
             let (texts, failed) = await fillMissing(draft.texts, base: draft.base) { job.lines.append($0) }
             let result = try await ReleaseNotes.upload(app, texts: texts)
@@ -147,7 +159,9 @@ final class Store: ObservableObject {
         } else {
             statuses = AppRepo.registry().map { AppStatus(name: $0.name, path: $0.path, state: .loading) }
         }
+        reloadRegistryCache()
         hidden = AppRepo.hiddenApps()
+        skipped = AppRepo.skipped()
     }
 
     // ── 배포 순서 ───────────────────────────────────────────────────────
@@ -184,14 +198,18 @@ final class Store: ObservableObject {
         guard let st = statuses.first(where: { $0.path == path }) else { return }
         AppRepo.hide(ManagedApp(name: st.name, path: st.path))
         statuses.removeAll { $0.path == path }
+        reloadRegistryCache()
         hidden = AppRepo.hiddenApps()
+        skipped = AppRepo.skipped()
         if let data = try? JSONEncoder().encode(statuses) { try? data.write(to: Self.cacheURL) }
     }
 
     // 다시 관리 대상으로 되돌리고 상태를 조회한다
     func unhideApp(_ path: String) {
         AppRepo.unhide(path)
+        reloadRegistryCache()
         hidden = AppRepo.hiddenApps()
+        skipped = AppRepo.skipped()
         Task { await refresh(fresh: false) }
     }
 
@@ -211,6 +229,9 @@ final class Store: ObservableObject {
 
         fixResult.removeAll()   // 지난 '자동 설정' 결과 메시지는 새로 조회할 때 지운다
         let apps = AppRepo.registry()
+        // 새로 생긴 앱도 카드에서 버튼이 뜨도록 경로→앱 캐시를 여기서 갱신한다
+        appsByPath = Dictionary(apps.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+        skipped = AppRepo.skipped()
         // 기존 값은 유지하고, 처음 보는 앱은 "조회 중"으로 자리부터 잡는다.
         var working: [AppStatus] = apps.map { app in
             statuses.first(where: { $0.path == app.path })
@@ -229,13 +250,52 @@ final class Store: ObservableObject {
         if let data = try? JSONEncoder().encode(working) { try? data.write(to: Self.cacheURL) }
     }
 
-    func app(named path: String) -> ManagedApp? {
-        AppRepo.registry().first { $0.path == path }
+    /// 경로 → 앱. 조회할 때 한 번 만들어 두고 여기서만 읽는다.
+    /// (예전엔 부를 때마다 AppRepo.registry() 를 다시 만들어 폴더를 훑고 apps.json 까지 썼다)
+    private var appsByPath: [String: ManagedApp] = [:]
+    func app(named path: String) -> ManagedApp? { appsByPath[path] }
+
+    private func reloadRegistryCache() {
+        appsByPath = Dictionary(AppRepo.registry().map { ($0.path, $0) },
+                                uniquingKeysWith: { a, _ in a })
     }
 
     @Published var batchRunning = false
 
     enum DeployOutcome { case success(version: String, build: Int); case failure(String) }
+
+    /// Xcode·macOS 가 만든 파일 때문에 배포가 막힌 앱을 푼다.
+    /// .gitignore 에 표준 항목을 넣고, 이미 추적 중인 것은 추적만 해제한 뒤 커밋한다.
+    /// (파일 자체는 지우지 않는다 — Xcode 가 계속 쓰는 파일이다)
+    func ignoreXcodeNoise(_ app: ManagedApp) async {
+        fixing.insert(app.path)
+        defer { fixing.remove(app.path) }
+        let dir = URL(fileURLWithPath: app.path)
+        let gitignore = dir.appendingPathComponent(".gitignore")
+
+        var body = (try? String(contentsOf: gitignore, encoding: .utf8)) ?? ""
+        let existing = Set(body.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) })
+        let toAdd = GitInfo.ignoreLines.filter { !existing.contains($0) }
+        if !toAdd.isEmpty {
+            if !body.isEmpty && !body.hasSuffix("\n") { body += "\n" }
+            body += "\n# Xcode·macOS 가 자동으로 만드는 파일 (DeployBar)\n" + toAdd.joined(separator: "\n") + "\n"
+            try? body.write(to: gitignore, atomically: true, encoding: .utf8)
+        }
+        // 이미 추적 중이던 것은 인덱스에서만 뺀다
+        let tracked = GitInfo.dirtyFiles(app.path).filter(GitInfo.isNoise)
+        for f in tracked {
+            _ = try? Shell.capture("/usr/bin/git", ["rm", "-r", "--cached", "--ignore-unmatch", "-q", f], cwd: dir)
+        }
+        _ = try? Shell.capture("/usr/bin/git", ["add", ".gitignore"], cwd: dir)
+        _ = try? Shell.capture("/usr/bin/git",
+                               ["commit", "-m", "chore: Xcode 가 자동 생성하는 파일을 git 추적에서 제외"], cwd: dir)
+
+        let stillDirty = GitInfo.isDirty(app.path)
+        fixResult[app.path] = stillDirty
+            ? "정리했지만 커밋 안 된 변경이 남아 있습니다 — 남은 건 직접 커밋하세요"
+            : "정리 완료 — .gitignore 에 넣고 커밋했습니다"
+        await refresh(fresh: true)
+    }
 
     // 앱 하나를 배포하고 로그를 job 에 스트리밍. 결과 반환.
     private func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump?, into job: Job) async -> DeployOutcome {
@@ -253,8 +313,18 @@ final class Store: ObservableObject {
         } catch {
             c.finish(); await consumer.value
             let msg = error.localizedDescription
-            job.lines.append("❌ \(app.name) — \(msg)")
-            return .failure(msg)
+            if let de = error as? DeployError {
+                job.failure = de
+                job.lines.append("❌ \(app.name) · \(de.stage) — \(de.title)")
+                for t in de.todo { job.lines.append("   → \(t)") }
+                if !de.detail.isEmpty {
+                    for line in de.detail.split(separator: "\n") { job.lines.append("   │ \(line)") }
+                }
+            } else {
+                job.lines.append("❌ \(app.name) — \(msg)")
+            }
+            // 전체 배포에서 알림에 쓸 한 줄은 짧게 (할 일 목록은 창에서 본다)
+            return .failure((error as? DeployError).map { "\($0.stage): \($0.title)" } ?? msg)
         }
     }
 
@@ -278,21 +348,26 @@ final class Store: ObservableObject {
 
     // 전체 배포 — '배포 준비완료' 상태의 앱을 순차로 배포
     func deployAll(lane: Deployer.Lane) {
-        // statuses 순서 = 사용자가 정한 배포 순서. 막힌 앱(체크리스트 ❌)은 어차피 실패하므로 뺀다.
-        let targets = statuses
-            .filter { $0.state == .ready && $0.readiness.canDeploy }
-            .compactMap { app(named: $0.path) }
+        // statuses 순서 = 사용자가 정한 배포 순서.
+        // 막힌 앱(체크리스트 ❌)과 **심사 중인 앱**은 뺀다 —
+        // 심사 중에 새 빌드를 올리면 그 심사가 취소되고 처음부터 다시 시작한다.
+        let targets = statuses.filter(\.deployable).compactMap { app(named: $0.path) }
+        let inReview = statuses.filter(\.inReview)
         let job = Job(title: "전체 배포 · \(targets.count)개")
         self.job = job
         guard !targets.isEmpty else {
-            job.lines.append("배포할 앱이 없습니다 — 막힌 곳 없는 '배포 준비완료' 앱만 대상입니다.")
-            job.lines.append("개발 중이거나 이미 배포 완료인 앱, 체크리스트에 ❌ 가 있는 앱은 제외됩니다.")
+            job.lines.append("배포할 앱이 없습니다 — 막힌 곳 없는 '배포 가능' 앱만 대상입니다.")
+            job.lines.append("개발 중이거나 이미 배포된 앱, 체크리스트에 ❌ 가 있는 앱은 제외됩니다.")
             job.running = false
             return
         }
         batchRunning = true
         Task {
             job.lines.append("배포 순서: \(targets.map { $0.name }.joined(separator: " → "))")
+            if !inReview.isEmpty {
+                job.lines.append("심사 중이라 제외: \(inReview.map { "\($0.name)(\($0.reviewLabel ?? "-"))" }.joined(separator: ", "))")
+                job.lines.append("(지금 올리면 그 심사가 취소되고 새 빌드로 다시 시작합니다)")
+            }
             job.lines.append("(순서는 대시보드 헤더의 ↑↓ 버튼에서 바꿉니다)")
             var ok = 0
             var fails: [String] = []

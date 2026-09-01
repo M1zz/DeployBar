@@ -45,7 +45,8 @@ enum ReleaseNotes {
         if let key = Config.anthropicKey {
             do {
                 let produced = try await callAnthropic(commits: commits, locales: targets, key: key)
-                for (loc, text) in produced where texts[loc] != nil { texts[loc] = text }
+                // AI 가 규칙을 어겨도 결과물에는 특수기호가 남지 않게 한 번 더 거른다
+                for (loc, text) in produced where texts[loc] != nil { texts[loc] = sanitize(text) }
                 let base = texts.first { Locales.isKorean($0.key) }?.value
                     ?? produced["ko"] ?? heuristicNotes(commits)
                 let missing = texts.filter { $0.value.isEmpty }.keys.sorted()
@@ -83,10 +84,34 @@ enum ReleaseNotes {
             }
             s = s.trimmingCharacters(in: .whitespaces)
             if s.isEmpty { continue }
-            lines.append("· \(s)")
-            if lines.count >= 8 { break }
+            lines.append(s)
+            if lines.count >= 5 { break }
         }
-        return lines.joined(separator: "\n")
+        return sanitize(lines.joined(separator: "\n"))
+    }
+
+    /// App Store 릴리즈노트 문구 규칙을 문자열 차원에서 강제한다.
+    /// 특수기호로 시작하는 줄(·, -, •, *, 1. …)과 마크다운·이모지를 걷어내고,
+    /// 각 줄을 한 문장으로 간결하게 남긴다. AI·커밋 초안·온디바이스 번역 모두 이걸 통과한다.
+    static func sanitize(_ text: String) -> String {
+        var out: [String] = []
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = String(raw).trimmingCharacters(in: .whitespaces)
+            // 줄머리 글머리표·번호 제거 (· • - – — * + 1. 1) 등)
+            line = line.replacingOccurrences(
+                of: #"^\s*(?:[\u{00B7}\u{2022}\u{25CF}\u{25AA}\-–—*+>]+|\d+[.)])\s*"#,
+                with: "", options: .regularExpression)
+            // 마크다운 강조 제거
+            line = line.replacingOccurrences(of: #"[*_`#]"#, with: "", options: .regularExpression)
+            // 이모지·기호 제거 (문장부호와 글자만 남긴다)
+            line = line.unicodeScalars.filter { u in
+                !(0x1F000...0x1FAFF ~= u.value || 0x2190...0x2BFF ~= u.value
+                  || 0xFE00...0xFE0F ~= u.value || 0x2600...0x27BF ~= u.value)
+            }.map(String.init).joined()
+            line = line.trimmingCharacters(in: .whitespaces)
+            if !line.isEmpty { out.append(line) }
+        }
+        return out.prefix(5).joined(separator: "\n")
     }
 
     // 커밋 → 언어별 릴리즈노트. 로케일 하나하나 부르지 않고 한 번에 받는다(호출 1회, 톤 일관).
@@ -100,8 +125,11 @@ enum ReleaseNotes {
         규칙:
         - 사용자 관점의 개선·신기능 중심. 내부 리팩터링·빌드 설정·테스트는 제외.
         - 기술용어 배제, 각 항목 한 줄, 3~5개.
-        - 번역이 아니라 각 언어권에서 자연스럽게 읽히도록 현지화할 것. 언어마다 항목 수와 순서는 동일하게.
+        - **특수기호를 쓰지 말 것.** 글머리표(·, •, -, *), 번호(1.), 이모지, 마크다운(**, `) 모두 금지.
+          한 줄에 한 문장씩, 줄바꿈으로만 구분한다.
+        - 각 언어권에서 자연스럽게 읽히도록 현지화할 것(직역 금지). 언어마다 항목 수와 순서는 동일하게.
         - 앱 이름·고유명사는 그대로 둘 것.
+        - 간결하게. 한 줄이 40자를 넘지 않게 한다.
 
         아래 JSON 형식으로만 답하세요. 모든 키를 빠짐없이 채우세요.
         {
@@ -148,7 +176,27 @@ enum ReleaseNotes {
         var localeCodes: [String] { Locales.sorted(locales.map { $0.locale }) }
     }
 
-    private static let editableStates = ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"]
+    /// 릴리즈노트를 고칠 수 있는 App Store 버전 상태. 판정 기준이 갈라지지 않게 한곳에 둔다.
+    static let editableStates = ["PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"]
+
+    /// 지금 편집 가능한 버전의 릴리즈노트가 채워져 있나. 배포 전 게이트와 체크리스트가 함께 쓴다.
+    struct NotesState {
+        var version: String
+        var filled: [String] = []
+        var missing: [String] = []
+        var ready: Bool { missing.isEmpty && !filled.isEmpty }
+    }
+    static func notesState(appId: String) async throws -> NotesState? {
+        try await notesState(versions: try await ASCClient.appStoreVersions(appId: appId))
+    }
+    /// 이미 조회한 버전 목록으로 판정 — 상태 조회가 같은 요청을 두 번 보내지 않게.
+    static func notesState(versions vers: [ASCClient.Version]) async throws -> NotesState? {
+        guard let editable = vers.first(where: { editableStates.contains($0.state) }) else { return nil }
+        let locs = try await ASCClient.versionLocalizations(versionId: editable.id)
+        return NotesState(version: editable.versionString,
+                          filled: locs.filter { !$0.isEmpty }.map(\.locale).sorted(),
+                          missing: locs.filter { $0.isEmpty }.map(\.locale).sorted())
+    }
 
     static func editableVersionAndLocales(_ app: ManagedApp) async throws -> EditableVersion? {
         let r = AppRepo.resolve(app)

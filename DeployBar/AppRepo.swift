@@ -17,6 +17,26 @@ enum AppRepo {
     // 자동 발견에서 제외할 폴더 (배포 도구 자신 등). Swift 패키지(xcodeproj 없음)는 자동으로 빠진다.
     static let excludedDirs: Set<String> = ["DeployBar"]
 
+    /// 폴더 이름이 바뀌어도 그대로인 열쇠 = 최상단 .xcodeproj/.xcworkspace 파일 이름.
+    /// 폴더 이름은 사람이 언제든 바꾸므로 신원으로 쓸 수 없다.
+    static func projectKey(_ path: String) -> String? {
+        (try? FileManager.default.contentsOfDirectory(atPath: path))?
+            .filter { $0.hasSuffix(".xcodeproj") || $0.hasSuffix(".xcworkspace") }
+            .sorted().first
+    }
+
+    /// 프로젝트 파일만 덩그러니 있고 소스도 git 도 없는 폴더.
+    /// 폴더 이름을 바꾸거나 옮기고 남은 껍데기라, 앱으로 잡으면 '오류' 카드만 늘어난다.
+    static func isEmptyShell(_ path: String) -> Bool {
+        let fm = FileManager.default
+        let files = (try? fm.contentsOfDirectory(atPath: path)) ?? []
+        if files.contains(".git") { return false }
+        let others = files.filter {
+            !$0.hasPrefix(".") && !$0.hasSuffix(".xcodeproj") && !$0.hasSuffix(".xcworkspace")
+        }
+        return others.isEmpty
+    }
+
     // root 바로 아래 폴더 중 .xcodeproj/.xcworkspace 를 가진 것을 배포 대상 앱으로 발견한다.
     static func discover() -> [ManagedApp] {
         let fm = FileManager.default
@@ -29,9 +49,56 @@ enum AppRepo {
             guard fm.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else { continue }
             let files = (try? fm.contentsOfDirectory(atPath: dir)) ?? []
             let hasProject = files.contains { $0.hasSuffix(".xcodeproj") || $0.hasSuffix(".xcworkspace") }
-            if hasProject { apps.append(ManagedApp(name: name, path: dir)) }
+            // 껍데기 폴더는 앱이 아니다 — skipped() 에서 이유와 함께 보여 준다
+            if hasProject && !isEmptyShell(dir) {
+                apps.append(ManagedApp(name: name, path: dir, key: projectKey(dir)))
+            }
         }
         return apps
+    }
+
+    /// 루트 아래에 있는데 관리 대상이 **안 된** 폴더와 그 이유.
+    /// "내 앱이 목록에 왜 없지?" 를 사람이 폴더를 뒤져 알아내게 두지 않는다.
+    struct Skipped: Identifiable, Hashable {
+        var name: String, path: String, reason: String, fixable: Bool
+        var id: String { path }
+    }
+    static func skipped() -> [Skipped] {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(atPath: root) else { return [] }
+        var out: [Skipped] = []
+        for name in entries.sorted(by: { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }) {
+            if name.hasPrefix(".") || excludedDirs.contains(name) { continue }
+            let dir = "\(root)/\(name)"
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else { continue }
+            let files = (try? fm.contentsOfDirectory(atPath: dir)) ?? []
+            let projects = files.filter { $0.hasSuffix(".xcodeproj") || $0.hasSuffix(".xcworkspace") }
+            if !projects.isEmpty && isEmptyShell(dir) {
+                out.append(Skipped(
+                    name: name, path: dir,
+                    reason: "\(projects[0]) 만 있고 소스도 git 도 없습니다 — 폴더 이름을 바꾸고 남은 껍데기로 보입니다",
+                    fixable: true))
+            } else if projects.isEmpty {
+                // Swift 패키지·문서 폴더는 앱이 아니므로 제외가 맞다. 다만 왜 빠졌는지는 보여 준다.
+                let isPackage = files.contains("Package.swift")
+                let deeper = (try? fm.subpathsOfDirectory(atPath: dir))?
+                    .first { $0.hasSuffix(".xcodeproj") && !$0.contains("/.") }
+                out.append(Skipped(
+                    name: name, path: dir,
+                    reason: isPackage ? "Swift 패키지 (앱이 아님) — 제외가 맞습니다"
+                        : deeper != nil ? "Xcode 프로젝트가 폴더 안쪽에 있습니다: \(deeper!)"
+                        : "Xcode 프로젝트가 없습니다",
+                    fixable: !isPackage && deeper != nil))
+            }
+        }
+        return out
+    }
+
+    /// 최상단에 Xcode 프로젝트가 둘 이상이면 어느 쪽을 쓸지 정해지지 않는다.
+    static func ambiguousProjects(_ path: String) -> [String] {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+        return files.filter { $0.hasSuffix(".xcodeproj") || $0.hasSuffix(".xcworkspace") }.sorted()
     }
 
     // apps.json 에 저장된 목록 — 이 **배열 순서가 곧 배포 순서**다.
@@ -48,10 +115,17 @@ enum AppRepo {
         var ordered: [ManagedApp] = []
         var seen = Set<String>()
 
+        // 폴더 이름이 바뀐 앱을 알아보기 위한 열쇠 → 앱
+        var byKey: [String: ManagedApp] = [:]
+        for d in discovered { if let k = projectKey(d.path) { byKey[k] = d } }
+
         // 1) 저장된 순서를 먼저 그대로 따른다 — 사용자가 정한 배포 순서를 폴더 이름순이 덮어쓰지 않게.
         for a in savedApps() where !seen.contains(a.path) {
             if let d = byPath[a.path] {
                 ordered.append(d); seen.insert(a.path)          // root 안: 폴더가 아직 있는 것만
+            } else if let key = a.key, let d = byKey[key], !seen.contains(d.path) {
+                // 폴더 이름만 바뀐 같은 앱 — 목록 맨 뒤로 밀려나지 않게 이 자리를 물려준다
+                ordered.append(d); seen.insert(d.path); seen.insert(a.path)
             } else if !a.path.hasPrefix("\(root)/") {
                 ordered.append(a); seen.insert(a.path)          // root 밖에 수동 등록한 앱은 유지
             }
@@ -61,8 +135,13 @@ enum AppRepo {
             ordered.append(d); seen.insert(d.path)
         }
 
-        // apps.json 에는 숨긴 앱까지 전부 유지 — 되돌릴 때 root 밖 수동 등록 앱도 복원되도록
-        save(ordered)
+        // apps.json 에는 숨긴 앱까지 전부 유지 — 되돌릴 때 root 밖 수동 등록 앱도 복원되도록.
+        // 단, 바뀐 게 없으면 쓰지 않는다 — registry() 는 자주 불리고, 디스크 쓰기는 눈에 띄게 느리다.
+        let before = savedApps()
+        if before.count != ordered.count
+            || zip(before, ordered).contains(where: { $0.path != $1.path || $0.key != $1.key }) {
+            save(ordered)
+        }
         // 관리에서 잠시 빼둔 앱만 화면·배포 대상에서 제외
         let hidden = Set(hiddenApps().map { $0.path })
         return ordered.filter { !hidden.contains($0.path) }
@@ -143,6 +222,7 @@ enum AppRepo {
             exists: exists,
             locales: locales,
             localizationGate: pick("LOCALIZATION_GATE") ?? "warn",
+            releaseNotesGate: pick("RELEASE_NOTES_GATE") ?? "strict",
             platformOverride: pick("PLATFORM")
         )
     }

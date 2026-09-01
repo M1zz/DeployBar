@@ -11,6 +11,7 @@
 		0B64C0E9549C33E760893848 /* Readiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F40366F8B65A112A3AC066F /* Readiness.swift */; };
 		19756AA9B1B97BE82049CD4F /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D1D4488A0168E09C30C07D /* Store.swift */; };
 		1C604EBF6C0D46CF17AA9B24 /* GuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 577C0670F27D2FF02B4A296A /* GuideView.swift */; };
+		2B88914C357DA79D76D23AB5 /* DeployError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6759812015E1333F0A836F67 /* DeployError.swift */; };
 		355A71CB8D13D07DCB8B23E9 /* ASCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF68EF0D756A5C6E70C3F79 /* ASCClient.swift */; };
 		3C33A4C847474083B59E159A /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D33D4B35E9C46D91AD0A7C8 /* App.swift */; };
 		4FB18B7A1674EBED5712CC0B /* Scaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41542DAA5EA9AE2AF4453EAC /* Scaffold.swift */; };
@@ -41,6 +42,7 @@
 		4D33D4B35E9C46D91AD0A7C8 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		577C0670F27D2FF02B4A296A /* GuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideView.swift; sourceTree = "<group>"; };
 		5930BB7C3CD63BDB3C47E97D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		6759812015E1333F0A836F67 /* DeployError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployError.swift; sourceTree = "<group>"; };
 		91FFCD8571B363268C91C692 /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
 		9859E9A697C8BD5B97166287 /* Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell.swift; sourceTree = "<group>"; };
 		9DDD30673FB6A348ECA9293C /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -82,6 +84,7 @@
 				49BDAC5536DEF1C068164C98 /* Config.swift */,
 				5930BB7C3CD63BDB3C47E97D /* ContentView.swift */,
 				A3EDD6EACBDEE697030B6E25 /* Deployer.swift */,
+				6759812015E1333F0A836F67 /* DeployError.swift */,
 				F9FF76645163235C46B92A1F /* GitInfo.swift */,
 				577C0670F27D2FF02B4A296A /* GuideView.swift */,
 				1DA71A4AF99F41E56FAE0714 /* Locales.swift */,
@@ -176,6 +179,7 @@
 				8B70814141766E14D7170A67 /* AppRepo.swift in Sources */,
 				8DA07C7777B9AA5CD76488DE /* Config.swift in Sources */,
 				0975C508ED566745D678F2F3 /* ContentView.swift in Sources */,
+				2B88914C357DA79D76D23AB5 /* DeployError.swift in Sources */,
 				964B63BCB9665DE58A8379CC /* Deployer.swift in Sources */,
 				96D3715D9AC12C525493A189 /* GitInfo.swift in Sources */,
 				1C604EBF6C0D46CF17AA9B24 /* GuideView.swift in Sources */,

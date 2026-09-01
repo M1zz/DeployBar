@@ -306,8 +306,10 @@ enum Scaffold {
         return nil
     }
 
+    // gate 를 받는 이유: 미리보기(--template)와 실제 설치가 다른 값을 보여 주면
+    // "미리 본 것과 다른 게 써졌다" 가 된다. 판단은 autoConfigure 한 곳에서만 한다.
     static func deployEnvTemplate(scheme: String, locales: [String], versionXcconfig: String?,
-                                  platform: Platform = .iOS) -> String {
+                                  platform: Platform = .iOS, gate: String? = nil) -> String {
         let localeLine = locales.isEmpty
             ? "# LOCALES=ko,en-US            # 다국어 앱이면 App Store 언어를 적는다"
             : "LOCALES=\(Locales.sorted(locales).joined(separator: ","))"
@@ -339,7 +341,13 @@ enum Scaffold {
         #   strict — 번역 구멍이 하나라도 있으면 배포 중단 (다국어 앱 권장)
         #   warn   — 로그에만 남기고 배포는 진행 (기본값)
         #   off    — 검사 안 함
-        LOCALIZATION_GATE=\(locales.isEmpty ? "off" : "strict")
+        LOCALIZATION_GATE=\(gate ?? (locales.isEmpty ? "off" : "strict"))
+
+        # 릴리즈노트 게이트 — '이 버전의 새로운 기능' 이 비어 있으면
+        #   strict — 배포 중단 (기본값). 빈 노트로 나간 버전은 되돌릴 수 없다.
+        #   warn   — 경고만 하고 진행
+        #   off    — 검사 안 함
+        RELEASE_NOTES_GATE=strict
 
         """
     }

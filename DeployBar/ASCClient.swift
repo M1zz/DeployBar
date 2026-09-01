@@ -52,18 +52,24 @@ enum ASCClient {
         return data?.first?["id"] as? String
     }
 
-    struct Version { let id: String; let versionString: String; let state: String }
+    struct Version { let id: String; let versionString: String; let state: String; var hasBuild: Bool = false }
 
     static func appStoreVersions(appId: String) async throws -> [Version] {
-        let j = try await api("GET", "/v1/apps/\(appId)/appStoreVersions?limit=10&fields[appStoreVersions]=versionString,appStoreState")
+        // build 관계를 같이 받는다 — '업로드는 했는데 버전에 빌드를 안 붙였다' 를 잡기 위해서다.
+        // 이걸 모르면 심사 제출이 안 된 채로 "배포 완료" 로 보인다.
+        let j = try await api("GET", "/v1/apps/\(appId)/appStoreVersions?limit=10"
+            + "&fields[appStoreVersions]=versionString,appStoreState,build")
         let data = j["data"] as? [[String: Any]] ?? []
         return data.compactMap { item in
             guard let id = item["id"] as? String,
                   let attr = item["attributes"] as? [String: Any] else { return nil }
+            let rel = (item["relationships"] as? [String: Any])?["build"] as? [String: Any]
+            let hasBuild = (rel?["data"] as? [String: Any])?["id"] != nil
             return Version(
                 id: id,
                 versionString: attr["versionString"] as? String ?? "",
-                state: attr["appStoreState"] as? String ?? ""
+                state: attr["appStoreState"] as? String ?? "",
+                hasBuild: hasBuild
             )
         }
     }
@@ -84,17 +90,48 @@ enum ASCClient {
         return nums.max()
     }
 
+    // 최근 업로드된 빌드들 — "방금 올린 게 진짜 도착했나" 를 확인하는 데 쓴다.
+    struct BuildInfo { let build: String; let version: String; let state: String; let uploaded: String }
+    static func recentBuilds(appId: String, limit: Int = 8) async throws -> [BuildInfo] {
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&limit=\(limit)&sort=-uploadedDate"
+            + "&fields[builds]=version,processingState,uploadedDate,preReleaseVersion"
+            + "&include=preReleaseVersion&fields[preReleaseVersions]=version")
+        let data = j["data"] as? [[String: Any]] ?? []
+        let included = j["included"] as? [[String: Any]] ?? []
+        var verById: [String: String] = [:]
+        for inc in included where inc["type"] as? String == "preReleaseVersions" {
+            if let id = inc["id"] as? String,
+               let v = (inc["attributes"] as? [String: Any])?["version"] as? String { verById[id] = v }
+        }
+        return data.map { d in
+            let a = d["attributes"] as? [String: Any] ?? [:]
+            let rel = ((d["relationships"] as? [String: Any])?["preReleaseVersion"] as? [String: Any])
+            let vid = ((rel?["data"] as? [String: Any])?["id"] as? String) ?? ""
+            return BuildInfo(build: a["version"] as? String ?? "?",
+                             version: verById[vid] ?? "?",
+                             state: a["processingState"] as? String ?? "?",
+                             uploaded: a["uploadedDate"] as? String ?? "?")
+        }
+    }
+
     // ── 릴리즈노트 업로드 ──
-    struct Localization { let id: String; let locale: String }
+    // whatsNew 를 같이 읽는다 — "이 버전에서 업그레이드된 사항" 이 비었는지 배포 **전에** 알아야 한다
+    struct Localization {
+        let id: String
+        let locale: String
+        var whatsNew: String = ""
+        var isEmpty: Bool { whatsNew.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
 
     static func versionLocalizations(versionId: String) async throws -> [Localization] {
-        let j = try await api("GET", "/v1/appStoreVersions/\(versionId)/appStoreVersionLocalizations?limit=50")
+        let j = try await api("GET", "/v1/appStoreVersions/\(versionId)/appStoreVersionLocalizations"
+            + "?limit=50&fields[appStoreVersionLocalizations]=locale,whatsNew")
         let data = j["data"] as? [[String: Any]] ?? []
         return data.compactMap { item in
             guard let id = item["id"] as? String,
                   let attr = item["attributes"] as? [String: Any],
                   let locale = attr["locale"] as? String else { return nil }
-            return Localization(id: id, locale: locale)
+            return Localization(id: id, locale: locale, whatsNew: attr["whatsNew"] as? String ?? "")
         }
     }
 

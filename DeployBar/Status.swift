@@ -21,12 +21,16 @@ enum Status {
         do { info = try AppRepo.buildSettings(r, fresh: fresh) }
         catch { st.error = error.localizedDescription; return st }
 
+        st.projectFile = AppRepo.projectKey(app.path)
         st.bundleId = info.bundleId
         st.team = info.team
         st.localVersion = info.marketingVersion
         st.localBuild = info.buildNumber
         st.dirty = GitInfo.isRepo(app.path) ? GitInfo.isDirty(app.path) : false
         st.branch = GitInfo.isRepo(app.path) ? GitInfo.branch(app.path) : nil
+        if GitInfo.isRepo(app.path), let ab = GitInfo.aheadBehind(app.path) {
+            st.ahead = ab.ahead; st.behind = ab.behind
+        }
 
         do {
             if let id = try await ASCClient.appId(bundleId: info.bundleId) {
@@ -40,6 +44,16 @@ enum Status {
                     st.reviewVersion = inflight.versionString
                 }
                 st.ascBuild = try await ASCClient.latestBuild(appId: id)
+                // 릴리즈노트가 비었는지는 **배포 전에** 알아야 한다.
+                // 업로드 뒤에 알면 이미 빈 노트로 버전이 나간 뒤다.
+                st.editableHasBuild = vers.first { ReleaseNotes.editableStates.contains($0.state) }?.hasBuild
+                if let n = try await ReleaseNotes.notesState(versions: vers) {
+                    st.notesVersion = n.version
+                    st.notesFilled = n.filled
+                    st.notesMissing = n.missing
+                } else {
+                    st.notesUncheckable = true   // 편집 가능한 버전이 아직 없음 (첫 업로드 전)
+                }
             } else {
                 st.ascError = "ASC 에서 앱을 찾지 못함 (bundleId 불일치)"
             }
