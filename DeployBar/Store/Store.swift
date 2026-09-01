@@ -186,6 +186,7 @@ final class Store: ObservableObject {
         reloadRegistryCache()
         hidden = AppRepo.hiddenApps()
         skipped = AppRepo.skipped()
+        loadNotices()
     }
 
     /// 지난 조회 이후 달라진 것을 콘솔 상단 배너에 올린다.
@@ -195,14 +196,27 @@ final class Store: ObservableObject {
             notices.insert(e, at: 0)
             Notifier.notify(title: e.title, body: e.body)
         }
-        if notices.count > 12 { notices.removeLast(notices.count - 12) }
+        if notices.count > 30 { notices.removeLast(notices.count - 30) }
+        saveNotices()
     }
 
-    /// 콘솔 상단에 쌓이는 변화 알림. 사람이 닫을 때까지 남는다 — 지나가면 못 본다.
+    /// 변화 히스토리. 사람이 ✕ 로 지울 때까지 남고, **앱을 껐다 켜도 남는다** —
+    /// 메모리에만 두면 재시작 한 번에 "그때 뭐가 풀렸더라" 를 잃는다.
     @Published var notices: [StatusChange.Event] = []
 
-    func dismiss(_ id: UUID) { notices.removeAll { $0.id == id } }
-    func dismissAll() { notices.removeAll() }
+    static var noticesURL: URL { Config.supportDir.appendingPathComponent("changes.json") }
+
+    func loadNotices() {
+        guard let d = try? Data(contentsOf: Self.noticesURL),
+              let list = try? JSONDecoder().decode([StatusChange.Event].self, from: d) else { return }
+        notices = list
+    }
+    func saveNotices() {
+        if let d = try? JSONEncoder().encode(notices) { try? d.write(to: Self.noticesURL) }
+    }
+
+    func dismiss(_ id: UUID) { notices.removeAll { $0.id == id }; saveNotices() }
+    func dismissAll() { notices.removeAll(); saveNotices() }
 
     @Published var batchRunning = false
 

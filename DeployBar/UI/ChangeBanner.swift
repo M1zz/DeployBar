@@ -16,15 +16,28 @@ struct ChangeBanner: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(shown) { notice in
-                row(notice)
-                Divider().opacity(0.5)
+            if expanded && store.notices.count > 6 {
+                // 히스토리가 길어지면 앱 목록을 통째로 밀어내므로 여기서만 스크롤한다
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(shown) { notice in
+                            row(notice)
+                            Divider().opacity(0.5)
+                        }
+                    }
+                }
+                .frame(maxHeight: 220)
+            } else {
+                ForEach(shown) { notice in
+                    row(notice)
+                    Divider().opacity(0.5)
+                }
             }
             if store.notices.count > 3 {
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
                 } label: {
-                    Text(expanded ? "접기" : "이전 \(store.notices.count - 3)건 더 보기")
+                    Text(expanded ? "접기" : "지난 변화 \(store.notices.count - 3)건 더 보기")
                         .font(.caption2)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 5)
@@ -39,10 +52,9 @@ struct ChangeBanner: View {
 
     private func row(_ n: StatusChange.Event) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 2)
+            RoundedRectangle(cornerRadius: 1.5)
                 .fill(color(n.kind))
-                .frame(width: 3)
-                .padding(.vertical, 1)
+                .frame(width: 3, height: 26)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -78,8 +90,9 @@ struct ChangeBanner: View {
             .foregroundStyle(.tertiary)
             .help("이 알림 닫기")
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
+        .padding(.horizontal, 14).padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)   // 내용 높이만큼만 차지하게
         .background(color(n.kind).opacity(0.10))
     }
 
