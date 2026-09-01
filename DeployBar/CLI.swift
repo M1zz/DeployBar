@@ -9,6 +9,7 @@ import Foundation
 //   --doctor  [앱]      배포 규칙 점검
 //   --template <앱>     설치될 deploy.env·predeploy.sh 미리보기 (--write 로 실제 설치)
 //   --notes   <앱>      언어별 릴리즈노트 초안 미리보기
+//   --selftest-changes  상태 변화 알림 규칙 검증
 //
 // App.init 에서 부른다 — Scene 이 만들어지기 전에 끝나야 창이 뜨지 않는다.
 enum CLI {
@@ -51,6 +52,53 @@ enum CLI {
         }
         print("\n규칙 충족 \(apps.count - bad)/\(apps.count)")
         exit(0)
+    }
+    // 변화 감지 규칙 검증: DeployBar --selftest-changes
+    if CommandLine.arguments.contains("--selftest-changes") {
+        func app(_ name: String, live: String?, review: String?, rv: String?,
+                 state: DeployState = .ready, blockers: [ReadyItem] = []) -> AppStatus {
+            var s = AppStatus(name: name, path: "/tmp/\(name)", state: state)
+            s.bundleId = "com.test.\(name)"
+            s.liveVersion = live; s.reviewState = review; s.reviewVersion = rv
+            s.readiness = Readiness(items: blockers)
+            return s
+        }
+        let blocker = ReadyItem(key: "git", level: .blocked, title: "커밋되지 않은 변경", detail: "")
+        let cases: [(String, AppStatus, AppStatus, Bool)] = [
+            ("심사 대기 → 심사 중",
+             app("A", live: "1.0", review: "WAITING_FOR_REVIEW", rv: "1.1"),
+             app("A", live: "1.0", review: "IN_REVIEW", rv: "1.1"), true),
+            ("심사 중 → 거부됨",
+             app("B", live: "1.0", review: "IN_REVIEW", rv: "1.1"),
+             app("B", live: "1.0", review: "REJECTED", rv: "1.1"), true),
+            ("심사 중 → 출시 대기",
+             app("C", live: "1.0", review: "IN_REVIEW", rv: "1.1"),
+             app("C", live: "1.0", review: "PENDING_DEVELOPER_RELEASE", rv: "1.1"), true),
+            ("스토어 버전 올라감(출시)",
+             app("D", live: "1.0", review: "PENDING_DEVELOPER_RELEASE", rv: "1.1"),
+             app("D", live: "1.1", review: nil, rv: nil), true),
+            ("막힘 → 배포 가능",
+             app("E", live: "1.0", review: nil, rv: nil, blockers: [blocker]),
+             app("E", live: "1.0", review: nil, rv: nil), true),
+            ("아무 변화 없음",
+             app("F", live: "1.0", review: "IN_REVIEW", rv: "1.1"),
+             app("F", live: "1.0", review: "IN_REVIEW", rv: "1.1"), false),
+            ("첫 조회(과거 없음) — 알리지 않아야",
+             AppStatus(name: "G", path: "/tmp/G", state: .loading),
+             app("G", live: "1.0", review: "IN_REVIEW", rv: "1.1"), false),
+            ("스토어 버전이 낮아짐 — 알리지 않아야",
+             app("H", live: "2.0", review: nil, rv: nil),
+             app("H", live: "1.9", review: nil, rv: nil), false),
+        ]
+        var bad = 0
+        for (name, old, new, expect) in cases {
+            let e = StatusChange.event(from: old, to: new)
+            let ok = (e != nil) == expect
+            if !ok { bad += 1 }
+            print("\(ok ? "✅" : "❌") \(name)\(e.map { "  → \($0.title): \($0.body)" } ?? "  → (알림 없음)")")
+        }
+        print(bad == 0 ? "\n전부 통과" : "\n실패 \(bad)건")
+        exit(bad == 0 ? 0 : 1)
     }
     // 관리 대상 점검: DeployBar --audit  (뭐가 관리되고, 뭐가 왜 빠졌나)
     if CommandLine.arguments.contains("--audit") {

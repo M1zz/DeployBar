@@ -77,9 +77,11 @@ extension Store {
             await refresh(fresh: true)
             switch outcome {
             case .success(let v, let b):
-                Notifier.notify(title: "✅ \(app.name) 배포 완료", body: "v\(v) (build \(b))")
+                announce([.init(title: "✅ \(app.name) 업로드 완료",
+                                body: "v\(v) (build \(b)) — App Store Connect 에서 빌드를 선택하고 심사에 제출하세요",
+                                important: true)])
             case .failure(let m):
-                Notifier.notify(title: "❌ \(app.name) 배포 실패", body: m)
+                announce([.init(title: "❌ \(app.name) 배포 실패", body: m, important: true)])
             }
         }
     }
@@ -123,9 +125,10 @@ extension Store {
             batchRunning = false
             await refresh(fresh: true)
             if fails.isEmpty {
-                Notifier.notify(title: "✅ 전체 배포 완료", body: "\(ok)/\(targets.count) 성공")
+                announce([.init(title: "✅ 전체 배포 완료", body: "\(ok)/\(targets.count) 성공", important: true)])
             } else {
-                Notifier.notify(title: "⚠️ 전체 배포 — 실패 \(fails.count)건", body: fails.joined(separator: "\n"))
+                announce([.init(title: "⚠️ 전체 배포 — 실패 \(fails.count)건",
+                                body: fails.joined(separator: "\n"), important: true)])
             }
         }
     }

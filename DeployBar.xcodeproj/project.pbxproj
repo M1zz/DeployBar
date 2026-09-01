@@ -29,6 +29,7 @@
 		9CC9759E97A07806568DE0A8 /* Clipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E84E2C115C59E8BF29DA44E /* Clipboard.swift */; };
 		A860E53B2E560B02B513EE55 /* Status.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0A178D9B14B29740E924E4 /* Status.swift */; };
 		A966D064AE5770E06C75F9D3 /* OrderEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B228C05B05FA1AC680B6515D /* OrderEditor.swift */; };
+		AB8666BDB17FBBE8229F42BB /* StatusChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C12FC724FA840EF3C06E16 /* StatusChange.swift */; };
 		B0741096AFD7607CE5AD42E9 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EF2112119180659331C2054 /* Config.swift */; };
 		BF18BE15DFB92E195D89AB53 /* DeployError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB5A3E1CEDA622000143B89 /* DeployError.swift */; };
 		CA9193EADEA8F8B1452EED9F /* AppFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6817E153578A4E00168F8A72 /* AppFilter.swift */; };
@@ -60,6 +61,7 @@
 		7E4FC0E414301AA4BBB5C5E2 /* ReadinessChecklist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadinessChecklist.swift; sourceTree = "<group>"; };
 		88BC5421454848BF453EAA81 /* Deployer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Deployer.swift; sourceTree = "<group>"; };
 		A374A6AA5C657BDAE55BFDA7 /* GitInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitInfo.swift; sourceTree = "<group>"; };
+		A4C12FC724FA840EF3C06E16 /* StatusChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusChange.swift; sourceTree = "<group>"; };
 		AC4D5228C69A5DD4DC81D7DE /* Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell.swift; sourceTree = "<group>"; };
 		B228C05B05FA1AC680B6515D /* OrderEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderEditor.swift; sourceTree = "<group>"; };
 		B43DBFC0D66929E1A4C78681 /* Store+Scaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Scaffold.swift"; sourceTree = "<group>"; };
@@ -134,6 +136,7 @@
 				C9EE1D707F414933B0F50390 /* Readiness.swift */,
 				AC4D5228C69A5DD4DC81D7DE /* Shell.swift */,
 				EF0A178D9B14B29740E924E4 /* Status.swift */,
+				A4C12FC724FA840EF3C06E16 /* StatusChange.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -265,6 +268,7 @@
 				0B3A995605865CD370FD476F /* Scaffold.swift in Sources */,
 				28A7B9748900FC55CE5A5CEE /* Shell.swift in Sources */,
 				A860E53B2E560B02B513EE55 /* Status.swift in Sources */,
+				AB8666BDB17FBBE8229F42BB /* StatusChange.swift in Sources */,
 				E63A44AAF7FDFC88436B0DAE /* Store+Deploy.swift in Sources */,
 				409E6BAAF6DAC213841D3621 /* Store+Fix.swift in Sources */,
 				47BC0F1E84D79021B9086CD2 /* Store+ReleaseNotes.swift in Sources */,

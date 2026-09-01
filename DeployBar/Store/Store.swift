@@ -104,6 +104,21 @@ final class Store: ObservableObject {
         guard !didStartInitialLoad else { return }
         didStartInitialLoad = true
         Task { await refresh(fresh: false) }
+        startWatching()
+    }
+
+    /// 창을 안 열어 놔도 심사 결과·출시를 알 수 있게 주기적으로 다시 조회한다.
+    /// 사람이 새로고침을 눌러야만 안다면, 기다리는 소식일수록 늦게 안다.
+    /// 빌드 설정은 잘 안 바뀌므로 fresh:false — xcodebuild 를 다시 돌리지 않고 ASC 만 다시 본다.
+    private func startWatching() {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 15 * 60 * 1_000_000_000)
+                guard let self else { return }
+                if self.job?.running == true { continue }   // 배포 중에는 건드리지 않는다
+                await self.refresh(fresh: false)
+            }
+        }
     }
 
     // 앱을 하나씩 조회해 즉시 화면에 반영한다 (전체를 기다리지 않음 → 멈춘 것처럼 안 보임).
@@ -125,11 +140,14 @@ final class Store: ObservableObject {
         }
         statuses = working
 
+        // 지난 조회와 견주기 위한 스냅샷 (앱별 완료 즉시 갱신되므로 미리 떠 둔다)
+        let before = statuses
         for (i, app) in apps.enumerated() {
             let st = await Status.of(app, fresh: fresh)
             working[i] = st
             statuses = working   // 앱별 완료 즉시 반영
         }
+        announce(StatusChange.events(from: before, to: working))
 
         loading = false
         isRefreshing = false
@@ -169,6 +187,19 @@ final class Store: ObservableObject {
         hidden = AppRepo.hiddenApps()
         skipped = AppRepo.skipped()
     }
+
+    /// 지난 조회 이후 달라진 것을 배너로 알리고, 마지막 알림 시각을 남긴다.
+    /// 같은 변화를 두 번 알리지 않도록 statuses 를 갱신한 뒤에만 부른다.
+    func announce(_ events: [StatusChange.Event]) {
+        for e in events {
+            Notifier.notify(title: e.title, body: e.body)
+            lastChanges.insert(e.title, at: 0)
+        }
+        if lastChanges.count > 8 { lastChanges.removeLast(lastChanges.count - 8) }
+    }
+
+    /// 최근에 알린 변화 — 배너를 놓쳐도 콘솔에서 볼 수 있게
+    @Published var lastChanges: [String] = []
 
     @Published var batchRunning = false
 
