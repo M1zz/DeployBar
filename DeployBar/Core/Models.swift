@@ -94,6 +94,16 @@ struct AppStatus: Identifiable, Codable {
     /// 원격 대비 앞선/뒤처진 커밋 수 (upstream 이 없으면 nil)
     var ahead: Int?
     var behind: Int?
+    /// 원격을 못 봤다면 그 이유. ahead/behind 는 마지막으로 성공한 fetch 기준이므로,
+    /// 이 값이 있으면 "동기화됨" 이라고 말하면 안 된다.
+    var remoteError: String?
+    /// 이번 조회에서 받아온 원격 커밋 수 (0 이면 받은 게 없음)
+    var pulledCommits: Int = 0
+    /// 뒤처져 있는데도 받아오지 못한 이유 (더럽거나 갈라진 저장소)
+    var pullSkipped: String?
+    /// 이번 조회가 받아오기까지 시도했는가. 자동 조회는 fetch 만 하므로 false —
+    /// "못 받았다" 와 "아직 안 받아 봤다" 를 섞으면 사람에게 없는 문제를 만들어 준다.
+    var pullAttempted: Bool = false
 
     // "지금 배포하려면 뭐가 필요한가" — 카드에서 바로 보여 주는 체크리스트
     var readiness: Readiness = Readiness()

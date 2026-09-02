@@ -72,6 +72,62 @@ enum Shell {
         }
     }
 
+    /// 종료코드까지 필요한 동기 실행 (stdout+stderr 합침).
+    ///
+    /// capture 로는 부족한 경우가 있다: git fetch/pull 은 **실패한 이유가 stderr 에만** 있고,
+    /// 자격증명이 없으면 프롬프트에서 영영 멈춘다. 조회 한 번에 앱 수만큼 도는 명령이라
+    /// 하나가 멈추면 새로고침 전체가 멈춘다 — 그래서 프롬프트를 끄고 시간 제한을 둔다.
+    struct Outcome {
+        var code: Int32
+        var output: String
+        var timedOut: Bool
+        var ok: Bool { code == 0 && !timedOut }
+        /// 사람이 읽을 한 줄 (fatal:/error: 우선)
+        var reason: String {
+            if timedOut { return "응답 없음 (시간 초과)" }
+            let lines = output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && !$0.hasPrefix("hint:") }
+            return lines.first(where: { $0.hasPrefix("fatal:") || $0.hasPrefix("error:") })
+                ?? lines.last ?? "종료코드 \(code)"
+        }
+    }
+
+    static func outcome(
+        _ launch: String, _ args: [String], cwd: URL? = nil,
+        env extra: [String: String] = [:], timeout: TimeInterval? = nil
+    ) -> Outcome {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: launch)
+        p.arguments = args
+        if let cwd { p.currentDirectoryURL = cwd }
+        if !extra.isEmpty {
+            var e = ProcessInfo.processInfo.environment
+            for (k, v) in extra { e[k] = v }
+            p.environment = e
+        }
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        do { try p.run() } catch {
+            return Outcome(code: -1, output: error.localizedDescription, timedOut: false)
+        }
+
+        // 시간 제한: 넘기면 죽인다. 죽이면 파이프가 닫혀 아래 읽기도 함께 풀린다.
+        let killed = Flag()
+        if let timeout {
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak p] in
+                guard let p, p.isRunning else { return }
+                killed.set()
+                p.terminate()
+            }
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return Outcome(code: p.terminationStatus,
+                       output: String(data: data, encoding: .utf8) ?? "",
+                       timedOut: killed.value)
+    }
+
     // 동기 캡처(stdout). stderr 는 버린다. showBuildSettings·git 용.
     static func capture(_ launch: String, _ args: [String], cwd: URL? = nil) throws -> String {
         let p = Process()
@@ -116,4 +172,12 @@ final class LineBuffer: @unchecked Sendable {
             buffer.removeAll()
         }
     }
+}
+
+/// 다른 스레드에서 세우는 한 칸짜리 깃발 (시간 초과 표시용)
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+    func set() { lock.lock(); flag = true; lock.unlock() }
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return flag }
 }

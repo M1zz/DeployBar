@@ -2,7 +2,7 @@ import Foundation
 
 // UI 없이 확인만 할 때 쓰는 명령들. 앱이 뜨기 전에 처리하고 그대로 종료한다.
 //
-//   --status            앱별 배포 준비 N/M + 체크리스트 전체
+//   --status [--pull]   앱별 배포 준비 N/M + 체크리스트 전체 (--pull 이면 원격 커밋도 받아온다)
 //   --audit             무엇이 관리되고, 무엇이 왜 빠졌나
 //   --builds  <앱>      올린 빌드가 App Store Connect 에 도착했나
 //   --prompt  <앱>      잠김 해결 지시문 (UI 의 [해결 프롬프트] 와 같은 글)
@@ -18,7 +18,7 @@ enum CLI {
     if CommandLine.arguments.contains("--status") {
         let sem = DispatchSemaphore(value: 0)
         Task.detached {
-            let all = await Status.all()
+            let all = await Status.all(pull: CommandLine.arguments.contains("--pull"))
             for s in all {
                 let local = "v\(s.localVersion ?? "?")/\(s.localBuild ?? "?")"
                 let live = s.liveVersion.map { "v\($0)" } ?? "—"

@@ -122,7 +122,11 @@ final class Store: ObservableObject {
     }
 
     // 앱을 하나씩 조회해 즉시 화면에 반영한다 (전체를 기다리지 않음 → 멈춘 것처럼 안 보임).
-    func refresh(fresh: Bool) async {
+    //
+    // pull: 원격의 새 커밋을 실제로 받아올지. 사람이 [새로고침] 을 눌렀을 때만 true 다 —
+    // 15분마다 도는 자동 조회까지 파일을 바꾸면, Xcode 로 보고 있던 코드가 말없이 달라진다.
+    // (pull 여부와 무관하게 fetch 는 늘 한다: 읽기라서 안전하고, 안 하면 원격 상태가 옛것이다)
+    func refresh(fresh: Bool, pull: Bool = false) async {
         if isRefreshing { return }   // 중복 조회 방지
         isRefreshing = true
         loading = true
@@ -142,12 +146,17 @@ final class Store: ObservableObject {
 
         // 지난 조회와 견주기 위한 스냅샷 (앱별 완료 즉시 갱신되므로 미리 떠 둔다)
         let before = statuses
+
+        // 원격을 먼저 다녀온다. 이게 앞에 와야 ahead/behind 가 옛 값이 아니고,
+        // 받아온 커밋이 곧바로 이번 조회의 버전·커밋 수에 반영된다.
+        let sync = await GitSync.run(apps, pull: pull)
+
         for (i, app) in apps.enumerated() {
-            let st = await Status.of(app, fresh: fresh)
+            let st = await Status.of(app, fresh: fresh, sync: sync[app.path])
             working[i] = st
             statuses = working   // 앱별 완료 즉시 반영
         }
-        announce(StatusChange.events(from: before, to: working))
+        announce(pullEvents(working) + StatusChange.events(from: before, to: working))
 
         loading = false
         isRefreshing = false
@@ -187,6 +196,16 @@ final class Store: ObservableObject {
         hidden = AppRepo.hiddenApps()
         skipped = AppRepo.skipped()
         loadNotices()
+    }
+
+    /// 원격에서 코드를 받아왔으면 그 사실을 먼저 말한다.
+    /// 이 한 줄이 없으면 "어제는 막혀 있던 앱이 왜 갑자기 배포 가능이지" 를 설명할 길이 없다.
+    private func pullEvents(_ list: [AppStatus]) -> [StatusChange.Event] {
+        list.filter { $0.pulledCommits > 0 }.map {
+            StatusChange.Event(title: "\($0.name) 최신 코드 받음",
+                               body: "원격 커밋 \($0.pulledCommits)개를 가져왔습니다 (\($0.branch ?? "-"))",
+                               kind: .info)
+        }
     }
 
     /// 지난 조회 이후 달라진 것을 콘솔 상단 배너에 올린다.

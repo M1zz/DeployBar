@@ -56,6 +56,7 @@ struct ReadyItem: Codable, Identifiable, Hashable {
         switch key {
         case "git": return "커밋하면 풀림"
         case "changes": return "새 커밋 또는 git pull"
+        case "remote": return "원격 커밋 받아오기"
         case "i18n": return "번역 채우면 풀림"
         case "asc": return "App Store Connect 확인"
         case "version": return "xcconfig 경로 확인"
@@ -181,7 +182,15 @@ struct Readiness: Codable, Hashable {
 
         // 3.5) 원격과의 관계 — 갈라져 있으면 배포는 git pull 단계에서 반드시 실패한다.
         //      실패를 눌러 보고 알 이유가 없다. 여기서 미리 막는다.
-        if let ahead = status.ahead, let behind = status.behind {
+        //
+        //      새로고침이 먼저 fetch 를 하고, 앞당기기만 하면 되는 저장소는 받아온 뒤라,
+        //      여기 남은 숫자는 "받아올 수 없어서 남은 것" 이다. 그래서 이유까지 같이 말한다.
+        if let err = status.remoteError {
+            out.append(ReadyItem(
+                key: "remote", level: .need, title: "원격 확인 실패",
+                detail: "\(err) — 아래 숫자는 마지막으로 성공한 조회 기준입니다",
+                todo: "터미널에서 `git fetch` 를 한 번 실행해 자격증명·네트워크를 확인하세요"))
+        } else if let ahead = status.ahead, let behind = status.behind {
             if ahead > 0 && behind > 0 {
                 out.append(ReadyItem(
                     key: "remote", level: .blocked, title: "원격과 갈라짐",
@@ -193,9 +202,22 @@ struct Readiness: Codable, Hashable {
                     detail: "배포는 되지만 이 Mac 에만 있는 코드가 나갑니다",
                     todo: "`git push` 로 원격에도 올려 두세요"))
             } else if behind > 0 {
+                // 받아오기를 시도한 조회인데도 남아 있다면 = 못 받은 것 (저장 안 된 변경이 있는 경우).
+                // 시도조차 안 한 자동 조회라면 아직 문제가 아니다 — 누르면 받아온다고만 말한다.
+                if let why = status.pullSkipped {
+                    out.append(ReadyItem(
+                        key: "remote", level: .need, title: "원격에 새 커밋 \(behind)개 — 못 받음",
+                        detail: why, fix: .reveal,
+                        todo: "변경을 커밋하거나 치워 두고 다시 새로고침하면 자동으로 받아옵니다"))
+                } else {
+                    out.append(ReadyItem(
+                        key: "remote", level: .ok, title: "원격에 새 커밋 \(behind)개",
+                        detail: "[새로고침] 을 누르면 받아옵니다 · 배포를 시작할 때도 자동으로 받습니다"))
+                }
+            } else if status.pulledCommits > 0 {
                 out.append(ReadyItem(
-                    key: "remote", level: .ok, title: "원격에 새 커밋 \(behind)개",
-                    detail: "배포 시작할 때 git pull 로 자동으로 받아옵니다"))
+                    key: "remote", level: .ok, title: "최신 코드 받음 — 커밋 \(status.pulledCommits)개",
+                    detail: "\(status.branch ?? "-") 를 방금 원격에 맞췄습니다"))
             } else {
                 out.append(ReadyItem(
                     key: "remote", level: .ok, title: "원격과 동기화됨",
@@ -206,11 +228,16 @@ struct Readiness: Codable, Hashable {
         // 4) 올릴 것이 있는가
         if !status.dirty && status.state == .deployed {
             let behind = Status.cmpVer(status.localVersion, status.liveVersion) < 0
+            // 새로고침이 이미 받아올 수 있는 건 받아온 뒤다 — 그래도 낮다면 이유가 따로 있다.
+            let pullBlocked = status.pullSkipped ?? status.remoteError
             out.append(behind
                 ? ReadyItem(
                     key: "changes", level: .blocked, title: "로컬이 스토어보다 낮음",
-                    detail: "로컬 v\(status.localVersion ?? "?") · 스토어 v\(status.liveVersion ?? "?")",
-                    todo: "git pull 로 최신 코드를 받으세요 (다른 곳에서 배포된 버전일 수 있습니다)")
+                    detail: "로컬 v\(status.localVersion ?? "?") · 스토어 v\(status.liveVersion ?? "?")"
+                        + (pullBlocked.map { " — \($0)" } ?? " (다른 곳에서 배포된 버전일 수 있습니다)"),
+                    todo: pullBlocked == nil
+                        ? "[새로고침] 을 누르면 원격의 최신 코드를 받아옵니다"
+                        : "원격 코드를 받을 수 없는 상태입니다 — 위 [원격] 항목부터 푸세요")
                 : ReadyItem(
                     key: "changes", level: .blocked, title: "올릴 변경 없음",
                     detail: "로컬 v\(status.localVersion ?? "?") 이 이미 스토어에 있습니다",
@@ -388,6 +415,8 @@ extension ReadyItem {
         switch key {
         case "git":
             return "바뀐 내용을 확인하고 의미 단위로 나눠 커밋해줘. 커밋 메시지는 한국어로, 무엇을 왜 바꿨는지 한 줄로."
+        case "remote":
+            return "원격과의 관계를 정리해줘. 저장 안 된 변경이 있으면 의미 단위로 커밋하고, 원격과 갈라져 있으면 `git pull --rebase` 로 원격 커밋 위에 내 커밋을 얹어줘. 충돌이 나면 임의로 고르지 말고 무엇이 충돌했는지 알려줘."
         case "changes":
             return "올릴 변경이 없는 상태다. 이번에 낼 만한 변경이 정말 없으면 그렇다고 알려주고 멈춰줘. 있다면 마무리해서 커밋해줘."
         case "version":

@@ -12,7 +12,7 @@ enum Status {
         return 0
     }
 
-    static func of(_ app: ManagedApp, fresh: Bool = false) async -> AppStatus {
+    static func of(_ app: ManagedApp, fresh: Bool = false, sync: GitSync.Result? = nil) async -> AppStatus {
         let r = AppRepo.resolve(app)
         var st = AppStatus(name: app.name, path: app.path, state: .error)
         guard r.exists else { st.error = "Xcode 프로젝트를 찾을 수 없음"; return st }
@@ -31,6 +31,11 @@ enum Status {
         if GitInfo.isRepo(app.path), let ab = GitInfo.aheadBehind(app.path) {
             st.ahead = ab.ahead; st.behind = ab.behind
         }
+        // 이번 새로고침에서 원격을 다녀온 결과 (Store 가 조회 직전에 돌린다)
+        st.remoteError = sync?.fetchError ?? sync?.pullError
+        st.pulledCommits = sync?.pulled ?? 0
+        st.pullSkipped = sync?.skipped
+        st.pullAttempted = sync?.attemptedPull ?? false
 
         do {
             if let id = try await ASCClient.appId(bundleId: info.bundleId) {
@@ -84,11 +89,14 @@ enum Status {
         return st
     }
 
-    static func all(fresh: Bool = false) async -> [AppStatus] {
+    static func all(fresh: Bool = false, pull: Bool = false) async -> [AppStatus] {
         if fresh { AppRepo.clearCache() }
+        let apps = AppRepo.registry()
+        // UI 와 같은 순서: 원격을 먼저 다녀와야 ahead/behind 가 옛 값이 아니다
+        let sync = await GitSync.run(apps, pull: pull)
         var out: [AppStatus] = []
-        for app in AppRepo.registry() {
-            out.append(await of(app, fresh: fresh))
+        for app in apps {
+            out.append(await of(app, fresh: fresh, sync: sync[app.path]))
         }
         return out
     }

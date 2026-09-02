@@ -60,14 +60,14 @@ struct ContentView: View {
                     .buttonStyle(.borderless)
                     .help("사용법 · 배포에 필요한 것")
                 Button {
-                    Task { await store.refresh(fresh: true) }
+                    Task { await store.refresh(fresh: true, pull: true) }
                 } label: {
                     if store.loading { ProgressView().controlSize(.small) }
                     else { Image(systemName: "arrow.clockwise") }
                 }
                 .buttonStyle(.borderless)
                 .disabled(store.loading)
-                .help("상태 다시 조회")
+                .help("상태 다시 조회 — 원격의 새 커밋도 받아옵니다")
             }
             .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 9)
 

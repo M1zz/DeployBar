@@ -46,6 +46,34 @@ enum GitInfo {
         return (ahead: parts[1], behind: parts[0])
     }
 
+    // ── 원격 다녀오기 ──────────────────────────────────────────────────
+    // 자격증명을 물어보는 순간 새로고침 전체가 멈춘다. 프롬프트는 모두 끄고,
+    // 키체인에 이미 저장된 자격증명(credential helper)만 쓰게 둔다.
+    private static let networkEnv = [
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "/usr/bin/true",
+        "SSH_ASKPASS": "/usr/bin/true",
+        "GIT_SSH_COMMAND": "ssh -oBatchMode=yes",
+    ]
+
+    /// 원격 상태를 받아 온다(작업 파일은 건드리지 않음). 성공하면 nil, 실패하면 사람이 읽을 이유.
+    ///
+    /// 이걸 안 하면 `@{u}` 는 마지막 fetch 시점에 멈춰 있어서, 원격에 커밋이 쌓여도
+    /// "원격과 동기화됨" 이라고 말하게 된다.
+    static func fetch(_ dir: String, timeout: TimeInterval = 20) -> String? {
+        let o = Shell.outcome("/usr/bin/git", ["fetch", "--quiet"],
+                              cwd: URL(fileURLWithPath: dir), env: networkEnv, timeout: timeout)
+        return o.ok ? nil : o.reason
+    }
+
+    /// 앞당기기만 하는 pull. 병합 커밋도 충돌도 만들지 않아, 안 되면 그냥 실패한다.
+    /// (배포 파이프라인도 첫 단계에서 이걸 쓴다 — 같은 기준이어야 결과가 어긋나지 않는다)
+    static func pullFFOnly(_ dir: String, timeout: TimeInterval = 60) -> String? {
+        let o = Shell.outcome("/usr/bin/git", ["pull", "--ff-only"],
+                              cwd: URL(fileURLWithPath: dir), env: networkEnv, timeout: timeout)
+        return o.ok ? nil : o.reason
+    }
+
     static func lastDeployTag(_ dir: String) -> String? {
         let t = git(dir, ["describe", "--tags", "--match", "deploy-*", "--abbrev=0"])
         return t.isEmpty ? nil : t

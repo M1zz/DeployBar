@@ -31,6 +31,7 @@
 		A966D064AE5770E06C75F9D3 /* OrderEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B228C05B05FA1AC680B6515D /* OrderEditor.swift */; };
 		AB8666BDB17FBBE8229F42BB /* StatusChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C12FC724FA840EF3C06E16 /* StatusChange.swift */; };
 		B0741096AFD7607CE5AD42E9 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EF2112119180659331C2054 /* Config.swift */; };
+		BE11CA6F59E2DED6F0882052 /* GitSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0715E9C60F3E726E17B41401 /* GitSync.swift */; };
 		BF18BE15DFB92E195D89AB53 /* DeployError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB5A3E1CEDA622000143B89 /* DeployError.swift */; };
 		C24B20F9E4AD7FE9BBA24823 /* ChangeBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E55DF12EAD4025F0A9D0BC7 /* ChangeBanner.swift */; };
 		CA9193EADEA8F8B1452EED9F /* AppFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6817E153578A4E00168F8A72 /* AppFilter.swift */; };
@@ -45,6 +46,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0715E9C60F3E726E17B41401 /* GitSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitSync.swift; sourceTree = "<group>"; };
 		0E71F6A377D91ECEB9DE3C00 /* SummaryBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryBar.swift; sourceTree = "<group>"; };
 		1EF2112119180659331C2054 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		2E84E2C115C59E8BF29DA44E /* Clipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Clipboard.swift; sourceTree = "<group>"; };
@@ -132,6 +134,7 @@
 				1EF2112119180659331C2054 /* Config.swift */,
 				3AB5A3E1CEDA622000143B89 /* DeployError.swift */,
 				A374A6AA5C657BDAE55BFDA7 /* GitInfo.swift */,
+				0715E9C60F3E726E17B41401 /* GitSync.swift */,
 				3EBBC501FF88B330887E3DD0 /* Locales.swift */,
 				4AB262BB2814990ED93B6B9B /* Localization.swift */,
 				F20B29C4108A3C3EACA4C831 /* Models.swift */,
@@ -258,6 +261,7 @@
 				BF18BE15DFB92E195D89AB53 /* DeployError.swift in Sources */,
 				E04B6E4057BE44F914934CD9 /* Deployer.swift in Sources */,
 				72111E611219448617778907 /* GitInfo.swift in Sources */,
+				BE11CA6F59E2DED6F0882052 /* GitSync.swift in Sources */,
 				1AC8E331711B872E3219C61B /* GuideView.swift in Sources */,
 				07056F64EDD79B538C159BA3 /* Locales.swift in Sources */,
 				DC93BC612F98D0BBE5EFDAEF /* Localization.swift in Sources */,
