@@ -119,8 +119,17 @@ enum Localization {
         report.sourceLanguages = sources.sorted()
         guard !parsed.isEmpty else { return report }
 
-        // 기준 언어 목록: deploy.env 의 LOCALES 우선, 없으면 카탈로그에 등장한 언어 전부
-        let targets = expected.isEmpty ? report.locales : Locales.sorted(expected)
+        // 기준 언어 목록 = 카탈로그에 실제로 있는 언어 **∪** deploy.env 의 LOCALES.
+        //
+        // 예전엔 LOCALES 가 있으면 그것'만' 검사했다. 그래서 LOCALES 를 줄이는 순간
+        // 카탈로그에 멀쩡히 있는 언어의 번역 구멍이 조용히 안 보이게 됐다 —
+        // 소스 언어 하나만 남기면 게이트는 늘 통과한다(소스는 값이 없어도 정상이므로).
+        // 앱이 이미 그 언어로 말하고 있으면 구멍은 실제로 외국 사용자에게 보이는 문제다.
+        // LOCALES 는 "여기에 더해 이 언어도 갖출 것" 이라는 선언으로만 쓴다.
+        //
+        // (LOCALES 를 줄이는 이유는 대개 App Store 페이지에 그 언어가 없어서인데,
+        //  그건 스토어 쪽 사정이지 앱이 그 언어를 안 한다는 뜻이 아니다.)
+        let targets = Locales.sorted(Array(Set(report.locales).union(expected)))
 
         for file in parsed {
             for (key, raw) in file.strings {

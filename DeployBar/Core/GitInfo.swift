@@ -9,10 +9,23 @@ enum GitInfo {
     static func isDirty(_ dir: String) -> Bool { !git(dir, ["status", "--porcelain"]).isEmpty }
 
     /// 커밋 안 된 파일 경로들
+    ///
+    /// ⚠️ git() 을 쓰면 안 된다. porcelain 한 줄은 "XY 경로" 인데 미스테이징 변경은
+    ///    X 가 공백이라 " M deploy.env" 로 시작한다. git() 이 출력 전체를 trim 하면
+    ///    첫 줄의 그 선행 공백이 사라지고, dropFirst(3) 이 파일명 첫 글자를 먹는다
+    ///    ("deploy.env" → "eploy.env"). 그러면 배포를 막는 이유로 있지도 않은
+    ///    파일 이름을 보여 주게 된다. 줄 끝 개행만 걷어내고 앞은 그대로 둔다.
     static func dirtyFiles(_ dir: String) -> [String] {
-        git(dir, ["status", "--porcelain"]).split(separator: "\n").map {
-            String($0.dropFirst(3)).trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-        }.filter { !$0.isEmpty }
+        let raw = (try? Shell.capture("/usr/bin/git", ["status", "--porcelain"],
+                                      cwd: URL(fileURLWithPath: dir))) ?? ""
+        return raw.split(separator: "\n").compactMap { line -> String? in
+            guard line.count > 3 else { return nil }
+            var path = String(line.dropFirst(3))
+            // 이름이 바뀐 파일은 "옛 이름 -> 새 이름" 으로 온다 — 지금 있는 쪽을 쓴다
+            if let r = path.range(of: " -> ") { path = String(path[r.upperBound...]) }
+            path = path.trimmingCharacters(in: CharacterSet(charactersIn: "\"\r"))
+            return path.isEmpty ? nil : path
+        }
     }
 
     /// Xcode·macOS 가 알아서 건드리는 파일 — 사람이 한 변경이 아니다.
