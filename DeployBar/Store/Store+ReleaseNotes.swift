@@ -65,7 +65,7 @@ extension Store {
     // 배포 직후 앱의 App Store 언어를 전부 조회해 언어별 릴리즈노트를 자동 반영.
     // 진행 패널에 그대로 걸 한 줄을 돌려준다 (실패도 한 줄로 — 칸이 조용히 초록이 되면 안 된다).
     @discardableResult
-    func applyReleaseNotes(_ app: ManagedApp, into job: Job) async -> String {
+    func applyReleaseNotes(_ app: ManagedApp, into job: Job, when: String = "") async -> String {
         let st = statuses.first { $0.path == app.path }
         do {
             guard let target = try await ReleaseNotes.editableVersionAndLocales(app) else {
@@ -73,7 +73,7 @@ extension Store {
                 return "보류 — 편집 가능한 App Store 버전이 없습니다"
             }
             let codes = target.localeCodes
-            job.lines.append("📝 릴리즈노트 자동 반영 (v\(target.versionString)) — 이 앱 언어 \(codes.count)개: \(codes.joined(separator: ", "))")
+            job.lines.append("📝 릴리즈노트 자동 반영\(when.isEmpty ? "" : " (\(when))") · v\(target.versionString) — 이 앱 언어 \(codes.count)개: \(codes.joined(separator: ", "))")
 
             // App Store 가 실제로 요구하는 언어 그대로 초안을 만든다 (AI 키가 있으면 호출 1회로 전부)
             let draft = await ReleaseNotes.draft(app,

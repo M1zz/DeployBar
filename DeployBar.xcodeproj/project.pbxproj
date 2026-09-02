@@ -10,6 +10,7 @@
 		07056F64EDD79B538C159BA3 /* Locales.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBBC501FF88B330887E3DD0 /* Locales.swift */; };
 		0AA077725794C71F3403A8FC /* ASCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE760690B10ED4A37047527 /* ASCClient.swift */; };
 		0B3A995605865CD370FD476F /* Scaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C45C322FB31451E294A39FB /* Scaffold.swift */; };
+		11E323D001E7144BACADDF3E /* RepoNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EB79973281716559A209B2 /* RepoNotes.swift */; };
 		1A2AD71C3C8D5A309441562B /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5225FCAE223BB17548EEBD8D /* Store.swift */; };
 		1AC8E331711B872E3219C61B /* GuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C475F592B99AE48A33769A5 /* GuideView.swift */; };
 		28A7B9748900FC55CE5A5CEE /* Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4D5228C69A5DD4DC81D7DE /* Shell.swift */; };
@@ -81,6 +82,7 @@
 		D851284B3138512FDF6EF157 /* CLI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLI.swift; sourceTree = "<group>"; };
 		DD43A2A6C53DEA9D5514D087 /* DeployBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DeployBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E28399DAC3FBD06AB97D825B /* LogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogView.swift; sourceTree = "<group>"; };
+		E5EB79973281716559A209B2 /* RepoNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepoNotes.swift; sourceTree = "<group>"; };
 		E9D778E45E4B8A99C150CA81 /* Store+Fix.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Fix.swift"; sourceTree = "<group>"; };
 		EBE760690B10ED4A37047527 /* ASCClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ASCClient.swift; sourceTree = "<group>"; };
 		EDBF5BD1DAEF52D3A9F51A47 /* AppRepo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRepo.swift; sourceTree = "<group>"; };
@@ -105,6 +107,7 @@
 				88BC5421454848BF453EAA81 /* Deployer.swift */,
 				CBB6479E21A3BE2BCC8DA4CE /* Notifier.swift */,
 				FF2031292F4200301117DF4A /* ReleaseNotes.swift */,
+				E5EB79973281716559A209B2 /* RepoNotes.swift */,
 				7C45C322FB31451E294A39FB /* Scaffold.swift */,
 			);
 			path = Services;
@@ -281,6 +284,7 @@
 				473A5C4B6A8C7BBA2C3420EB /* Readiness.swift in Sources */,
 				FC178E1F7E1D1CE28E752B88 /* ReadinessChecklist.swift in Sources */,
 				4A69BADEE3A0780C7136E4C5 /* ReleaseNotes.swift in Sources */,
+				11E323D001E7144BACADDF3E /* RepoNotes.swift in Sources */,
 				0B3A995605865CD370FD476F /* Scaffold.swift in Sources */,
 				28A7B9748900FC55CE5A5CEE /* Shell.swift in Sources */,
 				A860E53B2E560B02B513EE55 /* Status.swift in Sources */,

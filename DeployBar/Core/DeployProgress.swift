@@ -12,6 +12,7 @@ import Foundation
 // 실패하면 어느 칸에서 멈췄는지가 그 자리에 남는다.
 
 enum DeployStage: Int, CaseIterable, Identifiable, Codable {
+    case notesPrefill   // 릴리즈노트 미리 채우기 (게이트에 걸리기 전에)
     case prepare        // 프로젝트·빌드 설정 확인
     case pull           // 원격 받기
     case l10n           // 다국어 검사
@@ -29,6 +30,7 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
 
     var title: String {
         switch self {
+        case .notesPrefill: return "릴리즈노트 준비"
         case .prepare:    return "프로젝트 확인"
         case .pull:       return "원격 받기"
         case .l10n:       return "다국어 검사"
@@ -48,6 +50,7 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
     /// 3분을 기다리는 사람에게 "archive" 라는 낱말 하나는 아무 말도 해 주지 않는다.
     var hint: String {
         switch self {
+        case .notesPrefill: return "레포에 써 둔 글이나 커밋에서 빈 언어를 미리 채우는 중"
         case .prepare:    return "scheme·번들ID·플랫폼을 읽는 중"
         case .pull:       return "원격의 최신 커밋을 받아오는 중"
         case .l10n:       return ".xcstrings 의 번역 구멍을 세는 중"
@@ -68,6 +71,7 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
     /// 실제로 걸리는 만큼 자리를 주어야 막대가 거짓말을 하지 않는다.
     var weight: Double {
         switch self {
+        case .notesPrefill: return 15
         case .prepare:    return 4
         case .pull:       return 3
         case .l10n:       return 1

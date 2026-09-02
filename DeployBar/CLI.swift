@@ -192,6 +192,29 @@ enum CLI {
                                          isMac: platform == .macOS))
         exit(0)
     }
+    // 레포에 써 둔 릴리즈노트를 제대로 읽는지: DeployBar --reponotes [앱] [버전]
+    // 인자를 안 주면 관리 중인 앱 전부를 훑어 "어느 앱이 원고를 갖고 있나" 를 보여 준다.
+    if let i = CommandLine.arguments.firstIndex(of: "--reponotes") {
+        let rest = Array(CommandLine.arguments.dropFirst(i + 1))
+        let apps = rest.isEmpty ? AppRepo.registry()
+                                : AppRepo.registry().filter { $0.name.contains(rest[0]) }
+        for app in apps {
+            // 버전을 안 주면 그 앱의 로컬 마케팅 버전을 쓴다
+            let v = rest.count > 1 ? rest[1]
+                : ((try? AppRepo.buildSettings(AppRepo.resolve(app)))?.marketingVersion ?? "")
+            guard !v.isEmpty else { print("· \(app.name) — 버전을 읽지 못했습니다"); continue }
+            if let found = RepoNotes.read(app.path, version: v) {
+                print("\n✅ \(app.name) v\(v) — \(found.source)")
+                for (lang, text) in found.texts.sorted(by: { $0.key < $1.key }) {
+                    print("   ── \(lang)")
+                    for line in text.split(separator: "\n") { print("      \(line)") }
+                }
+            } else if rest.count > 0 {
+                print("\n· \(app.name) v\(v) — 스토어용 절을 찾지 못했습니다")
+            }
+        }
+        exit(0)
+    }
     // 게이트까지만 돌려 보고 단계판을 그린다(업로드하지 않음): DeployBar --check 앱이름
     //
     // check 레인은 원격 받기·다국어·릴리즈노트·predeploy 까지만 하고 멈춘다.
@@ -206,6 +229,9 @@ enum CLI {
         Task.detached {
             let box = ProgressBox()
             let verbose = CommandLine.arguments.contains("--verbose")
+            // 릴리즈노트 미리 채우기는 Store(UI)가 Deployer 앞에서 도는 칸이라
+            // CLI 의 check 경로에는 없다. 대기로 남겨 두면 "안 한 건가" 로 읽히므로 밝혀 둔다.
+            box.report(.notesPrefill, .skipped, "check 모드 — 스토어에 쓰지 않습니다")
             do {
                 _ = try await Deployer.deploy(app, lane: .check,
                                               onLog: { if verbose { print("   \($0)") } },

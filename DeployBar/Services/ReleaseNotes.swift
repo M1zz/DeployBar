@@ -36,9 +36,33 @@ enum ReleaseNotes {
         let targets = Locales.sorted(locales.isEmpty ? ["ko", "en-US"] : locales)
         var texts = Dictionary(uniqueKeysWithValues: targets.map { ($0, "") })
 
+        // 0) 레포에 사람이 써 둔 글이 최우선이다.
+        //    커밋 제목을 짜내기 전에 이것부터 본다 — 이미 스토어에서 읽힐 문장으로 쓰인 글이다.
+        var repoNote: String?
+        var repoBase = ""
+        if let v = localVersion, let found = RepoNotes.read(app.path, version: v) {
+            for (lang, text) in found.texts {
+                for t in targets where Locales.sameLanguage(t, lang) && texts[t]!.isEmpty {
+                    texts[t] = text
+                }
+                if Locales.isKorean(lang) { repoBase = text }
+            }
+            let got = texts.filter { !$0.value.isEmpty }.keys.sorted()
+            if !got.isEmpty {
+                repoNote = "\(found.source) 에서 가져옴 (\(got.joined(separator: ", ")))"
+                // 레포 글로 전부 채워졌으면 커밋을 볼 이유가 없다
+                if texts.allSatisfy({ !$0.value.isEmpty }) {
+                    return Draft(commits: [], base: repoBase.isEmpty ? texts.first!.value : repoBase,
+                                 texts: texts, note: repoNote)
+                }
+            }
+        }
+
         let commits = GitInfo.commitsSince(app.path, tag: baseTag)
         if commits.isEmpty {
-            return Draft(commits: [], base: "", texts: texts, note: "\(baseLabel) — 새 커밋 없음")
+            // 레포에서 일부라도 건졌으면 그건 살려서 돌려준다
+            let note = repoNote.map { "\($0) · 직전 릴리즈 이후 새 커밋은 없음" } ?? "\(baseLabel) — 새 커밋 없음"
+            return Draft(commits: [], base: repoBase, texts: texts, note: note)
         }
 
         // AI 키가 있으면 한 번의 호출로 모든 언어를 한꺼번에 만든다.
@@ -46,12 +70,14 @@ enum ReleaseNotes {
             do {
                 let produced = try await callAnthropic(commits: commits, locales: targets, key: key)
                 // AI 가 규칙을 어겨도 결과물에는 특수기호가 남지 않게 한 번 더 거른다
-                for (loc, text) in produced where texts[loc] != nil { texts[loc] = sanitize(text) }
+                // 레포에서 가져온 언어는 건드리지 않는다 — 사람이 쓴 글이 AI 초안에 밀리면 안 된다
+                for (loc, text) in produced where texts[loc]?.isEmpty == true { texts[loc] = sanitize(text) }
                 let base = texts.first { Locales.isKorean($0.key) }?.value
                     ?? produced["ko"] ?? heuristicNotes(commits)
                 let missing = texts.filter { $0.value.isEmpty }.keys.sorted()
                 let tail = missing.isEmpty ? "" : " · 미생성: \(missing.joined(separator: ", "))"
-                return Draft(commits: commits, base: base, texts: texts, note: baseLabel + tail)
+                return Draft(commits: commits, base: base, texts: texts,
+                             note: [repoNote, baseLabel + tail].compactMap { $0 }.joined(separator: " · "))
             } catch {
                 let base = heuristicNotes(commits)
                 for loc in targets where Locales.isKorean(loc) { texts[loc] = base }
@@ -61,12 +87,17 @@ enum ReleaseNotes {
         }
 
         // AI 키가 없으면 커밋에서 뽑은 한국어 초안만 만들고, 나머지 언어는 온디바이스 번역에 맡긴다.
-        let base = heuristicNotes(commits)
-        for loc in targets where Locales.isKorean(loc) { texts[loc] = base }
-        let tail = base.isEmpty
-            ? "사용자 대상 변경이 없어 보입니다 — 커밋을 확인하고 직접 작성하세요."
-            : "커밋 기반 초안입니다. 언어별 문구 품질을 높이려면 config.env 에 ANTHROPIC_API_KEY 를 넣으세요."
-        return Draft(commits: commits, base: base, texts: texts, note: "\(baseLabel) · \(tail)")
+        // 레포에 한국어 글이 있으면 그게 번역의 출발점이다 — 커밋 제목을 번역해 봐야 개발자용 문장이 나온다.
+        let fallback = heuristicNotes(commits)
+        let base = repoBase.isEmpty ? fallback : repoBase
+        for loc in targets where Locales.isKorean(loc) && texts[loc]!.isEmpty { texts[loc] = base }
+        let tail = repoNote != nil
+            ? "레포에 쓴 글을 씁니다. 나머지 언어는 이 글에서 번역합니다."
+            : (base.isEmpty
+                ? "사용자 대상 변경이 없어 보입니다 — 커밋을 확인하고 직접 작성하세요."
+                : "커밋 제목에서 뽑은 초안입니다 — RELEASE_NOTES.md 에 스토어용 문구를 써 두면 그걸 씁니다.")
+        return Draft(commits: commits, base: base, texts: texts,
+                     note: [repoNote, "\(baseLabel) · \(tail)"].compactMap { $0 }.joined(separator: " · "))
     }
 
     // API 키 없이 커밋 메시지에서 "적당히" 릴리즈노트 초안을 만든다.
@@ -98,8 +129,16 @@ enum ReleaseNotes {
         for raw in text.split(separator: "\n", omittingEmptySubsequences: false) {
             var line = String(raw).trimmingCharacters(in: .whitespaces)
             // 줄머리 글머리표·번호 제거 (· • - – — * + 1. 1) 등)
+            //
+            // ⚠️ 글머리표를 \u{00B7} 같은 이스케이프로 쓰지 말 것.
+            //    #"..."# 는 raw string 이라 Swift 가 그 이스케이프를 풀지 않고,
+            //    ICU 정규식은 \u{...} 문법을 모른다 → **패턴이 통째로 컴파일 실패**하고
+            //    replacingOccurrences 는 아무 말 없이 원본을 그대로 돌려준다.
+            //    그래서 이 줄은 오랫동안 아무것도 안 하고 있었고, 글머리표가 붙은 채로
+            //    App Store 에 나갔다(v1.0.8 라이브 노트에 "• 시각 표기가…" 가 그대로 있다).
+            //    문자는 문자 그대로 적는다.
             line = line.replacingOccurrences(
-                of: #"^\s*(?:[\u{00B7}\u{2022}\u{25CF}\u{25AA}\-–—*+>]+|\d+[.)])\s*"#,
+                of: #"^[ \t]*(?:[·•●▪∙‧・\-–—*+>]+|\d+[.)])[ \t]*"#,
                 with: "", options: .regularExpression)
             // 마크다운 강조 제거
             line = line.replacingOccurrences(of: #"[*_`#]"#, with: "", options: .regularExpression)

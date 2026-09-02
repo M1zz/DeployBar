@@ -401,12 +401,22 @@ struct Readiness: Codable, Hashable {
             }
         }
 
-        // 10.6) 릴리즈노트 문구 품질 — 키가 없으면 커밋 제목이 그대로 나간다
-        if Config.anthropicKey == nil {
+        // 10.6) 이번 버전 문구가 어디서 오는가.
+        //
+        // 예전엔 여기서 'AI 키 없음' 을 ⚠️ 로 띄웠다. 그런데 그건 앱의 문제가 아니라
+        // 도구 설정이고, 키를 사지 않는 한 31개 앱 전부에서 영원히 안 지워지는 항목이었다.
+        // 체크리스트가 답해야 할 질문은 "키가 있나" 가 아니라
+        // **"이번 버전에 올릴 문구가 준비돼 있나"** 다. 그 답만 말한다.
+        if let v = status.localVersion, let repo = RepoNotes.read(app.path, version: v) {
             out.append(ReadyItem(
-                key: "ai", level: .need, title: "릴리즈노트 AI 키 없음",
-                detail: "커밋 제목을 그대로 씁니다 — 사용자용 문구가 아닐 수 있습니다",
-                todo: "~/Library/Application Support/DeployBar/config.env 의 ANTHROPIC_API_KEY 주석을 푸세요"))
+                key: "notesrc", level: .ok, title: "릴리즈노트 원고 있음",
+                detail: "\(repo.source) — 배포할 때 이 글을 씁니다"))
+        } else if status.notesFilled.isEmpty && !status.notesUncheckable {
+            out.append(ReadyItem(
+                key: "notesrc", level: .need, title: "릴리즈노트 원고 없음",
+                detail: "커밋 제목에서 초안을 만듭니다 — 사용자용 문구가 아닐 수 있습니다",
+                todo: "RELEASE_NOTES.md 에 `## \(status.localVersion ?? "버전")` 절을 만들고 그 아래 "
+                    + "`### 앱스토어` 절에 스토어용 문구를 써 두면 배포가 그걸 그대로 씁니다"))
         }
 
         // 11) 심사 진행 중 — 배포는 되지만 알고 눌러야 한다

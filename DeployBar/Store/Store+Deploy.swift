@@ -56,6 +56,24 @@ extension Store {
         let stageConsumer = Task { for await e in stageStream { job.report(e.0, e.1, e.2) } }
 
         do {
+            // 게이트에 걸리기 **전에** 빈 릴리즈노트를 채운다.
+            //
+            // 예전엔 순서가 거꾸로였다. 게이트는 archive 앞에서 막는데, 노트를 채우는
+            // applyReleaseNotes 는 업로드가 성공한 뒤에야 돌았다. 그래서 빈 노트로 막히면
+            // 채우는 코드에 영원히 도달하지 못하고, 사람이 매 버전마다 손으로
+            // [릴리즈노트] 창을 열어 [빈 언어 채우기] → 적용을 눌러야 했다.
+            // 닭이 있어야 달걀이 나오는데 달걀이 있어야 닭을 들여보내 주는 구조였다.
+            //
+            // 이제 배포가 스스로 채우고 나서 게이트 앞에 선다. 채운 뒤에도 비어 있으면
+            // 그때는 진짜로 만들 수 없는 것이므로 게이트가 막는 게 맞다.
+            if lane != .check {
+                job.report(.notesPrefill, .running, nil)
+                let note = await applyReleaseNotes(app, into: job, when: "배포 전")
+                job.report(.notesPrefill, .done, note)
+            } else {
+                job.report(.notesPrefill, .skipped, "check 모드")
+            }
+
             let res = try await Deployer.deploy(app, lane: lane, versionBump: versionBump,
                                                 onLog: onLog, onStage: onStage)
             c.finish(); await consumer.value
@@ -63,8 +81,11 @@ extension Store {
             job.lines.append("✅ \(app.name) — v\(res.version) (build \(res.build))")
             // 릴리즈노트 반영은 Deployer 밖(Store)에서 도므로 여기서 칸을 옮긴다
             if lane != .check {
+                // 업로드 뒤에 한 번 더. 첫 업로드 전에는 편집 가능한 App Store 버전 자체가
+                // 없어서 배포 전 채우기가 할 일이 없었기 때문이다 — 그 경우는 여기서 채워진다.
+                // 이미 채워진 언어는 건드리지 않으므로(fillEmptyOnly) 두 번 돈다고 덮어쓰지 않는다.
                 job.report(.notesApply, .running, nil)
-                let note = await applyReleaseNotes(app, into: job)   // 언어별 릴리즈노트 자동 반영
+                let note = await applyReleaseNotes(app, into: job, when: "업로드 후")
                 job.report(.notesApply, .done, note)
             } else {
                 job.report(.notesApply, .skipped, "check 모드 — 배포 없음")
