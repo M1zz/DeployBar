@@ -83,7 +83,18 @@ enum Deployer {
     struct Result { let version: String; let build: Int }
 
     // versionBump: nil = 빌드만 올리기(버전 유지), .patch/.minor/.major = 그만큼 버전 올린 뒤 배포(빌드 1부터)
-    static func deploy(_ app: ManagedApp, lane: Lane, versionBump: VersionBump? = nil, onLog: @escaping @Sendable (String) -> Void) async throws -> Result {
+    /// 단계가 바뀔 때마다 부르는 보고 채널. 로그(무슨 일이 있었나)와 별개로
+    /// "지금 어느 칸인가" 를 UI 가 알 수 있게 한다.
+    typealias StageReport = @Sendable (DeployStage, StageState, String?) -> Void
+
+    static func deploy(_ app: ManagedApp, lane: Lane, versionBump: VersionBump? = nil,
+                       onLog: @escaping @Sendable (String) -> Void,
+                       onStage: @escaping StageReport = { _, _, _ in }) async throws -> Result {
+        func begin(_ s: DeployStage) { onStage(s, .running, nil) }
+        func done(_ s: DeployStage, _ note: String? = nil) { onStage(s, .done, note) }
+        func skip(_ s: DeployStage, _ note: String) { onStage(s, .skipped, note) }
+
+        begin(.prepare)
         let r = AppRepo.resolve(app)
         guard r.exists else {
             throw DeployError(app: app.name, path: app.path, stage: "프로젝트 확인",
@@ -101,6 +112,7 @@ enum Deployer {
                                      "[자동 설정] 이 scheme 을 다시 잡아 줍니다"],
                               detail: error.localizedDescription, fix: .configure)
         }
+        done(.prepare, "\(r.scheme) · \(info.bundleId) · \(info.platform.rawValue)")
         var marketingVersion = info.marketingVersion
         let cwd = URL(fileURLWithPath: r.path)
         let workDir = cwd.appendingPathComponent("build/deploy-console")
@@ -109,9 +121,11 @@ enum Deployer {
         // 0) 최신 코드 반영: 배포 전 git pull (원격의 최신 커밋을 먼저 가져온다)
         if GitInfo.isRepo(r.path) {
             if let up = GitInfo.upstream(r.path) {
+                begin(.pull)
                 onLog("⬇️  git pull --ff-only  (\(up))")
                 do {
                     try await Shell.run("/usr/bin/git", ["pull", "--ff-only"], cwd: cwd, onLog: onLog)
+                    done(.pull, up)
                 } catch let e as Shell.Error {
                     let f = pullFailure(e)
                     throw DeployError(app: app.name, path: app.path, stage: "git pull",
@@ -120,7 +134,10 @@ enum Deployer {
             } else {
                 // 원격을 안 따라가는 브랜치는 당겨 올 것이 없다 — 여기서 배포를 막을 이유가 없다
                 onLog("⏭  원격 추적 브랜치 없음 — git pull 건너뜀")
+                skip(.pull, "원격 추적 브랜치 없음")
             }
+        } else {
+            skip(.pull, "git 저장소가 아님")
         }
 
         // 1) 게이트 — 먼저 다국어(내장), 그다음 앱별 스크립트
@@ -128,7 +145,9 @@ enum Deployer {
         let gateMode = Localization.Mode(r.localizationGate)
         if gateMode == .off {
             onLog("🌐 다국어 검사: LOCALIZATION_GATE=off — 건너뜀")
+            skip(.l10n, "LOCALIZATION_GATE=off")
         } else {
+            begin(.l10n)
             let report = Localization.scan(r.path, expected: r.locales)
             for line in Localization.summaryLines(report, mode: gateMode) { onLog(line) }
             if gateMode == .strict && !report.ok {
@@ -142,6 +161,8 @@ enum Deployer {
                            "채운 뒤 커밋하고 [배포] 를 다시 누르세요"],
                     detail: head)
             }
+            done(.l10n, report.ok ? "\(report.locales.count)개 언어 · 번역 구멍 없음"
+                                  : "번역 구멍 \(report.issues.count)건 — \(gateMode == .strict ? "" : "warn 이라 진행")")
         }
 
         // 1.2) 릴리즈노트 게이트 — 빌드를 만들기 전에 막는다.
@@ -149,30 +170,67 @@ enum Deployer {
         let notesGate = Localization.Mode(r.releaseNotesGate)
         if notesGate == .off {
             onLog("📝 릴리즈노트 검사: RELEASE_NOTES_GATE=off — 건너뜀")
-        } else if let ascId = try? await ASCClient.appId(bundleId: info.bundleId),
-                  let notes = try? await ReleaseNotes.notesState(appId: ascId) {
-            if notes.missing.isEmpty {
-                onLog("📝 릴리즈노트 준비됨 — v\(notes.version) · \(notes.filled.count)개 언어")
-            } else {
-                let head = notes.missing.prefix(5).map { Locales.displayName($0) }.joined(separator: ", ")
-                let msg = "v\(notes.version) 의 '이 버전의 새로운 기능' 이 \(notes.missing.count)개 언어에서 비어 있습니다"
+            skip(.notes, "RELEASE_NOTES_GATE=off")
+        } else {
+            begin(.notes)
+            // ⚠️ 여기서 오류를 삼키면 안 된다.
+            //    예전엔 `try?` 로 물어보고, 실패하면 nil → "편집 가능한 버전 없음" 으로 지나갔다.
+            //    즉 **ASC 에 못 물어본 것을 '물어봤더니 괜찮더라' 로 읽었다.**
+            //    strict 게이트는 빈 노트가 나가는 걸 막으려고 있는데, 못 물어본 순간
+            //    조용히 통과해 버리면 게이트가 있으나 마나다. 못 물어봤으면 못 물어봤다고 말한다.
+            var notes: ReleaseNotes.NotesState?
+            var probeError: String?
+            do {
+                if let ascId = try await ASCClient.appId(bundleId: info.bundleId) {
+                    notes = try await ReleaseNotes.notesState(appId: ascId)
+                } else {
+                    probeError = "ASC 에서 앱을 찾지 못했습니다 (bundleId \(info.bundleId))"
+                }
+            } catch let e as ASCClient.APIError {
+                probeError = "App Store Connect 응답 HTTP \(e.status)"
+            } catch {
+                probeError = error.localizedDescription
+            }
+            if let probeError {
                 if notesGate == .strict {
                     throw DeployError(
                         app: app.name, path: app.path, stage: "릴리즈노트 검사",
-                        title: msg,
-                        todo: ["[릴리즈노트] 창을 열어 [빈 언어 채우기] 를 누른 뒤 적용하세요",
-                               "빈 채로 내야 한다면 deploy.env 에 RELEASE_NOTES_GATE=warn 을 넣으세요",
-                               "채운 뒤 [배포] 를 다시 누르면 됩니다"],
-                        detail: "빈 언어: \(head)\(notes.missing.count > 5 ? " 외" : "")",
-                        fix: .openNotes)
+                        title: "릴리즈노트가 비었는지 확인하지 못했습니다",
+                        todo: ["App Store Connect 조회가 실패했습니다 — 자격증명이나 네트워크를 확인하세요",
+                               "~/Documents/workspace/fastlane-shared/asc.env 의 ASC_KEY_ID·ASC_ISSUER_ID 와 .p8 키를 확인하세요",
+                               "확인 없이 내야 한다면 deploy.env 에 RELEASE_NOTES_GATE=warn 을 넣으세요"],
+                        detail: probeError)
                 }
-                onLog("⚠️  릴리즈노트 비어 있음 (\(head)) — RELEASE_NOTES_GATE=warn 이라 진행합니다")
+                onLog("⚠️  릴리즈노트 확인 실패(\(probeError)) — RELEASE_NOTES_GATE=warn 이라 진행합니다")
+                done(.notes, "확인 실패 — \(probeError)")
+            } else if let notes {
+                if notes.missing.isEmpty {
+                    onLog("📝 릴리즈노트 준비됨 — v\(notes.version) · \(notes.filled.count)개 언어")
+                    done(.notes, "v\(notes.version) · \(notes.filled.count)개 언어 채워짐")
+                } else {
+                    let head = notes.missing.prefix(5).map { Locales.displayName($0) }.joined(separator: ", ")
+                    let msg = "v\(notes.version) 의 '이 버전의 새로운 기능' 이 \(notes.missing.count)개 언어에서 비어 있습니다"
+                    if notesGate == .strict {
+                        throw DeployError(
+                            app: app.name, path: app.path, stage: "릴리즈노트 검사",
+                            title: msg,
+                            todo: ["[릴리즈노트] 창을 열어 [빈 언어 채우기] 를 누른 뒤 적용하세요",
+                                   "빈 채로 내야 한다면 deploy.env 에 RELEASE_NOTES_GATE=warn 을 넣으세요",
+                                   "채운 뒤 [배포] 를 다시 누르면 됩니다"],
+                            detail: "빈 언어: \(head)\(notes.missing.count > 5 ? " 외" : "")",
+                            fix: .openNotes)
+                    }
+                    onLog("⚠️  릴리즈노트 비어 있음 (\(head)) — RELEASE_NOTES_GATE=warn 이라 진행합니다")
+                    done(.notes, "\(notes.missing.count)개 언어 비어 있음 — warn 이라 진행")
+                }
+            } else {
+                onLog("📝 릴리즈노트: 편집 가능한 App Store 버전이 없어 확인 생략 — 업로드 뒤 자동 반영합니다")
+                skip(.notes, "편집 가능한 App Store 버전 없음 — 업로드 뒤 반영")
             }
-        } else {
-            onLog("📝 릴리즈노트: 편집 가능한 App Store 버전이 없어 확인 생략 — 업로드 뒤 자동 반영합니다")
         }
 
         if let predeploy = r.predeploy {
+            begin(.gate)
             onLog("🛡  배포 전 게이트: \(predeploy)")
             try await stage("배포 전 검사", app, "/bin/sh", [predeploy], cwd: cwd,
                             title: "\(predeploy) 가 실패했습니다",
@@ -180,15 +238,19 @@ enum Deployer {
                                    "터미널에서 `sh \(predeploy)` 로 같은 검사를 돌려 볼 수 있습니다",
                                    "테스트 타겟이 없어서 실패하는 거라면 \(predeploy) 에서 그 단계를 지우세요"],
                             onLog: onLog)
+            done(.gate, predeploy)
         } else {
             onLog("⚠️  PREDEPLOY_SCRIPT 미설정 — 게이트 건너뜀")
+            skip(.gate, "PREDEPLOY_SCRIPT 미설정")
         }
         if lane == .check {
             onLog("✅ 게이트 통과 (check 모드 — 배포 없음)")
+            onStage(.version, .skipped, "check 모드 — 여기까지만 합니다")
             return Result(version: info.marketingVersion, build: Int(info.buildNumber) ?? 0)
         }
 
         // 1.5) 버전 처리 — 배포 전에 결정한다. 올릴지(버전), 유지할지(빌드만) 여기서 갈린다.
+        begin(.version)
         if let bump = versionBump {
             let next = bumpVersion(marketingVersion, bump)
             onLog("⬆️  버전 올리기: \(marketingVersion) → \(next)")
@@ -212,10 +274,12 @@ enum Deployer {
             ? "🔢 빌드번호: v\(marketingVersion) 첫 빌드 → \(newBuild)"
             : "🔢 빌드번호: v\(marketingVersion) · ASC \(ascBuild) → \(newBuild)")
         try await setBuild(r, to: newBuild, onLog: onLog)
+        done(.version, "v\(marketingVersion) · build \(newBuild)")
 
         // 3) archive — 플랫폼(iOS/macOS)에 맞는 destination 사용
         onLog("🖥  플랫폼: \(info.platform.rawValue) (destination \(info.platform.destination))")
         let archivePath = workDir.appendingPathComponent("\(r.scheme).xcarchive").path
+        begin(.archive)
         try await stage("archive", app, "/usr/bin/xcodebuild", [
             "archive", r.projFlag, r.projContainer,
             "-scheme", r.scheme, "-configuration", "Release",
@@ -228,11 +292,13 @@ enum Deployer {
                   "Xcode 에서 같은 scheme 을 Product ▸ Archive 로 한 번 돌려 보면 같은 오류가 더 잘 보입니다",
                   "서명·프로비저닝 오류라면 Xcode ▸ Settings ▸ Accounts 에서 팀 로그인을 확인하세요"],
            onLog: onLog)
+        done(.archive, "Release · \(info.platform.rawValue)")
 
         // 4) export IPA
         let exportDir = workDir.appendingPathComponent("export")
         try? FileManager.default.removeItem(at: exportDir)
         let plist = try writeExportOptions(workDir, team: info.team)
+        begin(.export)
         try await stage("export", app, "/usr/bin/xcodebuild", [
             "-exportArchive",
             "-archivePath", archivePath,
@@ -261,7 +327,9 @@ enum Deployer {
         }
         let uploadPath = exportDir.appendingPathComponent(file).path
         onLog("📦 \(ext.uppercased()): \(uploadPath)")
+        done(.export, "\(ext.uppercased()) — \(file)")
         let asc = Config.asc
+        begin(.upload)
         let uploadOutput = try await stage("업로드", app, "/usr/bin/xcrun", [
             "altool", "--upload-app", "-f", uploadPath, "-t", info.platform.altoolType,
             "--apiKey", asc.keyId, "--apiIssuer", asc.issuer,
@@ -279,6 +347,8 @@ enum Deployer {
         let saidOK = lower.contains("no errors uploading") || lower.contains("upload succeeded")
         let saidBad = lower.contains("failed to upload") || lower.contains("error itms-")
             || lower.contains("*** error")
+        done(.upload, saidOK ? "altool 이 성공을 보고했습니다" : "altool 응답이 애매합니다 — 도착으로 판정합니다")
+        begin(.confirm)
         if saidBad || !saidOK {
             // 성공 문구가 없다고 바로 실패로 단정하지 않는다 — ASC 에 빌드가 도착했는지 확인한다.
             // (altool 문구가 바뀌었을 뿐인데 배포를 실패로 처리하면 그것대로 사고다)
@@ -302,6 +372,7 @@ enum Deployer {
             _ = await confirmOnASC(bundleId: info.bundleId, marketingVersion: marketingVersion,
                                    build: newBuild, onLog: onLog)
         }
+        done(.confirm, "v\(marketingVersion) build \(newBuild)")
 
         onLog("🚀 [\(r.scheme)] 업로드 완료 — v\(marketingVersion) (build \(newBuild))")
         // '배포 완료' 가 '출시됨' 으로 읽히지 않게, 여기서 끝나는 지점을 분명히 말한다.
@@ -311,10 +382,16 @@ enum Deployer {
         onLog("   2) '심사에 제출' 누르기 — DeployBar 는 심사 제출까지는 하지 않습니다")
         onLog("   · 빌드가 목록에 뜨기까지 Apple 처리에 몇 분 걸릴 수 있습니다")
         if GitInfo.isRepo(r.path) {
+            begin(.tag)
             let tag = "deploy-\(r.scheme)-\(marketingVersion)-\(newBuild)"
             if GitInfo.tag(r.path, name: tag, message: "deploy-bar: \(marketingVersion) (\(newBuild))") {
                 onLog("🏷  태그: \(tag)")
+                done(.tag, tag)
+            } else {
+                skip(.tag, "같은 이름의 태그가 이미 있습니다")
             }
+        } else {
+            skip(.tag, "git 저장소가 아님")
         }
         // 버전은 사용자가 '버전 올리기'를 고를 때만 바뀐다 — 배포 후 자동 증가 없음
         return Result(version: marketingVersion, build: newBuild)

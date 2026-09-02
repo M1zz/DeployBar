@@ -16,10 +16,17 @@ struct LogView: View {
                     let bad = job.error != nil || job.failure != nil
                     Image(systemName: bad ? "xmark.circle.fill" : "checkmark.circle.fill")
                         .foregroundStyle(bad ? .red : .green)
+                    Text(bad ? "실패" : "완료").font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(12)
             Divider()
+
+            // 지금 어디까지 왔나 — 로그를 읽기 전에 이것부터 답한다
+            if let job = store.job, job.progress != nil {
+                DeployProgressPanel(job: job)
+                Divider()
+            }
 
             // 실패했으면 로그를 뒤지기 전에 '무엇이 / 왜 / 그래서 뭘 하면 되는지' 부터 보여 준다
             if let f = store.job?.failure, store.job?.running != true {

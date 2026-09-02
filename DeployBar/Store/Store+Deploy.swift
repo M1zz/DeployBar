@@ -36,20 +36,45 @@ extension Store {
     }
 
     // 앱 하나를 배포하고 로그를 job 에 스트리밍. 결과 반환.
-    func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump?, into job: Job) async -> DeployOutcome {
+    func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump?,
+                      into job: Job,
+                      batch: (index: Int, total: Int, name: String)? = nil) async -> DeployOutcome {
+        job.resetProgress(app: app.name, batch: batch)
+
         var cont: AsyncStream<String>.Continuation!
         let stream = AsyncStream<String> { cont = $0 }
         let c = cont!
         let onLog: @Sendable (String) -> Void = { c.yield($0) }
         let consumer = Task { for await line in stream { job.lines.append(line) } }
+
+        // 단계 보고도 로그와 같은 방식으로 순서를 지켜 흘린다.
+        // Task { @MainActor } 를 이벤트마다 띄우면 순서가 뒤집혀 칸이 거꾸로 켜진다.
+        var stageCont: AsyncStream<(DeployStage, StageState, String?)>.Continuation!
+        let stageStream = AsyncStream<(DeployStage, StageState, String?)> { stageCont = $0 }
+        let sc = stageCont!
+        let onStage: Deployer.StageReport = { sc.yield(($0, $1, $2)) }
+        let stageConsumer = Task { for await e in stageStream { job.report(e.0, e.1, e.2) } }
+
         do {
-            let res = try await Deployer.deploy(app, lane: lane, versionBump: versionBump, onLog: onLog)
+            let res = try await Deployer.deploy(app, lane: lane, versionBump: versionBump,
+                                                onLog: onLog, onStage: onStage)
             c.finish(); await consumer.value
+            sc.finish(); await stageConsumer.value
             job.lines.append("✅ \(app.name) — v\(res.version) (build \(res.build))")
-            await applyReleaseNotes(app, into: job)   // 언어별 릴리즈노트 자동 반영
+            // 릴리즈노트 반영은 Deployer 밖(Store)에서 도므로 여기서 칸을 옮긴다
+            if lane != .check {
+                job.report(.notesApply, .running, nil)
+                let note = await applyReleaseNotes(app, into: job)   // 언어별 릴리즈노트 자동 반영
+                job.report(.notesApply, .done, note)
+            } else {
+                job.report(.notesApply, .skipped, "check 모드 — 배포 없음")
+            }
             return .success(version: res.version, build: res.build)
         } catch {
             c.finish(); await consumer.value
+            sc.finish(); await stageConsumer.value
+            // 어느 칸에서 멈췄는지 그 자리에 남긴다 — 아직 시작 못 한 칸은 대기로 둔다
+            job.progress?.failCurrent(note: (error as? DeployError)?.title ?? error.localizedDescription)
             let msg = error.localizedDescription
             if let de = error as? DeployError {
                 job.failure = de
@@ -114,7 +139,8 @@ extension Store {
             for (i, app) in targets.enumerated() {
                 job.lines.append("")
                 job.lines.append("━━━━━━ [\(i + 1)/\(targets.count)] \(app.name) ━━━━━━")
-                switch await runOneDeploy(app, lane: lane, versionBump: nil, into: job) {
+                switch await runOneDeploy(app, lane: lane, versionBump: nil, into: job,
+                                          batch: (i + 1, targets.count, app.name)) {
                 case .success: ok += 1
                 case .failure(let m): fails.append("\(app.name): \(m)")
                 }

@@ -9,6 +9,24 @@ final class Job: ObservableObject {
     /// 마지막 실패를 구조로 들고 있는다 — 로그 창이 '지금 할 일' 을 그릴 수 있도록.
     /// 문자열만 남기면 사람이 수백 줄 로그를 거슬러 올라가 원인을 찾아야 한다.
     @Published var failure: DeployError?
+
+    /// 지금 어느 칸까지 왔나. 로그가 '무슨 일이 있었나' 를 말한다면 이쪽은 '얼마나 남았나' 를 말한다.
+    /// 배포가 아닌 작업(점검 등)은 비어 있고, 그때는 진행 패널을 그리지 않는다.
+    @Published var progress: DeployProgress?
+    /// 전체 배포에서 지금 몇 번째 앱인가 (단일 배포면 nil)
+    @Published var batch: (index: Int, total: Int, name: String)?
+
+    /// 앱 하나의 배포를 시작할 때 칸을 처음 상태로 되돌린다 (전체 배포는 앱마다 다시 센다)
+    func resetProgress(app: String, batch: (index: Int, total: Int, name: String)? = nil) {
+        progress = DeployProgress()
+        self.batch = batch
+    }
+    func report(_ stage: DeployStage, _ state: StageState, _ note: String?) {
+        guard progress != nil else { return }
+        if state == .running { progress?.begin(stage) }
+        else { progress?.finish(stage, state, note: note) }
+    }
+
     init(title: String) { self.title = title }
 }
 

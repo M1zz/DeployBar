@@ -192,6 +192,38 @@ enum CLI {
                                          isMac: platform == .macOS))
         exit(0)
     }
+    // 게이트까지만 돌려 보고 단계판을 그린다(업로드하지 않음): DeployBar --check 앱이름
+    //
+    // check 레인은 원격 받기·다국어·릴리즈노트·predeploy 까지만 하고 멈춘다.
+    // UI 의 진행 패널과 **같은 보고 채널**을 쓰므로, 여기서 칸이 제대로 켜지면
+    // 창에서도 제대로 켜진다. 배포를 실제로 돌리지 않고 배선을 확인할 수 있는 유일한 길이다.
+    if let i = CommandLine.arguments.firstIndex(of: "--check") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            let box = ProgressBox()
+            let verbose = CommandLine.arguments.contains("--verbose")
+            do {
+                _ = try await Deployer.deploy(app, lane: .check,
+                                              onLog: { if verbose { print("   \($0)") } },
+                                              onStage: { box.report($0, $1, $2) })
+            } catch let e as DeployError {
+                box.fail(e.title)
+                print("\n❌ \(e.stage) — \(e.title)")
+                for t in e.todo { print("   → \(t)") }
+            } catch {
+                box.fail(error.localizedDescription)
+                print("\n❌ \(error.localizedDescription)")
+            }
+            print(box.board(app.name))
+            sem.signal()
+        }
+        sem.wait()
+        exit(0)
+    }
     // 릴리즈노트 미리보기(업로드하지 않음): DeployBar --notes 앱이름
     if let i = CommandLine.arguments.firstIndex(of: "--notes") {
         let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
@@ -230,5 +262,43 @@ enum CLI {
         sem.wait()
         exit(0)
     }
+    }
+}
+
+/// CLI 에서 단계 보고를 모아 두는 상자. Deployer 의 onStage 는 @Sendable 이라
+/// 액터 밖에서 불리므로 잠금으로 감싼다 (UI 는 Job 이 MainActor 에서 같은 일을 한다).
+private final class ProgressBox: @unchecked Sendable {
+    private var p = DeployProgress()
+    private let lock = NSLock()
+
+    func report(_ s: DeployStage, _ state: StageState, _ note: String?) {
+        lock.lock(); defer { lock.unlock() }
+        if state == .running { p.begin(s) } else { p.finish(s, state, note: note) }
+    }
+    func fail(_ note: String) {
+        lock.lock(); defer { lock.unlock() }
+        p.failCurrent(note: note)
+    }
+
+    func board(_ appName: String) -> String {
+        lock.lock(); defer { lock.unlock() }
+        let pct = Int((p.fraction() * 100).rounded())
+        let filled = Int(p.fraction() * 30)
+        let bar = String(repeating: "█", count: filled) + String(repeating: "░", count: 30 - filled)
+        var out = "\n━━ \(appName) · \(bar) \(pct)% · \(p.finishedCount)/\(p.steps.count)\n"
+        for s in p.steps {
+            let mark: String
+            switch s.state {
+            case .pending: mark = "·"
+            case .running: mark = "▶"
+            case .done:    mark = "✅"
+            case .skipped: mark = "⏭"
+            case .failed:  mark = "❌"
+            }
+            let took = s.elapsed().map { $0 >= 1 ? "  (\($0.stageClock))" : "" } ?? ""
+            let title = s.stage.title.padding(toLength: 16, withPad: " ", startingAt: 0)
+            out += "  \(mark) \(title)\(s.note ?? "")\(took)\n"
+        }
+        return out
     }
 }
