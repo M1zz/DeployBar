@@ -48,7 +48,9 @@ enum Status {
                     st.reviewState = inflight.state
                     st.reviewVersion = inflight.versionString
                 }
-                st.ascBuild = try await ASCClient.latestBuild(appId: id)
+                let upload = try await ASCClient.latestUpload(appId: id)
+                st.ascBuild = upload?.build
+                st.ascBuildVersion = upload?.version
                 // 릴리즈노트가 비었는지는 **배포 전에** 알아야 한다.
                 // 업로드 뒤에 알면 이미 빈 노트로 버전이 나간 뒤다.
                 st.editableHasBuild = vers.first { ReleaseNotes.editableStates.contains($0.state) }?.hasBuild
@@ -56,6 +58,13 @@ enum Status {
                     st.notesVersion = n.version
                     st.notesFilled = n.filled
                     st.notesMissing = n.missing
+                    // deploy.env 에 적었지만 App Store 페이지에는 없는 언어.
+                    // 이 언어의 릴리즈노트는 만들어도 올릴 자리가 없어 그냥 버려진다 —
+                    // 아무 말도 안 하면 "영어 노트를 썼는데 왜 안 나오지" 를 알 길이 없다.
+                    let listed = n.filled + n.missing
+                    st.notesUnlistedLocales = r.locales.filter { want in
+                        !listed.contains { Locales.sameLanguage($0, want) }
+                    }
                 } else {
                     st.notesUncheckable = true   // 편집 가능한 버전이 아직 없음 (첫 업로드 전)
                 }

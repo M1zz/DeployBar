@@ -365,15 +365,40 @@ struct Readiness: Codable, Hashable {
                 detail: "v\(status.notesVersion ?? "?") · \(status.notesFilled.count)개 언어 모두 채워짐"))
         }
 
+        // 10.4) deploy.env 에 적었지만 App Store 페이지에 없는 언어.
+        //       이 언어의 노트는 만들어도 올릴 자리가 없어 조용히 버려진다.
+        //       "영어 노트를 분명히 썼는데 왜 스토어엔 한국어뿐이지" 의 답이 여기 있다.
+        if !status.notesUnlistedLocales.isEmpty {
+            let names = status.notesUnlistedLocales.map { Locales.displayName($0) }.joined(separator: ", ")
+            out.append(ReadyItem(
+                key: "asclocale", level: .need, title: "App Store 에 없는 언어 — \(status.notesUnlistedLocales.count)개",
+                detail: "deploy.env 의 \(names) 는 App Store 페이지에 없어 릴리즈노트가 올라가지 않습니다",
+                todo: "App Store Connect ▸ 앱 정보 ▸ 현지화에서 언어를 추가하거나, deploy.env 의 LOCALES 에서 빼세요"))
+        }
+
         // 10.5) 업로드한 빌드를 버전에 붙였는가 — 이걸 안 하면 심사 제출 자체가 안 된다.
         //       "업로드 완료" 와 "App Store 에 올라감" 사이의 빈칸이라 놓치기 쉽다.
+        //
+        // 다만 **지금 사람이 할 수 있는 일일 때만** 경고한다.
+        // 그 버전의 빌드가 아직 올라가지도 않았으면 App Store Connect 에 고를 빌드가 없다 —
+        // 그 상태에서 "빌드를 고르세요" 라고 하면 아무리 해도 안 없어지는 경고가 되고,
+        // 그런 경고가 하나 있으면 나머지 열세 줄까지 같이 못 믿게 된다.
         if let hasBuild = status.editableHasBuild {
-            out.append(hasBuild
-                ? ReadyItem(key: "asbuild", level: .ok, title: "버전에 빌드 연결됨",
-                            detail: "v\(status.notesVersion ?? status.reviewVersion ?? "?") 에 빌드가 선택돼 있습니다")
-                : ReadyItem(key: "asbuild", level: .need, title: "버전에 빌드 미연결",
-                            detail: "v\(status.notesVersion ?? status.reviewVersion ?? "?") 에 빌드가 선택돼 있지 않아 심사 제출이 안 됩니다",
-                            todo: "App Store Connect ▸ 해당 버전 ▸ '빌드' 에서 업로드한 빌드를 고르세요"))
+            let v = status.notesVersion ?? status.reviewVersion ?? "?"
+            if hasBuild {
+                out.append(ReadyItem(key: "asbuild", level: .ok, title: "버전에 빌드 연결됨",
+                                     detail: "v\(v) 에 빌드가 선택돼 있습니다"))
+            } else if status.ascBuildVersion == v {
+                // 올려는 놨는데 버전에 안 붙였다 — 여기서만 사람이 할 일이 있다
+                out.append(ReadyItem(
+                    key: "asbuild", level: .need, title: "버전에 빌드 미연결",
+                    detail: "v\(v) 빌드는 올라갔는데 버전에 선택돼 있지 않아 심사 제출이 안 됩니다",
+                    todo: "App Store Connect ▸ v\(v) ▸ '빌드' 에서 업로드한 빌드를 고르세요"))
+            } else {
+                out.append(ReadyItem(
+                    key: "asbuild", level: .ok, title: "빌드 업로드 전",
+                    detail: "v\(v) 빌드가 아직 없습니다 — 배포하면 올리면서 이 버전에 붙입니다"))
+            }
         }
 
         // 10.6) 릴리즈노트 문구 품질 — 키가 없으면 커밋 제목이 그대로 나간다

@@ -72,6 +72,9 @@ struct AppStatus: Identifiable, Codable {
     var liveVersion: String?
     var liveState: String?
     var ascBuild: String?
+    /// 가장 최근 올라간 빌드의 마케팅 버전. "이 버전 빌드가 아직 없는 것" 과
+    /// "있는데 버전에 안 붙인 것" 을 가르는 데 쓴다.
+    var ascBuildVersion: String?
     var ascError: String?
     var dirty: Bool = false
     var branch: String?
@@ -91,6 +94,9 @@ struct AppStatus: Identifiable, Codable {
     var notesUncheckable: Bool = false
     /// 편집 가능한 App Store 버전에 빌드가 붙어 있는가 (안 붙으면 심사 제출이 안 된다)
     var editableHasBuild: Bool?
+    /// deploy.env 의 LOCALES 중 App Store 페이지에 없는 언어.
+    /// 여기에 적어 둔 언어의 릴리즈노트는 만들어도 올라갈 자리가 없어 조용히 버려진다.
+    var notesUnlistedLocales: [String] = []
     /// 원격 대비 앞선/뒤처진 커밋 수 (upstream 이 없으면 nil)
     var ahead: Int?
     var behind: Int?

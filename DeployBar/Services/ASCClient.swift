@@ -57,8 +57,15 @@ enum ASCClient {
     static func appStoreVersions(appId: String) async throws -> [Version] {
         // build 관계를 같이 받는다 — '업로드는 했는데 버전에 빌드를 안 붙였다' 를 잡기 위해서다.
         // 이걸 모르면 심사 제출이 안 된 채로 "배포 완료" 로 보인다.
+        //
+        // ⚠️ include=build 가 반드시 있어야 한다. fields[...] 에 build 를 적는 것만으로는
+        //    relationships.build 에 links 만 오고 data 는 아예 오지 않는다 → hasBuild 가
+        //    **모든 버전에서 늘 false** 가 되어, 빌드를 제대로 붙여 놓은 앱에도
+        //    "버전에 빌드 미연결" 경고가 영원히 뜬다. 사람이 고칠 수 없는 경고는
+        //    체크리스트 전체의 신뢰를 깎으므로, 관계는 include 로 확실히 받는다.
         let j = try await api("GET", "/v1/apps/\(appId)/appStoreVersions?limit=10"
-            + "&fields[appStoreVersions]=versionString,appStoreState,build")
+            + "&fields[appStoreVersions]=versionString,appStoreState,build"
+            + "&include=build&fields[builds]=version")
         let data = j["data"] as? [[String: Any]] ?? []
         return data.compactMap { item in
             guard let id = item["id"] as? String,
@@ -75,9 +82,25 @@ enum ASCClient {
     }
 
     static func latestBuild(appId: String) async throws -> String? {
-        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&limit=1&sort=-uploadedDate&fields[builds]=version")
-        let data = j["data"] as? [[String: Any]]
-        return (data?.first?["attributes"] as? [String: Any])?["version"] as? String
+        try await latestUpload(appId: appId)?.build
+    }
+
+    /// 가장 최근에 올라간 빌드 — 빌드번호와 **그 빌드의 마케팅 버전**을 함께.
+    /// 마케팅 버전이 있어야 "이 버전 빌드가 아직 안 올라간 것" 과
+    /// "올라갔는데 버전에 안 붙인 것" 을 가를 수 있다. 요청은 한 번 그대로다.
+    struct Upload { let build: String; let version: String? }
+    static func latestUpload(appId: String) async throws -> Upload? {
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&limit=1&sort=-uploadedDate"
+            + "&fields[builds]=version,preReleaseVersion"
+            + "&include=preReleaseVersion&fields[preReleaseVersions]=version")
+        guard let item = (j["data"] as? [[String: Any]])?.first,
+              let build = (item["attributes"] as? [String: Any])?["version"] as? String else { return nil }
+        let pid = ((item["relationships"] as? [String: Any])?["preReleaseVersion"] as? [String: Any])?["data"] as? [String: Any]
+        let version = (pid?["id"] as? String).flatMap { id in
+            (j["included"] as? [[String: Any]])?.first { $0["id"] as? String == id }
+                .flatMap { ($0["attributes"] as? [String: Any])?["version"] as? String }
+        }
+        return Upload(build: build, version: version)
     }
 
     // 특정 마케팅 버전(preReleaseVersion.version)에 이미 올라간 최신 빌드번호.
