@@ -352,13 +352,21 @@ struct Readiness: Codable, Hashable {
                 fix: .openNotes))
         } else if !status.notesMissing.isEmpty {
             let head = status.notesMissing.prefix(4).map { Locales.displayName($0) }.joined(separator: ", ")
+            // [빈 언어 채우기] 는 **한국어를 원문으로 삼아** 나머지 언어로 옮긴다.
+            // 그런데 비어 있는 게 바로 그 한국어일 때도 이 안내를 그대로 내보냈다 —
+            // 시킨 대로 눌러 봐야 "한국어 문구를 먼저 채워 주세요" 로 되돌아오는 막다른 길이다.
+            // 출발점이 없을 땐 출발점을 어디에 쓰는지부터 말한다.
+            let v = status.notesVersion ?? status.localVersion ?? "버전"
+            let baseMissing = status.notesMissing.contains { Locales.isKorean($0) }
             out.append(ReadyItem(
                 key: "notes", level: notesGate == .strict ? .blocked : .need,
                 title: "릴리즈노트 비어 있음 — \(status.notesMissing.count)개 언어",
                 detail: "v\(status.notesVersion ?? "?") 의 '이 버전의 새로운 기능' 이 \(head)"
                     + (status.notesMissing.count > 4 ? " 외" : "") + " 에서 비어 있습니다",
                 fix: .openNotes,
-                todo: "[릴리즈노트] 창에서 [빈 언어 채우기] 를 누른 뒤 적용하세요"))
+                todo: baseMissing
+                    ? "RELEASE_NOTES.md 에 `## \(v)` ▸ `### 앱스토어` 절로 한국어 문구를 써 두거나 [릴리즈노트] 창에서 한국어 칸을 직접 채우세요 — 나머지 언어는 [빈 언어 채우기] 가 그 글에서 옮깁니다"
+                    : "[릴리즈노트] 창에서 [빈 언어 채우기] 를 누른 뒤 적용하세요"))
         } else if !status.notesFilled.isEmpty {
             out.append(ReadyItem(
                 key: "notes", level: .ok, title: "릴리즈노트 준비됨",
@@ -445,8 +453,20 @@ struct Readiness: Codable, Hashable {
 // 지시문을 체크리스트에서 기계적으로 만들어 낸다.
 // 항목이 이미 (무엇이 / 왜 막고 / 뭘 해야 하는지) 로 쪼개져 있으므로 조립만 하면 된다.
 extension ReadyItem {
-    /// 이 항목을 에이전트가 처리할 때 필요한 구체적 지시. 항목 종류마다 고정이라 손댈 게 없다.
-    var agentHint: String? {
+    /// 이 항목을 에이전트가 처리할 때 필요한 구체적 지시.
+    ///
+    /// `todo` 와는 다른 글이다. `todo` 는 **사람이 창을 열고 누를 일**이고
+    /// 이건 **에이전트가 파일을 고쳐서 끝낼 일**이다. 둘을 섞으면 안 된다 —
+    /// "[빈 언어 채우기] 를 누르세요" 가 그대로 프롬프트에 실려 나가면
+    /// 코딩 에이전트에겐 손댈 게 하나도 없는 지시가 된다. 붙여넣은 사람 눈엔
+    /// "프롬프트를 복사해 줬는데 아무 일도 안 일어난다" 로 보이고, 그게 실제로 있었던 일이다.
+    ///
+    /// 그래서 **막는 항목엔 빠짐없이 답을 준다.** 에이전트가 할 수 있으면 그 일을,
+    /// 사람만 할 수 있으면 "이건 네 몫이 아니다" 를 명시한다. nil 로 두면
+    /// 프롬프트에서 '할 일' 줄이 조용히 사라질 뿐, 문제는 그대로 남는다.
+    func agentHint(for status: AppStatus) -> String? {
+        // 노트를 써 넣을 절 제목에 쓴다 — 스토어에 올라갈 버전은 로컬 쪽이다
+        let version = status.localVersion ?? status.notesVersion ?? "버전"
         switch key {
         case "git":
             return "바뀐 내용을 확인하고 의미 단위로 나눠 커밋해줘. 커밋 메시지는 한국어로, 무엇을 왜 바꿨는지 한 줄로."
@@ -468,6 +488,17 @@ extension ReadyItem {
             return "번들 ID 가 App Store Connect 의 앱과 맞는지 확인해줘. 프로젝트 쪽 PRODUCT_BUNDLE_IDENTIFIER 가 잘못됐으면 고치고, 스토어에 앱이 없는 거라면 그렇다고 알려줘 (앱 등록은 내가 직접 한다)."
         case "project":
             return "deploy.env 의 SCHEME 이 실제 scheme 이름과 같은지 확인하고 다르면 고쳐줘. `xcodebuild -list` 로 확인할 수 있다."
+        case "notes", "notesrc":
+            // 스토어 문구는 앱 안이 아니라 App Store Connect 에 있다. 에이전트는 거기에 못 쓴다.
+            // 대신 RepoNotes 가 레포의 원고를 1순위로 읽으므로, 원고를 쓰는 것이 곧 해결이다.
+            return "레포 최상단 RELEASE_NOTES.md 에 `## \(version)` 절을 만들고, 그 아래 `### 앱스토어 (한국어)` 와 `### App Store (English)` 절에 각 언어 문구를 써서 커밋해줘. DeployBar 가 배포할 때 이 글을 그대로 스토어에 올린다. "
+                + "지킬 것: 글머리표(·, -, *)·번호·이모지·마크다운 강조를 쓰지 말고 한 줄에 한 문장씩, 3~5줄, 한 줄 40자 이내. "
+                + "내부 리팩터링·빌드 설정·의존성 얘기는 빼고 사용자가 무엇이 좋아졌는지만 쓴다. 영어는 한국어를 기계번역하지 말고 그 언어권에서 자연스럽게 다시 쓰되 항목 수와 순서는 맞춰줘. "
+                + "무엇을 냈는지는 직전 릴리즈 태그 이후의 커밋을 읽어서 판단해."
+        case "asclocale":
+            return "deploy.env 의 LOCALES 를 확인해줘. 스토어 페이지에 없는 언어를 지금 추가할 생각이 없다면 그 언어를 LOCALES 에서 빼고(주석과 키 순서는 그대로), 스토어에 언어를 추가할 생각이면 빼지 말고 그렇다고 알려줘 — 언어 추가는 App Store Connect 에서 사람이 한다."
+        case "asbuild":
+            return "이건 네가 할 수 있는 일이 아니다. App Store Connect 웹에서 사람이 빌드를 고르는 절차라 코드에 고칠 게 없어. 손대지 말고 남겨 둔 채로 알려줘."
         default:
             return nil
         }
@@ -497,7 +528,7 @@ extension Readiness {
                 s += "\(i + 1). \(item.title)\n"
                 s += "   - 상황: \(item.detail)\n"
                 if let t = item.todo { s += "   - 필요한 것: \(t)\n" }
-                if let h = item.agentHint { s += "   - 할 일: \(h)\n" }
+                if let h = item.agentHint(for: status) { s += "   - 할 일: \(h)\n" }
             }
         }
         section("❌ 배포를 막는 것 — 이것부터", blocked)
