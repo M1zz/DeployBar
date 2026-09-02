@@ -7,6 +7,7 @@ final class BuildCache: @unchecked Sendable {
     func get(_ k: String) -> BuildInfo? { lock.lock(); defer { lock.unlock() }; return map[k] }
     func set(_ k: String, _ v: BuildInfo) { lock.lock(); defer { lock.unlock() }; map[k] = v }
     func clear() { lock.lock(); defer { lock.unlock() }; map.removeAll() }
+    func remove(_ k: String) { lock.lock(); defer { lock.unlock() }; map[k] = nil }
 }
 
 enum AppRepo {
@@ -277,6 +278,8 @@ enum AppRepo {
     }
 
     static func clearCache() { cache.clear() }
+    /// 앱 하나만 다시 조회할 때 — 나머지 앱의 xcodebuild 결과까지 버리지 않는다
+    static func clearCache(_ path: String) { cache.remove(path) }
 }
 
 extension JSONEncoder {

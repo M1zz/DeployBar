@@ -163,6 +163,37 @@ final class Store: ObservableObject {
         if let data = try? JSONEncoder().encode(working) { try? data.write(to: Self.cacheURL) }
     }
 
+    // 앱 하나만 다시 조회한다.
+    //
+    // 전체 새로고침은 앱 수만큼 xcodebuild 와 ASC 왕복을 도느라 수십 초가 걸린다.
+    // 방금 한 앱을 고쳐 놓고 "이제 풀렸나" 를 보려고 나머지 서른 개를 기다릴 이유는 없다.
+    // 전체와 같은 순서로 돈다: 원격 → 상태 → 변화 알림. 다른 카드는 건드리지 않는다.
+    func refreshApp(_ path: String, fresh: Bool = true, pull: Bool = true) async {
+        // 전체 조회가 도는 중이면 그쪽이 곧 이 앱도 덮어쓴다 — 두 번 돌 이유가 없다
+        if isRefreshing || refreshingApps.contains(path) { return }
+        guard let app = appsByPath[path] else { return }
+        refreshingApps.insert(path)
+        fixResult[path] = nil          // 지난 '자동 설정' 결과 한 줄은 새로 조회할 때 지운다
+        if fresh { AppRepo.clearCache(path) }
+
+        let before = statuses.first(where: { $0.path == path })
+        let sync = await GitSync.run([app], pull: pull)
+        let st = await Status.of(app, fresh: fresh, sync: sync[path])
+
+        refreshingApps.remove(path)
+        if let i = statuses.firstIndex(where: { $0.path == path }) { statuses[i] = st }
+
+        var events = pullEvents([st])
+        if let before, let e = StatusChange.event(from: before, to: st) { events.append(e) }
+        announce(events)
+
+        if let data = try? JSONEncoder().encode(statuses) { try? data.write(to: Self.cacheURL) }
+    }
+
+    /// 지금 혼자 조회 중인 앱들. 카드가 자기 자리에서만 도는 표시를 낼 수 있게.
+    /// (전체 조회의 loading 과 달리, 다른 카드의 버튼을 잠그지 않는다)
+    @Published var refreshingApps: Set<String> = []
+
     /// 경로 → 앱. 조회할 때 한 번 만들어 두고 여기서만 읽는다.
     /// (예전엔 부를 때마다 AppRepo.registry() 를 다시 만들어 폴더를 훑고 apps.json 까지 썼다)
     var appsByPath: [String: ManagedApp] = [:]

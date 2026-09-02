@@ -20,6 +20,8 @@ struct AppCard: View {
     private var isDone: Bool { status.state == .deployed }
     /// 내가 제출해서 애플이 보고 있는 중 — '배포 가능' 과 반드시 구분해야 한다
     private var inReview: Bool { status.inReview }
+    /// 이 카드만 따로 조회 중 — 전체 새로고침(store.loading)과 구분한다
+    private var refreshing: Bool { store.refreshingApps.contains(status.path) }
 
     /// 폴더 이름이 바뀌어도 그대로인 신원. "이거 그 앱 맞나" 를 이름 위에서 확인할 수 있게.
     private var identity: String {
@@ -115,9 +117,10 @@ struct AppCard: View {
             HStack(alignment: .center, spacing: 8) {
                 if status.state != .loading && !readiness.items.isEmpty { summaryLine }
                 Spacer(minLength: 8)
-                if status.state == .loading {
+                if status.state == .loading || refreshing {
                     ProgressView().controlSize(.small)
-                } else if status.state != .error {
+                }
+                if status.state != .loading && status.state != .error {
                     deployControl
                     notesButton
                 }
@@ -303,6 +306,14 @@ struct AppCard: View {
     // 자주 안 쓰는 것은 전부 여기로 — 카드에 상시로 떠 있을 이유가 없다
     private var overflowMenu: some View {
         Menu {
+            Button {
+                Task { await store.refreshApp(status.path) }
+            } label: {
+                Label("이 앱만 새로고침", systemImage: "arrow.clockwise")
+            }
+            .disabled(refreshing || store.loading || store.job?.running == true)
+            Divider()
+
             if inReview, let app = store.app(named: status.path) {
                 Menu("심사 취소하고 다시 배포") {
                     Text("v\(status.reviewVersion ?? "?") 심사가 취소되고 새 빌드로 다시 시작합니다")
@@ -353,6 +364,6 @@ struct AppCard: View {
         .controlSize(.regular)
         .fixedSize()
         .menuIndicator(.hidden)
-        .help("버전 올리기 · 자동 설정 · 점검 · 관리에서 빼기")
+        .help("이 앱만 새로고침 · 버전 올리기 · 자동 설정 · 점검 · 관리에서 빼기")
     }
 }
