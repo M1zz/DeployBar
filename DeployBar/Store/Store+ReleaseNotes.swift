@@ -62,13 +62,15 @@ extension Store {
         return (out, failed)
     }
 
-    // 배포 직후 앱의 App Store 언어를 전부 조회해 언어별 릴리즈노트를 자동 반영
-    func applyReleaseNotes(_ app: ManagedApp, into job: Job) async {
+    // 배포 직후 앱의 App Store 언어를 전부 조회해 언어별 릴리즈노트를 자동 반영.
+    // 진행 패널에 그대로 걸 한 줄을 돌려준다 (실패도 한 줄로 — 칸이 조용히 초록이 되면 안 된다).
+    @discardableResult
+    func applyReleaseNotes(_ app: ManagedApp, into job: Job) async -> String {
         let st = statuses.first { $0.path == app.path }
         do {
             guard let target = try await ReleaseNotes.editableVersionAndLocales(app) else {
                 job.lines.append("📝 릴리즈노트 보류 — 편집 가능한 App Store 버전이 없습니다. ASC 에서 새 버전을 만든 뒤 [릴리즈노트]로 적용하세요.")
-                return
+                return "보류 — 편집 가능한 App Store 버전이 없습니다"
             }
             let codes = target.localeCodes
             job.lines.append("📝 릴리즈노트 자동 반영 (v\(target.versionString)) — 이 앱 언어 \(codes.count)개: \(codes.joined(separator: ", "))")
@@ -82,14 +84,19 @@ extension Store {
                 // 조용히 건너뛰면 '이 버전의 새로운 기능' 이 빈 채로 배포된다 — 왜 비었는지 말한다
                 job.lines.append("   ⚠️ 릴리즈노트를 만들지 못했습니다 — \(draft.note ?? "직전 릴리즈 이후 커밋이 없습니다")")
                 job.lines.append("   → [릴리즈노트] 창에서 직접 입력하면 이 버전에 반영됩니다")
-                return
+                return "만들지 못했습니다 — [릴리즈노트] 창에서 직접 입력하세요"
             }
             if Config.anthropicKey == nil {
                 job.lines.append("   ℹ️ ANTHROPIC_API_KEY 가 없어 커밋 제목을 그대로 씁니다 (사용자용 문구가 아닐 수 있음)")
                 job.lines.append("     ~/Library/Application Support/DeployBar/config.env 에 키를 넣으면 언어별로 다듬어 만듭니다")
             }
             let (texts, failed) = await fillMissing(draft.texts, base: draft.base) { job.lines.append($0) }
-            let result = try await ReleaseNotes.upload(app, texts: texts)
+            // 자동 반영은 **빈 언어만** 채운다. 사람이 써 둔 글을 커밋 제목으로 덮어쓰면
+            // 그건 되돌릴 수 없는 손실이다 (심사에 그대로 나간다).
+            let result = try await ReleaseNotes.upload(app, texts: texts, mode: .fillEmptyOnly)
+            if !result.kept.isEmpty {
+                job.lines.append("   ✓ 이미 써 둔 문구가 있어 그대로 둔 언어 \(result.kept.count)개: \(result.kept.joined(separator: ", "))")
+            }
             job.lines.append("   ✓ 반영 완료 \(result.locales.count)/\(codes.count): \(result.locales.joined(separator: ", "))")
             if !result.skipped.isEmpty {
                 job.lines.append("   ⚠️ 못 채운 언어 \(result.skipped.count)개: \(result.skipped.joined(separator: ", ")) — [릴리즈노트] 창에서 직접 입력하세요")
@@ -97,8 +104,13 @@ extension Store {
             if !failed.isEmpty && result.skipped.isEmpty {
                 job.lines.append("   ↳ 번역 실패했지만 같은 언어 문구로 채워진 언어: \(failed.joined(separator: ", "))")
             }
+            let keptTail = result.kept.isEmpty ? "" : " · 기존 문구 유지 \(result.kept.count)개"
+            return result.skipped.isEmpty
+                ? "v\(result.version) · \(result.locales.count)개 언어 반영\(keptTail)"
+                : "v\(result.version) · \(result.locales.count)/\(codes.count)개 언어\(keptTail) — 못 채움: \(result.skipped.joined(separator: ", "))"
         } catch {
             job.lines.append("📝 릴리즈노트 실패: \(error.localizedDescription)")
+            return "실패 — \(error.localizedDescription)"
         }
     }
 
@@ -163,7 +175,8 @@ extension Store {
         let empty = notesLocales.filter { (notesTexts[$0] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         notesMsg = "업로드 중…"
         do {
-            let r = try await ReleaseNotes.upload(app, texts: notesTexts)
+            // 사람이 창에서 직접 눌렀다 — 그 뜻대로 덮어쓴다 (자동 반영과 갈리는 지점)
+            let r = try await ReleaseNotes.upload(app, texts: notesTexts, mode: .overwrite)
             var msg = "✅ v\(r.version) 업데이트 \(r.locales.count)개: \(r.locales.joined(separator: ", "))"
             if !r.skipped.isEmpty { msg += " · 건너뜀: \(r.skipped.joined(separator: ", "))" }
             else if !empty.isEmpty { msg += " · 빈 언어 \(empty.count)개는 기존 문구 유지" }

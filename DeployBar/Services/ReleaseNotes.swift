@@ -208,16 +208,39 @@ enum ReleaseNotes {
         return EditableVersion(versionId: editable.id, versionString: editable.versionString, locales: locs)
     }
 
-    struct UploadResult { let version: String; let locales: [String]; let skipped: [String] }
+    struct UploadResult {
+        let version: String
+        let locales: [String]
+        let skipped: [String]
+        /// 이미 사람이 써 둔 게 있어서 손대지 않은 언어 (자동 반영에서만 생긴다)
+        let kept: [String]
+    }
+
+    /// 사람이 쓴 글을 기계가 덮어쓸 수 있는가.
+    ///
+    /// 이걸 기본값 없는 인자로 둔 이유가 있다. 예전엔 이 구분이 아예 없어서
+    /// **배포할 때마다 자동 초안이 이미 채워진 릴리즈노트를 덮어썼다.**
+    /// 공들여 쓴 문구가 커밋 제목 한 줄로 바뀌어 심사에 나가는 일이 실제로 일어났다.
+    /// 되돌릴 수 없는 글이니, 부르는 쪽이 매번 의도를 밝히게 한다.
+    enum WriteMode {
+        /// 자동 반영(배포 중) — 비어 있는 언어만 채운다. 있는 글은 건드리지 않는다.
+        case fillEmptyOnly
+        /// 사람이 [릴리즈노트] 창에서 직접 눌렀다 — 그 뜻대로 덮어쓴다.
+        case overwrite
+    }
 
     /// 언어별 문구를 App Store 에 반영한다. texts 에 없거나 빈 언어는 건드리지 않는다.
-    static func upload(_ app: ManagedApp, texts: [String: String]) async throws -> UploadResult {
+    static func upload(_ app: ManagedApp, texts: [String: String],
+                       mode: WriteMode) async throws -> UploadResult {
         guard let target = try await editableVersionAndLocales(app) else {
             throw NSError(domain: "DeployBar", code: 21, userInfo: [NSLocalizedDescriptionKey: "편집 가능한 App Store 버전이 없습니다 (먼저 새 버전을 준비하세요)"])
         }
         var updated: [String] = []
         var skipped: [String] = []
+        var kept: [String] = []
         for loc in target.locales {
+            // 이미 글이 있는데 자동 반영이라면 그대로 둔다 — 덮어쓸 권한이 없다
+            if mode == .fillEmptyOnly && !loc.isEmpty { kept.append(loc.locale); continue }
             // 정확히 일치하는 로케일 우선, 없으면 같은 언어의 문구를 재사용 ("en" 문구를 "en-GB" 에)
             let text = texts[loc.locale] ?? texts.first { Locales.sameLanguage($0.key, loc.locale) && !$0.value.isEmpty }?.value
             guard let whatsNew = text, !whatsNew.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -226,6 +249,7 @@ enum ReleaseNotes {
             try await ASCClient.patchWhatsNew(localizationId: loc.id, whatsNew: whatsNew)
             updated.append(loc.locale)
         }
-        return UploadResult(version: target.versionString, locales: updated, skipped: skipped)
+        return UploadResult(version: target.versionString, locales: updated,
+                            skipped: skipped, kept: kept)
     }
 }
