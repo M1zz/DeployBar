@@ -15,7 +15,7 @@ import Foundation
 enum RepoNotes {
 
     struct Found {
-        /// 언어 코드 → 문구 (ko / en 만 판별한다 — 글자를 보고 정한다)
+        /// 언어 코드 → 문구 (ko / ja / en 을 글자를 보고 정한다)
         var texts: [String: String]
         /// 어느 파일 어느 절에서 가져왔나 (로그에 그대로 남긴다)
         var source: String
@@ -111,6 +111,10 @@ enum RepoNotes {
     private static func language(of text: String) -> String? {
         let hangul = text.unicodeScalars.contains { 0xAC00...0xD7A3 ~= $0.value || 0x3131...0x318E ~= $0.value }
         if hangul { return "ko" }
+        // 가나(히라가나·가타카나)가 있으면 일본어다. 한자만으로는 중국어와 구분되지 않으므로
+        // 가나를 요구한다 — 애매하면 붙이지 않는 쪽이 안전하다 (엉뚱한 언어 칸에 올라간다).
+        let kana = text.unicodeScalars.contains { 0x3041...0x309F ~= $0.value || 0x30A0...0x30FF ~= $0.value }
+        if kana { return "ja" }
         let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
         guard !letters.isEmpty else { return nil }
         let latin = letters.filter { $0.value < 0x250 }.count

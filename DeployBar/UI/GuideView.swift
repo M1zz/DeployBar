@@ -90,6 +90,7 @@ struct GuideView: View {
 
                 Section(title: "9. 릴리즈노트 — 비어 있으면 배포가 막힙니다", icon: "doc.richtext") {
                     Note("'이 버전의 새로운 기능' 이 한 언어라도 비어 있으면 빌드를 만들기 전에 멈춥니다. 빈 노트로 나간 버전은 되돌릴 수 없어서, 업로드 뒤가 아니라 앞에서 막습니다. 빈 채로 내야 한다면 deploy.env 에 RELEASE_NOTES_GATE=warn 을 넣으세요.")
+                    Note("레포 최상단 RELEASE_NOTES.md 에 `## <버전>` ▸ `### 앱스토어` 절로 문구를 써 두면 배포가 시작할 때 그 글로 채우므로 막히지 않습니다. App Store 칸이 비어 있어도 원고가 있으면 체크리스트는 ✅ 입니다 — `DeployBar --reponotes <앱> <버전>` 으로 무엇을 읽어 가는지 미리 볼 수 있습니다.")
                     Text("""
                     배포가 끝나면 App Store 에 등록된 언어를 조회해 언어별 문구를 자동으로 올립니다.
                     문구는 ① AI(config.env 의 ANTHROPIC_API_KEY) → ② Apple 온디바이스 번역 → ③ 직접 입력 순서로 채워집니다.

@@ -36,6 +36,8 @@ struct ReadyItem: Codable, Identifiable, Hashable {
     var detail: String
     var fix: Fix? = nil          // 버튼 한 번으로 해결되는 것
     var todo: String? = nil      // 사람이 직접 해야 하는 것
+    /// 이 항목만의 에이전트 지시문. key 별 기본 문구(agentHint)가 이 상황엔 틀릴 때 쓴다.
+    var agent: String? = nil
 
     var id: String { key }
     var icon: String {
@@ -340,33 +342,84 @@ struct Readiness: Codable, Hashable {
         }
 
         // 10) 릴리즈노트 — 빈 채로 나간 버전은 되돌릴 수 없다
+        //
+        // 배포가 실제로 읽을 원고를 여기서도 같은 기준으로 찾는다.
+        // ReleaseNotes.draft 가 **로컬 버전**으로 RepoNotes 를 찾으므로 여기도 로컬 버전이다 —
+        // 기준이 갈라지면 체크리스트와 배포가 서로 다른 말을 하게 된다.
+        let repoNotes = status.localVersion.flatMap { RepoNotes.read(app.path, version: $0) }
         let notesGate = Localization.Mode(r.releaseNotesGate)
         if notesGate == .off {
             out.append(ReadyItem(
                 key: "notes", level: .ok, title: "릴리즈노트 검사 꺼짐",
                 detail: "RELEASE_NOTES_GATE=off — 비어 있어도 배포합니다"))
         } else if status.notesUncheckable {
+            // 예전엔 여기서 "업로드 뒤 자동으로 채웁니다" 라고 했다. 사실이 아니다.
+            // altool 은 빌드만 올릴 뿐 App Store 버전을 만들지 않고, DeployBar 에도
+            // 버전을 만드는 코드가 없다. 그래서 업로드 뒤 다시 도는 채우기도
+            // "편집 가능한 버전 없음" 으로 또 보류된다 — 기다리면 된다고 믿게 두면
+            // 빈 '이 버전의 새로운 기능' 으로 심사에 나간다. 누가 무엇을 해야 하는지 말한다.
+            let v = status.localVersion ?? "다음 버전"
             out.append(ReadyItem(
                 key: "notes", level: .need, title: "릴리즈노트 확인 불가",
-                detail: "편집 가능한 App Store 버전이 아직 없습니다 — 업로드 뒤 자동으로 채웁니다",
-                fix: .openNotes))
+                detail: "App Store Connect 에 편집 가능한 버전이 없어 확인할 수 없습니다"
+                    + (repoNotes != nil ? " · 원고(\(repoNotes!.source))는 준비돼 있습니다" : ""),
+                fix: .openNotes,
+                todo: "App Store Connect 에서 v\(v) 버전을 먼저 만드세요 — DeployBar 는 버전을 만들지 않습니다. "
+                    + "만들고 나면 배포가 시작할 때 릴리즈노트를 채웁니다",
+                agent: "이건 네가 할 수 있는 일이 아니다. App Store Connect 웹에서 사람이 새 버전을 만드는 절차라 코드에 고칠 게 없어. 손대지 말고 알려만 줘."))
         } else if !status.notesMissing.isEmpty {
             let head = status.notesMissing.prefix(4).map { Locales.displayName($0) }.joined(separator: ", ")
-            // [빈 언어 채우기] 는 **한국어를 원문으로 삼아** 나머지 언어로 옮긴다.
-            // 그런데 비어 있는 게 바로 그 한국어일 때도 이 안내를 그대로 내보냈다 —
-            // 시킨 대로 눌러 봐야 "한국어 문구를 먼저 채워 주세요" 로 되돌아오는 막다른 길이다.
-            // 출발점이 없을 땐 출발점을 어디에 쓰는지부터 말한다.
             let v = status.notesVersion ?? status.localVersion ?? "버전"
-            let baseMissing = status.notesMissing.contains { Locales.isKorean($0) }
-            out.append(ReadyItem(
-                key: "notes", level: notesGate == .strict ? .blocked : .need,
-                title: "릴리즈노트 비어 있음 — \(status.notesMissing.count)개 언어",
-                detail: "v\(status.notesVersion ?? "?") 의 '이 버전의 새로운 기능' 이 \(head)"
-                    + (status.notesMissing.count > 4 ? " 외" : "") + " 에서 비어 있습니다",
-                fix: .openNotes,
-                todo: baseMissing
-                    ? "RELEASE_NOTES.md 에 `## \(v)` ▸ `### 앱스토어` 절로 한국어 문구를 써 두거나 [릴리즈노트] 창에서 한국어 칸을 직접 채우세요 — 나머지 언어는 [빈 언어 채우기] 가 그 글에서 옮깁니다"
-                    : "[릴리즈노트] 창에서 [빈 언어 채우기] 를 누른 뒤 적용하세요"))
+
+            // App Store 칸이 비어 있다는 사실만으로 막지 않는다.
+            //
+            // 레포에 이번 버전 원고가 있으면 배포는 게이트 **앞에서** 그 글로 칸을 채운다
+            // (Store+Deploy 의 .notesPrefill). 그런데도 여기서 ❌ 를 띄우면 배포 버튼이 잠기고,
+            // 잠긴 걸 푸는 방법이라며 내미는 안내가 "RELEASE_NOTES.md 에 원고를 써라" —
+            // **이미 써 둔 바로 그 파일**이다. 시키는 대로 다시 써도 App Store 칸은 그대로라
+            // 영원히 안 풀린다. 복사한 프롬프트를 몇 번을 돌려도 13/15 에서 멈춰 있던 이유가 이거다.
+            //
+            // 여기서 답할 질문은 "App Store 칸이 찼나" 가 아니라 **"배포를 누르면 채울 글이 있나"** 다.
+            // 채운 뒤에도 비면 그때는 Deployer 의 게이트가 archive 앞에서 진짜로 막는다 —
+            // 안전장치는 거기 하나로 충분하고, 여기까지 막으면 그 게이트에 닿지도 못한다.
+            let uncovered = status.notesMissing.filter { loc in
+                !(repoNotes?.texts.keys.contains { Locales.sameLanguage($0, loc) } ?? false)
+            }
+            let repoBase = repoNotes?.texts.first { Locales.isKorean($0.key) }?.value ?? ""
+
+            if let repo = repoNotes, uncovered.isEmpty {
+                out.append(ReadyItem(
+                    key: "notes", level: .ok, title: "릴리즈노트 준비됨 — 배포할 때 올라감",
+                    detail: "v\(v) 의 App Store 칸(\(head))은 아직 비어 있지만 \(repo.source) 의 글로 배포 시작 때 채웁니다",
+                    fix: .openNotes))
+            } else if let repo = repoNotes, !repoBase.isEmpty {
+                // 한국어 원고는 있고 그 언어 절만 없다 — 온디바이스 번역이 메운다.
+                // 번역이 실패하면 archive 앞 게이트가 막으므로, 여기서는 알리기만 한다.
+                let rest = uncovered.map { Locales.displayName($0) }.joined(separator: ", ")
+                out.append(ReadyItem(
+                    key: "notes", level: .need, title: "릴리즈노트 \(uncovered.count)개 언어는 번역으로 채움",
+                    detail: "\(repo.source) 의 한국어 글을 \(rest) 로 옮겨 채웁니다 — 온디바이스 번역이 없으면 빈 채로 막힙니다",
+                    fix: .openNotes,
+                    todo: "확실히 하려면 RELEASE_NOTES.md 의 `## \(v)` 절에 \(rest) 문구를 직접 써 두세요",
+                    agent: "RELEASE_NOTES.md 의 `## \(v)` 절에 \(rest) 문구만 추가해줘. 한국어 절은 이미 있으니 건드리지 마. "
+                        + "기계번역하지 말고 그 언어권에서 자연스럽게 다시 쓰되 항목 수와 순서는 한국어 절과 맞춰줘. "
+                        + "글머리표·번호·이모지·마크다운 강조 없이 한 줄에 한 문장씩, 한 줄 40자 이내."))
+            } else {
+                // 원고가 아예 없거나, 있어도 번역의 출발점인 한국어가 없다.
+                // [빈 언어 채우기] 는 한국어를 원문으로 삼으므로, 출발점이 없을 땐
+                // 그 버튼을 누르라고 해 봐야 "한국어 문구를 먼저 채워 주세요" 로 되돌아온다.
+                let baseMissing = repoBase.isEmpty
+                out.append(ReadyItem(
+                    key: "notes", level: notesGate == .strict ? .blocked : .need,
+                    title: "릴리즈노트 비어 있음 — \(status.notesMissing.count)개 언어",
+                    detail: "v\(status.notesVersion ?? "?") 의 '이 버전의 새로운 기능' 이 \(head)"
+                        + (status.notesMissing.count > 4 ? " 외" : "") + " 에서 비어 있습니다"
+                        + (repoNotes == nil ? " · 레포에도 v\(status.localVersion ?? "?") 원고가 없습니다" : ""),
+                    fix: .openNotes,
+                    todo: baseMissing
+                        ? "RELEASE_NOTES.md 에 `## \(v)` ▸ `### 앱스토어` 절로 한국어 문구를 써 두거나 [릴리즈노트] 창에서 한국어 칸을 직접 채우세요 — 나머지 언어는 [빈 언어 채우기] 가 그 글에서 옮깁니다"
+                        : "[릴리즈노트] 창에서 [빈 언어 채우기] 를 누른 뒤 적용하세요"))
+            }
         } else if !status.notesFilled.isEmpty {
             out.append(ReadyItem(
                 key: "notes", level: .ok, title: "릴리즈노트 준비됨",
@@ -415,7 +468,7 @@ struct Readiness: Codable, Hashable {
         // 도구 설정이고, 키를 사지 않는 한 31개 앱 전부에서 영원히 안 지워지는 항목이었다.
         // 체크리스트가 답해야 할 질문은 "키가 있나" 가 아니라
         // **"이번 버전에 올릴 문구가 준비돼 있나"** 다. 그 답만 말한다.
-        if let v = status.localVersion, let repo = RepoNotes.read(app.path, version: v) {
+        if let repo = repoNotes {
             out.append(ReadyItem(
                 key: "notesrc", level: .ok, title: "릴리즈노트 원고 있음",
                 detail: "\(repo.source) — 배포할 때 이 글을 씁니다"))
@@ -465,6 +518,8 @@ extension ReadyItem {
     /// 사람만 할 수 있으면 "이건 네 몫이 아니다" 를 명시한다. nil 로 두면
     /// 프롬프트에서 '할 일' 줄이 조용히 사라질 뿐, 문제는 그대로 남는다.
     func agentHint(for status: AppStatus) -> String? {
+        // 같은 key 라도 상황이 다르면 할 일이 다르다 (원고가 아예 없는 것과 한 언어만 빈 것)
+        if let agent { return agent }
         // 노트를 써 넣을 절 제목에 쓴다 — 스토어에 올라갈 버전은 로컬 쪽이다
         let version = status.localVersion ?? status.notesVersion ?? "버전"
         switch key {

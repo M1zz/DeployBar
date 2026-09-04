@@ -210,7 +210,22 @@ enum Deployer {
                 } else {
                     let head = notes.missing.prefix(5).map { Locales.displayName($0) }.joined(separator: ", ")
                     let msg = "v\(notes.version) 의 '이 버전의 새로운 기능' 이 \(notes.missing.count)개 언어에서 비어 있습니다"
-                    if notesGate == .strict {
+                    // check 는 스토어에 쓰지 않으므로 채우기(.notesPrefill)를 건너뛴다.
+                    // 그래서 **진짜 배포라면 채워졌을 칸**을 비어 있다고 보고 ❌ 를 냈다 —
+                    // 레포에 원고를 써 둔 사람에게 "그래도 비어 있다" 고 답하는 셈이라,
+                    // 시키는 대로 원고를 다시 써도 check 는 계속 빨갛다. 여기서만 원고를 본다.
+                    // (진짜 배포에서는 절대 이 완화를 쓰지 않는다. 채우기가 실패했는데도
+                    //  통과시키면 빈 노트가 그대로 심사에 나간다 — 게이트가 있는 이유가 그거다.)
+                    let repoCovers = lane == .check
+                        && RepoNotes.read(app.path, version: info.marketingVersion).map { found in
+                            notes.missing.allSatisfy { loc in
+                                found.texts.keys.contains { Locales.sameLanguage($0, loc) }
+                            }
+                        } == true
+                    if repoCovers {
+                        onLog("📝 릴리즈노트: App Store 칸은 비었지만 레포 원고가 \(notes.missing.count)개 언어를 덮습니다 — 배포하면 채웁니다")
+                        done(.notes, "레포 원고로 채워집니다 (\(head))")
+                    } else if notesGate == .strict {
                         throw DeployError(
                             app: app.name, path: app.path, stage: "릴리즈노트 검사",
                             title: msg,
@@ -219,13 +234,16 @@ enum Deployer {
                                    "채운 뒤 [배포] 를 다시 누르면 됩니다"],
                             detail: "빈 언어: \(head)\(notes.missing.count > 5 ? " 외" : "")",
                             fix: .openNotes)
+                    } else {
+                        onLog("⚠️  릴리즈노트 비어 있음 (\(head)) — RELEASE_NOTES_GATE=warn 이라 진행합니다")
+                        done(.notes, "\(notes.missing.count)개 언어 비어 있음 — warn 이라 진행")
                     }
-                    onLog("⚠️  릴리즈노트 비어 있음 (\(head)) — RELEASE_NOTES_GATE=warn 이라 진행합니다")
-                    done(.notes, "\(notes.missing.count)개 언어 비어 있음 — warn 이라 진행")
                 }
             } else {
-                onLog("📝 릴리즈노트: 편집 가능한 App Store 버전이 없어 확인 생략 — 업로드 뒤 자동 반영합니다")
-                skip(.notes, "편집 가능한 App Store 버전 없음 — 업로드 뒤 반영")
+                // 업로드가 App Store 버전을 만들어 주지는 않는다 (altool 은 빌드만 올린다).
+                // 사람이 App Store Connect 에서 버전을 만들기 전까지는 쓸 자리가 없다.
+                onLog("📝 릴리즈노트: App Store Connect 에 편집 가능한 버전이 없어 확인 생략 — 버전을 만든 뒤에 반영됩니다")
+                skip(.notes, "편집 가능한 App Store 버전 없음 — ASC 에서 버전을 먼저 만드세요")
             }
         }
 
