@@ -75,13 +75,18 @@ private struct FailurePanel: View {
     @EnvironmentObject var store: Store
     @State private var copied = false
 
+    // 색조 배경(주황 10%) 위에서 .secondary 는 남는 대비가 거의 없다.
+    // 하필 이 패널이 "무엇이 왜 멈췄나" 를 말하는 자리라, 안 보이면 실패가 통째로 사라진다.
+    private let inkStrong = Color.primary.opacity(0.82)
+    private let inkDim = Color.primary.opacity(0.66)
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(failure.stage) 단계에서 멈췄습니다")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .font(.caption.weight(.semibold)).foregroundStyle(inkDim)
                     Text(failure.title)
                         .font(.callout.weight(.semibold))
                         .fixedSize(horizontal: false, vertical: true)
@@ -114,10 +119,10 @@ private struct FailurePanel: View {
 
             if !failure.todo.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("지금 할 일").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("지금 할 일").font(.caption.weight(.semibold)).foregroundStyle(inkDim)
                     ForEach(Array(failure.todo.enumerated()), id: \.offset) { i, t in
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("\(i + 1).").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            Text("\(i + 1).").font(.caption.monospacedDigit()).foregroundStyle(inkDim)
                             Text(t).font(.caption)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .textSelection(.enabled)
@@ -128,10 +133,10 @@ private struct FailurePanel: View {
 
             if !failure.detail.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("도구가 한 말").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("도구가 한 말").font(.caption.weight(.semibold)).foregroundStyle(inkDim)
                     Text(failure.detail)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundStyle(inkStrong)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }

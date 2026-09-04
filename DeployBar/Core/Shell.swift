@@ -30,6 +30,23 @@ enum Shell {
     // 표준출력+표준에러를 라인 단위로 onLog 스트리밍. 종료코드 0 이 아니면 throw.
     // 전체 출력 문자열을 반환한다(altool 처럼 종료코드 0 으로도 실패를 알리는 경우 검사용).
     @discardableResult
+
+    /// 자식 프로세스에게 줄 환경. **UTF-8 로케일을 보장한다.**
+    ///
+    /// GUI 로 띄운 앱에는 LANG 이 없다 (터미널이 넣어 주는 값이라서). 그래서 여기서 부르는
+    /// 스크립트는 C 로케일로 돈다. C 로케일의 grep 은 `[가나다]` 같은 대괄호 표현을
+    /// **글자가 아니라 바이트** 단위로 다루기 때문에, 한국어·중국어 본문이 통째로 걸린다.
+    ///
+    /// 클립키보드의 긴 줄표 검사가 정확히 이걸로 배포를 막았다. 사람이 터미널에서
+    /// 같은 스크립트를 돌리면 통과하고 DeployBar 안에서만 실패해서, 재현이 안 되는 실패였다.
+    /// 도구가 만든 환경 때문에 앱 쪽 스크립트가 다르게 도는 일은 여기서 끝낸다.
+    static func childEnvironment(_ extra: [String: String] = [:]) -> [String: String] {
+        var e = ProcessInfo.processInfo.environment
+        if e["LC_ALL"] == nil, e["LANG"] == nil { e["LANG"] = "en_US.UTF-8" }
+        for (k, v) in extra { e[k] = v }
+        return e
+    }
+
     static func run(
         _ launch: String,
         _ args: [String],
@@ -42,6 +59,7 @@ enum Shell {
             p.executableURL = URL(fileURLWithPath: launch)
             p.arguments = args
             if let cwd { p.currentDirectoryURL = cwd }
+            p.environment = childEnvironment()
             let pipe = Pipe()
             p.standardOutput = pipe
             p.standardError = pipe
@@ -100,11 +118,7 @@ enum Shell {
         p.executableURL = URL(fileURLWithPath: launch)
         p.arguments = args
         if let cwd { p.currentDirectoryURL = cwd }
-        if !extra.isEmpty {
-            var e = ProcessInfo.processInfo.environment
-            for (k, v) in extra { e[k] = v }
-            p.environment = e
-        }
+        p.environment = childEnvironment(extra)
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = pipe
@@ -134,6 +148,7 @@ enum Shell {
         p.executableURL = URL(fileURLWithPath: launch)
         p.arguments = args
         if let cwd { p.currentDirectoryURL = cwd }
+        p.environment = childEnvironment()
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
