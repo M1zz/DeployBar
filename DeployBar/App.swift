@@ -24,13 +24,16 @@ struct DeployBarApp: App {
         .defaultSize(width: 460, height: 600)
         .windowResizability(.contentMinSize)
 
+        // 메뉴바는 창의 복사본이 아니다 — "지금 뭐가 돌고 있고 내가 누를 게 있나" 만 답한다.
+        // 고르고 읽고 고치는 일은 전부 창(ContentView)의 몫이다.
         MenuBarExtra {
-            ContentView()
+            MenuBarPanel()
                 .environmentObject(store)
         } label: {
             // 앱 아이콘과 같은 도형에서 뽑은 템플릿 이미지 (scripts/make_icon.swift).
             // 템플릿이라 밝은/어두운 메뉴바에 맞춰 macOS 가 알아서 칠한다.
-            Image("MenuBarIcon").renderingMode(.template)
+            // 옆의 숫자가 상태다 — 배포 중이면 진행 칸, 아니면 지금 올릴 수 있는 앱 수.
+            MenuBarLabel(store: store)
         }
         .menuBarExtraStyle(.window)
 

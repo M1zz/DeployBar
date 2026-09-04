@@ -70,6 +70,15 @@ struct ContentView: View {
                 .help("상태 다시 조회 — 원격의 새 커밋도 받아옵니다")
             }
             .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 9)
+            // 메뉴바에서 분류를 눌러 열었으면 그 분류를 걸어 준다 (한 번 쓰고 비운다)
+            .onChange(of: store.focusFilter) { _, new in
+                guard let new else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    filter = new
+                    editingOrder = false
+                }
+                store.focusFilter = nil
+            }
 
             // 변화 알림은 앱 안에서, 사람이 닫을 때까지 (시스템 알림 권한과 무관하게)
             if !store.notices.isEmpty && !editingOrder {

@@ -22,6 +22,7 @@
 		473A5C4B6A8C7BBA2C3420EB /* Readiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9EE1D707F414933B0F50390 /* Readiness.swift */; };
 		47BC0F1E84D79021B9086CD2 /* Store+ReleaseNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C56DBFC16FAA54399A3E620E /* Store+ReleaseNotes.swift */; };
 		4A69BADEE3A0780C7136E4C5 /* ReleaseNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2031292F4200301117DF4A /* ReleaseNotes.swift */; };
+		5AE46D691EE910833D80EAD5 /* MenuBarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38597888E635324CD29D2333 /* MenuBarPanel.swift */; };
 		5BE97B29E7094B091E5BC608 /* Notifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB6479E21A3BE2BCC8DA4CE /* Notifier.swift */; };
 		66342B21D45D2D032AF851BD /* AppCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE808863D0A36BAA4A1D7F9 /* AppCard.swift */; };
 		72111E611219448617778907 /* GitInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A374A6AA5C657BDAE55BFDA7 /* GitInfo.swift */; };
@@ -55,6 +56,7 @@
 		2682C393B3944D18F64D114C /* DeployProgressPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployProgressPanel.swift; sourceTree = "<group>"; };
 		2E84E2C115C59E8BF29DA44E /* Clipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Clipboard.swift; sourceTree = "<group>"; };
 		36C4E9821C1904EC4156A7E9 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
+		38597888E635324CD29D2333 /* MenuBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanel.swift; sourceTree = "<group>"; };
 		3A81893B64F9BF7E01870AEE /* Store+Deploy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Deploy.swift"; sourceTree = "<group>"; };
 		3AB5A3E1CEDA622000143B89 /* DeployError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployError.swift; sourceTree = "<group>"; };
 		3E55DF12EAD4025F0A9D0BC7 /* ChangeBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeBanner.swift; sourceTree = "<group>"; };
@@ -178,6 +180,7 @@
 				2682C393B3944D18F64D114C /* DeployProgressPanel.swift */,
 				4C475F592B99AE48A33769A5 /* GuideView.swift */,
 				E28399DAC3FBD06AB97D825B /* LogView.swift */,
+				38597888E635324CD29D2333 /* MenuBarPanel.swift */,
 				36C4E9821C1904EC4156A7E9 /* NotesView.swift */,
 				B228C05B05FA1AC680B6515D /* OrderEditor.swift */,
 				7E4FC0E414301AA4BBB5C5E2 /* ReadinessChecklist.swift */,
@@ -277,6 +280,7 @@
 				07056F64EDD79B538C159BA3 /* Locales.swift in Sources */,
 				DC93BC612F98D0BBE5EFDAEF /* Localization.swift in Sources */,
 				ED3BDBBD571E0856E798D08D /* LogView.swift in Sources */,
+				5AE46D691EE910833D80EAD5 /* MenuBarPanel.swift in Sources */,
 				F582D48D2BDC9F84C3DA5ADD /* Models.swift in Sources */,
 				36148CF28DACAEA5519E04FF /* NotesView.swift in Sources */,
 				5BE97B29E7094B091E5BC608 /* Notifier.swift in Sources */,

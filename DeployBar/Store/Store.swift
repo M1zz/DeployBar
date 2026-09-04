@@ -270,6 +270,10 @@ final class Store: ObservableObject {
 
     /// 변화 히스토리. 사람이 ✕ 로 지울 때까지 남고, **앱을 껐다 켜도 남는다** —
     /// 메모리에만 두면 재시작 한 번에 "그때 뭐가 풀렸더라" 를 잃는다.
+    /// 메뉴바에서 "막힘 2개" 를 눌렀을 때 창이 그 분류만 걸고 열리게 하는 신호.
+    /// 세어서 보여 주기만 하고 누를 수 없으면, 31개 목록에서 그 2개를 눈으로 찾아야 한다.
+    @Published var focusFilter: AppFilter?
+
     @Published var notices: [StatusChange.Event] = []
 
     static var noticesURL: URL { Config.supportDir.appendingPathComponent("changes.json") }

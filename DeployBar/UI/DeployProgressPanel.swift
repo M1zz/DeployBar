@@ -11,8 +11,16 @@ import SwiftUI
 // "멈춘 건가" 를 묻게 만든다. 남은 칸이 회색으로 미리 서 있으면 그 질문 자체가 안 생긴다.
 struct DeployProgressPanel: View {
     @ObservedObject var job: Job
+    /// 메뉴바 팝오버처럼 좁은 자리에서는 칸 목록을 접고 시작한다 (필요하면 그 자리에서 펼친다)
+    var compact = false
     /// 도는 동안 흐른 시간이 실제로 움직이게 한다 — 숫자가 안 움직이면 멈춘 걸로 읽힌다
-    @State private var expanded = true
+    @State private var expanded: Bool
+
+    init(job: Job, compact: Bool = false) {
+        self.job = job
+        self.compact = compact
+        _expanded = State(initialValue: !compact)
+    }
 
     private var progress: DeployProgress? { job.progress }
 
@@ -26,7 +34,7 @@ struct DeployProgressPanel: View {
                     bar(p, now: now)
                     if expanded { stageList(p, now: now) }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 10)
+                .padding(.horizontal, 12).padding(.vertical, compact ? 8 : 10)
                 .background(bannerColor(p).opacity(0.10))
             }
         }
@@ -109,7 +117,7 @@ struct DeployProgressPanel: View {
                     Text(step.stage.title)
                         .font(.caption.weight(step.state == .running ? .semibold : .regular))
                         .foregroundStyle(titleColor(step))
-                        .frame(width: 96, alignment: .leading)
+                        .frame(width: compact ? 78 : 96, alignment: .leading)
                     Text(step.note ?? (step.state == .running ? step.stage.hint : ""))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
