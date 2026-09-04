@@ -24,6 +24,16 @@ struct DeployProgressPanel: View {
 
     private var progress: DeployProgress? { job.progress }
 
+    // ── 대비 ─────────────────────────────────────────────────────────
+    // .secondary(≈50%)·.tertiary(≈25%) 는 흰 바탕을 전제한 값이다. 이 패널은 그 위에
+    // 색조 배경(bannerColor 10%)을 한 겹 더 깔기 때문에, 그 위의 회색 글씨는 남는 대비가
+    // 거의 없다 — 설명도 흐른 시간도 남은 칸 이름도 화면에서 사라진다.
+    // 배포 중에 제일 알고 싶은 것이 바로 그 글자들이라, 여기서는 반투명 등급 대신
+    // 불투명도를 직접 정한다.
+    private let noteInk = Color.primary.opacity(0.78)     // 칸 설명·힌트
+    private let dimInk = Color.primary.opacity(0.62)      // 흐른 시간·개수
+    private let pendingInk = Color.primary.opacity(0.55)  // 아직 시작 안 한 칸
+
     var body: some View {
         if let p = progress {
             // 1초마다 다시 그린다: 흐른 시간과 막대가 같이 움직여야 '살아 있음' 이 보인다
@@ -35,7 +45,7 @@ struct DeployProgressPanel: View {
                     if expanded { stageList(p, now: now) }
                 }
                 .padding(.horizontal, 12).padding(.vertical, compact ? 8 : 10)
-                .background(bannerColor(p).opacity(0.10))
+                .background(bannerColor(p).opacity(0.07))
             }
         }
     }
@@ -52,7 +62,7 @@ struct DeployProgressPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if let cur = p.current {
                     Text(cur.stage.hint)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(noteInk)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -60,15 +70,15 @@ struct DeployProgressPanel: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text("\(p.finishedCount)/\(p.steps.count)")
                     .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(dimInk)
                 Text(totalElapsed(p, now: now))
-                    .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                    .font(.caption2.monospacedDigit()).foregroundStyle(dimInk)
             }
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
             } label: {
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9)).foregroundStyle(.secondary)
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(dimInk)
             }
             .buttonStyle(.plain)
             .help(expanded ? "단계 접기" : "단계 펼치기")
@@ -119,14 +129,14 @@ struct DeployProgressPanel: View {
                         .foregroundStyle(titleColor(step))
                         .frame(width: compact ? 78 : 96, alignment: .leading)
                     Text(step.note ?? (step.state == .running ? step.stage.hint : ""))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                        .foregroundStyle(noteInk)
                         .lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 4)
                     if let e = step.elapsed(now: now), step.state != .pending, e >= 1 {
                         Text(e.stageClock)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(step.state == .running ? .secondary : .tertiary)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(dimInk)
                     }
                 }
             }
@@ -136,14 +146,15 @@ struct DeployProgressPanel: View {
     @ViewBuilder private func mark(_ step: StageStep) -> some View {
         switch step.state {
         case .pending:
-            Image(systemName: "circle").font(.system(size: 8)).foregroundStyle(.tertiary)
+            Image(systemName: "circle")
+                .font(.system(size: 8, weight: .semibold)).foregroundStyle(pendingInk)
         case .running:
-            ProgressView().controlSize(.mini).scaleEffect(0.7)
+            ProgressView().controlSize(.mini).scaleEffect(0.8)
         case .done:
             Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.green)
         case .skipped:
             // 건너뜀은 실패가 아니다 — 초록도 빨강도 아닌 자리를 준다
-            Image(systemName: "minus").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
+            Image(systemName: "minus").font(.system(size: 9, weight: .bold)).foregroundStyle(pendingInk)
         case .failed:
             Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.red)
         }
@@ -151,7 +162,7 @@ struct DeployProgressPanel: View {
 
     private func titleColor(_ step: StageStep) -> Color {
         switch step.state {
-        case .pending, .skipped: return .secondary
+        case .pending, .skipped: return pendingInk
         case .running:           return .primary
         case .done:              return .primary
         case .failed:            return .red
