@@ -50,6 +50,16 @@ enum Localization {
 
     private static let hangul = try! NSRegularExpression(pattern: "[가-힣]")
 
+    /// 서식 지정자(%@ · %1$lld …)와 {토큰} 을 걷어내고도 글자가 남는가.
+    /// 남지 않으면 옮길 문장이 없는 키다.
+    static func hasTranslatableText(_ s: String) -> Bool {
+        var body = s.replacingOccurrences(
+            of: "%[0-9]*\\$?[@a-zA-Z]|%[0-9]*\\$?l{0,2}[dfsu]",
+            with: " ", options: .regularExpression)
+        body = body.replacingOccurrences(of: "\\{[^}]*\\}", with: " ", options: .regularExpression)
+        return body.unicodeScalars.contains { CharacterSet.letters.contains($0) }
+    }
+
     static func hasHangul(_ s: String) -> Bool {
         hangul.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil
     }
@@ -138,6 +148,18 @@ enum Localization {
                 if let should = entry["shouldTranslate"] as? Bool, should == false { continue }
                 // 빈 키는 화면에 아무것도 안 나오는 잔재 항목 — 번역 구멍이 아니다
                 if key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                // Xcode 가 stale 로 표시한 키 = 코드 어디에서도 더 이상 안 쓰는 문자열.
+                //
+                // 이걸 세면 **고칠 수 없는 경고**가 된다. 사람이 번역을 채워도 다음 배포에
+                // 또 나오고(안 쓰는 키니까), 지우자니 Xcode 가 카탈로그에 계속 들고 있다.
+                // 클립키보드는 이렇게 쌓인 잔재가 377개라 "번역 구멍 417건" 이 떴는데
+                // 그중 실제로 사용자에게 보이는 건 0건이었다. 앱의 i18n 검사는 통과하는데
+                // DeployBar 만 빨간, 아무도 못 믿는 숫자였다.
+                if let st = entry["extractionState"] as? String, st == "stale" { continue }
+                // 자리표시자뿐인 키는 옮길 글이 없다.
+                // "{가격}" 은 글자가 들어 있지만 통째로 토큰이라 번역할 문장이 아니다 —
+                // 이런 걸 세면 채울 수도 없는 구멍이 영원히 남는다.
+                if !hasTranslatableText(key) { continue }
                 let locs = entry["localizations"] as? [String: Any] ?? [:]
 
                 for target in targets {
