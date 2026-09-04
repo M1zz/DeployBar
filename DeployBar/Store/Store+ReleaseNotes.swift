@@ -75,6 +75,22 @@ extension Store {
             let codes = target.localeCodes
             job.lines.append("📝 릴리즈노트 자동 반영\(when.isEmpty ? "" : " (\(when))") · v\(target.versionString) — 이 앱 언어 \(codes.count)개: \(codes.joined(separator: ", "))")
 
+            // deploy.env 에 적었지만 App Store 페이지에는 없는 언어.
+            //
+            // 이 언어는 반영 대상(codes)에 아예 들어오지 않으므로 skipped 에도 안 잡힌다.
+            // 그래서 원고를 써 두고 배포해도 로그는 ✅ 로 끝나고 그 언어만 조용히 사라진다 —
+            // "일본어 노트를 분명히 썼는데 스토어엔 한국어뿐이지" 의 답이 여기 있다.
+            // 체크리스트에만 적어 두면 배포할 땐 안 보이니, 사라지는 자리에서 말한다.
+            let declared = AppRepo.resolve(app).locales
+            let unlisted = declared.filter { want in !codes.contains { Locales.sameLanguage($0, want) } }
+            if !unlisted.isEmpty {
+                let names = unlisted.map { Locales.displayName($0) }.joined(separator: ", ")
+                job.lines.append("   ⚠️ deploy.env 의 \(names) 는 App Store 페이지에 없어 올릴 자리가 없습니다 — 이 언어 문구는 버려집니다")
+                job.lines.append("     App Store Connect ▸ 앱 정보 ▸ 현지화에서 언어를 추가하거나, deploy.env 의 LOCALES 에서 빼세요")
+            }
+            let unlistedTail = unlisted.isEmpty ? ""
+                : " · 올릴 자리 없음: \(unlisted.map { Locales.displayName($0) }.joined(separator: ", "))"
+
             // App Store 가 실제로 요구하는 언어 그대로 초안을 만든다 (AI 키가 있으면 호출 1회로 전부)
             let draft = await ReleaseNotes.draft(app,
                                                  liveVersion: st?.liveVersion,
@@ -105,9 +121,10 @@ extension Store {
                 job.lines.append("   ↳ 번역 실패했지만 같은 언어 문구로 채워진 언어: \(failed.joined(separator: ", "))")
             }
             let keptTail = result.kept.isEmpty ? "" : " · 기존 문구 유지 \(result.kept.count)개"
-            return result.skipped.isEmpty
+            return (result.skipped.isEmpty
                 ? "v\(result.version) · \(result.locales.count)개 언어 반영\(keptTail)"
-                : "v\(result.version) · \(result.locales.count)/\(codes.count)개 언어\(keptTail) — 못 채움: \(result.skipped.joined(separator: ", "))"
+                : "v\(result.version) · \(result.locales.count)/\(codes.count)개 언어\(keptTail) — 못 채움: \(result.skipped.joined(separator: ", "))")
+                + unlistedTail
         } catch {
             job.lines.append("📝 릴리즈노트 실패: \(error.localizedDescription)")
             return "실패 — \(error.localizedDescription)"
