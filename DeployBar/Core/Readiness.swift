@@ -346,7 +346,13 @@ struct Readiness: Codable, Hashable {
         // 배포가 실제로 읽을 원고를 여기서도 같은 기준으로 찾는다.
         // ReleaseNotes.draft 가 **로컬 버전**으로 RepoNotes 를 찾으므로 여기도 로컬 버전이다 —
         // 기준이 갈라지면 체크리스트와 배포가 서로 다른 말을 하게 된다.
-        let repoNotes = status.localVersion.flatMap { RepoNotes.read(app.path, version: $0) }
+        // 절 제목의 언어 이름을 알아보려면 이 앱이 쓰는 로케일을 알아야 한다.
+        // App Store 가 실제로 요구하는 언어가 1순위고, 아직 못 물어봤으면 deploy.env 를 쓴다.
+        let notesLocales = (status.notesFilled + status.notesMissing).isEmpty
+            ? r.locales : (status.notesFilled + status.notesMissing)
+        let repoNotes = status.localVersion.flatMap {
+            RepoNotes.read(app.path, version: $0, locales: notesLocales)
+        }
         let notesGate = Localization.Mode(r.releaseNotesGate)
         if notesGate == .off {
             out.append(ReadyItem(

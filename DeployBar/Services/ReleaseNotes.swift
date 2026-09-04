@@ -40,7 +40,7 @@ enum ReleaseNotes {
         //    커밋 제목을 짜내기 전에 이것부터 본다 — 이미 스토어에서 읽힐 문장으로 쓰인 글이다.
         var repoNote: String?
         var repoBase = ""
-        if let v = localVersion, let found = RepoNotes.read(app.path, version: v) {
+        if let v = localVersion, let found = RepoNotes.read(app.path, version: v, locales: targets) {
             for (lang, text) in found.texts {
                 for t in targets where Locales.sameLanguage(t, lang) && texts[t]!.isEmpty {
                     texts[t] = text

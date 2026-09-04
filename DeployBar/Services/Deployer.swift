@@ -217,7 +217,8 @@ enum Deployer {
                     // (진짜 배포에서는 절대 이 완화를 쓰지 않는다. 채우기가 실패했는데도
                     //  통과시키면 빈 노트가 그대로 심사에 나간다 — 게이트가 있는 이유가 그거다.)
                     let repoCovers = lane == .check
-                        && RepoNotes.read(app.path, version: info.marketingVersion).map { found in
+                        && RepoNotes.read(app.path, version: info.marketingVersion,
+                                          locales: notes.filled + notes.missing).map { found in
                             notes.missing.allSatisfy { loc in
                                 found.texts.keys.contains { Locales.sameLanguage($0, loc) }
                             }

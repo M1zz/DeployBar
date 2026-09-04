@@ -203,7 +203,8 @@ enum CLI {
             let v = rest.count > 1 ? rest[1]
                 : ((try? AppRepo.buildSettings(AppRepo.resolve(app)))?.marketingVersion ?? "")
             guard !v.isEmpty else { print("· \(app.name) — 버전을 읽지 못했습니다"); continue }
-            if let found = RepoNotes.read(app.path, version: v) {
+            if let found = RepoNotes.read(app.path, version: v,
+                                          locales: AppRepo.resolve(app).locales) {
                 print("\n✅ \(app.name) v\(v) — \(found.source)")
                 for (lang, text) in found.texts.sorted(by: { $0.key < $1.key }) {
                     print("   ── \(lang)")
