@@ -303,6 +303,17 @@ struct AppCard: View {
         }
     }
 
+    /// 스크린샷 지시문은 시뮬레이터 목록·git 로그를 훑어야 만들어진다.
+    /// 메뉴를 누른 자리에서 그러면 창이 잠깐 얼어붙으므로 밖에서 만들어 클립보드에 넣는다.
+    private func copyShotPrompt(_ kind: ShotPrompt.Kind) {
+        guard let app = store.app(named: status.path) else { return }
+        let st = status
+        Task.detached {
+            let text = ShotPrompt.text(for: app, status: st, kind: kind)
+            await MainActor.run { Clipboard.copy(text) }
+        }
+    }
+
     // 자주 안 쓰는 것은 전부 여기로 — 카드에 상시로 떠 있을 이유가 없다
     private var overflowMenu: some View {
         Menu {
@@ -347,6 +358,12 @@ struct AppCard: View {
                     Label("해결 프롬프트 복사", systemImage: "doc.on.doc")
                 }
                 .disabled(readiness.passedCount == readiness.total)
+                Menu {
+                    Button("스크린샷 다시 찍기") { copyShotPrompt(.shots) }
+                    Button("미리보기 영상 만들기") { copyShotPrompt(.video) }
+                } label: {
+                    Label("앱스토어 그림 프롬프트 복사", systemImage: "camera")
+                }
                 Button {
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: status.path)
                 } label: {

@@ -9,6 +9,7 @@ import Foundation
 //   --doctor  [앱]      배포 규칙 점검
 //   --template <앱>     설치될 deploy.env·predeploy.sh 미리보기 (--write 로 실제 설치)
 //   --notes   <앱>      언어별 릴리즈노트 초안 미리보기
+//   --shots   <앱>      앱스토어 스크린샷 다시 만들 때 붙여넣을 지시문 (--video 면 미리보기 영상)
 //   --selftest-changes  상태 변화 알림 규칙 검증
 //
 // App.init 에서 부른다 — Scene 이 만들어지기 전에 끝나야 창이 뜨지 않는다.
@@ -160,6 +161,27 @@ enum CLI {
             } else {
                 print(st.readiness.promptText(for: st))
             }
+            sem.signal()
+        }
+        sem.wait()
+        exit(0)
+    }
+    // 스크린샷·미리보기 영상 지시문: DeployBar --shots 앱이름 [--video]
+    //
+    // 스크린샷은 DeployBar 가 만들지도 올리지도 않는다 — 대신 **무엇을 다시 찍어야 하는지**를
+    // 아는 것은 이쪽이므로, 그 사실을 지시문으로 만들어 준다. `| pbcopy` 로 바로 붙여넣기.
+    if let i = CommandLine.arguments.firstIndex(of: "--shots") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }),
+              !name.isEmpty, !name.hasPrefix("--") else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let kind: ShotPrompt.Kind = CommandLine.arguments.contains("--video") ? .video : .shots
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            // 스토어 버전을 같이 적어 주려고 조회한다. 안 되면 프로젝트 값만으로도 글은 나온다.
+            let st = await Status.of(app)
+            print(ShotPrompt.text(for: app, status: st, kind: kind))
             sem.signal()
         }
         sem.wait()
