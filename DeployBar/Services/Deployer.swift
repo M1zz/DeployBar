@@ -280,18 +280,34 @@ enum Deployer {
             onLog("🔁 빌드만 올리기 — 버전 유지 (v\(marketingVersion))")
         }
 
-        // 2) 빌드번호 설정 — 같은 마케팅 버전 안에서만 증가시키고, 새 버전이면 1부터 다시 시작한다.
-        //    (App Store 는 빌드번호를 마케팅 버전별로만 고유하면 되므로 버전이 바뀌면 1 로 리셋 가능)
+        // 2) 빌드번호 설정 — **여태 올라간 것 중 제일 큰 번호 + 1.**
+        //
+        //    예전엔 "같은 마케팅 버전 안에서만 증가, 새 버전이면 1부터" 였다. iOS 는 그래도 되지만
+        //    macOS 는 CFBundleVersion 이 버전과 무관하게 직전 업로드보다 커야 한다.
+        //    그래서 무지개 공방 v1.1.2 가 빌드 1 로 나가 애플이 409 로 거부했다 —
+        //    "must contain a higher version than that of the previously uploaded version [11]".
+        //    번호가 큰 건 어느 플랫폼에서도 문제가 안 되므로, 낮아질 수 있는 규칙을 버린다.
+        //    로컬 값도 바닥에 넣는다: ASC 조회가 실패했을 때 1 로 되돌아가지 않게.
         onLog("🔎 App Store 최신 빌드 확인 중… (v\(marketingVersion))")
-        var ascBuild = 0
-        if let id = try? await ASCClient.appId(bundleId: info.bundleId),
-           let n = try? await ASCClient.latestBuild(appId: id, marketingVersion: marketingVersion) {
-            ascBuild = n ?? 0
+        var ascBuild = 0    // 이 마케팅 버전에 올라간 최고 빌드
+        var ascMax = 0      // 앱 전체에서 올라간 최고 빌드 (버전 무관)
+        if let id = try? await ASCClient.appId(bundleId: info.bundleId) {
+            if let n = try? await ASCClient.latestBuild(appId: id, marketingVersion: marketingVersion) {
+                ascBuild = n ?? 0
+            }
+            if let n = try? await ASCClient.maxBuild(appId: id) { ascMax = n ?? 0 }
         }
-        let newBuild = ascBuild + 1
-        onLog(ascBuild == 0
-            ? "🔢 빌드번호: v\(marketingVersion) 첫 빌드 → \(newBuild)"
-            : "🔢 빌드번호: v\(marketingVersion) · ASC \(ascBuild) → \(newBuild)")
+        let localBuild = Int(info.buildNumber) ?? 0
+        let floor = max(ascBuild, ascMax, localBuild)
+        let newBuild = floor + 1
+        if floor == 0 {
+            onLog("🔢 빌드번호: v\(marketingVersion) 첫 빌드 → \(newBuild)")
+        } else {
+            onLog("🔢 빌드번호: v\(marketingVersion) · ASC 이 버전 \(ascBuild) · 앱 전체 최고 \(ascMax) · 로컬 \(localBuild) → \(newBuild)")
+            if ascMax > ascBuild {
+                onLog("   (버전이 달라도 직전 업로드보다 커야 합니다 — macOS 는 낮으면 거부됩니다)")
+            }
+        }
         try await setBuild(r, to: newBuild, onLog: onLog)
         done(.version, "v\(marketingVersion) · build \(newBuild)")
 
@@ -354,9 +370,10 @@ enum Deployer {
             "--apiKey", asc.keyId, "--apiIssuer", asc.issuer,
         ], cwd: cwd,
            title: "altool 업로드가 실패했습니다",
-           todo: ["로그의 `ERROR ITMS-xxxx` 줄이 App Store 가 말하는 거부 사유입니다",
+           todo: ["로그의 `ERROR ITMS-xxxx` · `Validation failed` 줄이 App Store 가 말하는 거부 사유입니다",
                   "자격증명 문제라면 ~/Documents/workspace/fastlane-shared/asc.env 와 .p8 키를 확인하세요",
-                  "빌드는 이미 만들어졌으니, 원인을 고친 뒤 [배포] 를 다시 누르면 됩니다"],
+                  "빌드는 이미 만들어졌으니, 원인을 고친 뒤 [배포] 를 다시 누르면 됩니다",
+                  altoolLogHint()],
            onLog: onLog)
         // altool 은 업로드 실패에도 종료코드 0 을 반환한다.
         // 예전엔 "오류 문구가 없으면 성공" 으로 봤는데, 출력이 잘리거나 문구가 바뀌면
@@ -374,16 +391,23 @@ enum Deployer {
             let landed = await confirmOnASC(bundleId: info.bundleId, marketingVersion: marketingVersion,
                                             build: newBuild, onLog: onLog)
             if !landed {
-                let itms = uploadOutput.split(separator: "\n").map(String.init)
-                    .filter { $0.contains("ITMS-") || $0.lowercased().contains("error") }
+                var itms = uploadOutput.split(separator: "\n").map(String.init)
+                    .filter { $0.contains("ITMS-") || $0.lowercased().contains("error")
+                              || $0.contains("Validation failed") }
                     .prefix(4).joined(separator: "\n")
+                // 우리가 잡은 출력은 잘릴 수 있다. 애플이 자기 로그에 남긴 원문이 더 정확하므로
+                // 거부 사유를 거기서 한 번 더 읽어 온다 (409 검증 오류는 여기에만 자세히 나온다).
+                if let reason = altoolReason() {
+                    itms = itms.isEmpty ? reason : "\(itms)\n\(reason)"
+                }
                 throw DeployError(
                     app: app.name, path: app.path, stage: "업로드",
                     title: saidBad ? "App Store Connect 가 업로드를 거부했습니다"
                                    : "업로드 결과를 확인하지 못했습니다 — App Store Connect 에 빌드가 없습니다",
-                    todo: ["아래 `ERROR ITMS-xxxx` 가 있으면 그게 거부 사유입니다",
-                           "빌드번호 중복(ITMS-4238)이면 [배포] 를 다시 누르면 자동으로 +1 됩니다",
-                           "App Store Connect ▸ TestFlight 에서 빌드가 정말 없는지 확인하세요"],
+                    todo: ["아래 `ERROR ITMS-xxxx` · `Validation failed` 가 거부 사유입니다",
+                           "빌드번호가 낮다는 말이면([CFBundleVersion] must be higher) [배포] 를 다시 누르세요 — 앱 전체 최고 빌드 +1 로 다시 잡습니다",
+                           "App Store Connect ▸ TestFlight 에서 빌드가 정말 없는지 확인하세요",
+                           altoolLogHint()],
                     detail: itms.isEmpty ? "altool 출력에 성공/실패 문구가 없었습니다" : itms)
             }
         } else {
@@ -414,6 +438,33 @@ enum Deployer {
         }
         // 버전은 사용자가 '버전 올리기'를 고를 때만 바뀐다 — 배포 후 자동 증가 없음
         return Result(version: marketingVersion, build: newBuild)
+    }
+
+    // ── 업로드 실패의 원문 찾기 ──────────────────────────────────────
+    // altool 은 자기 로그를 따로 남긴다. 우리가 파이프로 잡은 몇 줄보다 그쪽이 정확하다 —
+    // 2026-09-08 무지개 공방의 409 거부 사유(빌드번호가 이미 올라간 11 보다 낮다)는
+    // 그 파일에만 온전히 있었다.
+    static func altoolLogHint() -> String {
+        let p = RunLog.latestAltoolLog()?.path ?? RunLog.altoolLogDir.path
+        return "애플이 남긴 원문 로그: \(p)"
+    }
+
+    /// 그 로그에서 거부 사유 줄만 뽑는다 (없으면 nil)
+    static func altoolReason() -> String? {
+        guard let u = RunLog.latestAltoolLog(),
+              let body = try? String(contentsOf: u, encoding: .utf8) else { return nil }
+        let lines = body.split(separator: "\n").map(String.init)
+            .filter { $0.contains("Validation failed") || $0.contains("ITMS-")
+                      || $0.contains("UPLOAD FAILED") }
+            .map { line -> String in
+                // "2026-09-08 23:06:49.094 ERROR: [altool.10527EC70] 본문" → 본문만
+                guard let r = line.range(of: "] ") else { return line }
+                return String(line[r.upperBound...])
+            }
+        // 같은 문장이 NSUnderlyingError 로 한 번 더 나온다 — 중복은 걷어낸다
+        var seen = Set<String>()
+        let uniq = lines.filter { seen.insert($0).inserted }
+        return uniq.isEmpty ? nil : uniq.prefix(3).joined(separator: "\n")
     }
 
     // 빌드번호를 지정한 값으로 설정 (VERSION_XCCONFIG 우선, 없으면 agvtool)

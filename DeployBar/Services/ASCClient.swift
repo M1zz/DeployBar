@@ -113,6 +113,20 @@ enum ASCClient {
         return nums.max()
     }
 
+    /// 이 앱에 **여태까지 올라간 모든 빌드 중 가장 큰 번호** (마케팅 버전 무관).
+    ///
+    /// 왜 버전별 최고로는 모자란가: macOS 는 CFBundleVersion 이 마케팅 버전과 상관없이
+    /// **직전 업로드보다 커야** 한다. v1.1.0 에 빌드 11 이 올라간 앱이 v1.1.2 를
+    /// 빌드 1 로 올리면 애플이 409 로 거부한다 —
+    /// "must contain a higher version than that of the previously uploaded version [11]".
+    /// 더 큰 번호는 iOS 에서도 언제나 유효하므로, 두 플랫폼 다 이 값을 바닥으로 쓴다.
+    static func maxBuild(appId: String) async throws -> Int? {
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&limit=200&fields[builds]=version")
+        let data = j["data"] as? [[String: Any]] ?? []
+        return data.compactMap { ($0["attributes"] as? [String: Any])?["version"] as? String }
+            .compactMap { Int($0) }.max()
+    }
+
     // 최근 업로드된 빌드들 — "방금 올린 게 진짜 도착했나" 를 확인하는 데 쓴다.
     struct BuildInfo { let build: String; let version: String; let state: String; let uploaded: String }
     static func recentBuilds(appId: String, limit: Int = 8) async throws -> [BuildInfo] {

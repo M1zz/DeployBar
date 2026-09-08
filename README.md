@@ -270,6 +270,10 @@ swift scripts/make_icon.swift    # 10개 크기 + 메뉴바 템플릿 3장 재�
 - `changes.json` — 변화 히스토리 (✕ 로 지우기 전까지, 최근 30건)
 - `status-cache.json` — 지난 조회 결과. 다음 실행 때 이것과 견줘 변화를 찾는다
 - `hidden.json` — 관리에서 잠시 뺀 앱
+- `logs/` — 배포·점검 실행 로그. **창을 닫아도 남는다** (최근 80건, 오래된 것부터 삭제).
+  로그 창의 `📄` 버튼이 이 파일을 Finder 에서 열고, CLI 는 `--logs` / `--logs last`.
+  업로드가 거부되면 애플이 남긴 원문 로그(`~/Library/Logs/ContentDelivery/com.apple.itunes.altool`)
+  에서 사유를 한 줄 더 읽어 실패 패널에 붙인다
 - `config.env` (선택) — `ANTHROPIC_API_KEY`(AI 릴리즈노트), `ANTHROPIC_MODEL`, ASC 키 재정의 등
 
 ASC 키는 `~/Documents/workspace/fastlane-shared/asc.env` 재사용,
@@ -292,6 +296,8 @@ $D --notes 두번알림       # 언어별 릴리즈노트 초안 미리보기 (�
 $D --shots 두번알림       # 앱스토어 스크린샷 다시 찍을 때 붙여넣을 지시문
 $D --shots 두번알림 --video      # 미리보기 영상 쪽 지시문
 $D --shots 두번알림 | pbcopy     # 바로 클립보드로
+$D --logs                 # 지난 배포·점검 로그 목록 (❌ 가 붙은 게 실패한 실행)
+$D --logs last            # 가장 최근 실행 로그 전체
 ```
 
 ## 상태가 바뀌면 알려 준다

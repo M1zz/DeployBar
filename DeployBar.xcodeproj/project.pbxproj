@@ -11,6 +11,7 @@
 		0AA077725794C71F3403A8FC /* ASCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE760690B10ED4A37047527 /* ASCClient.swift */; };
 		0B3A995605865CD370FD476F /* Scaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C45C322FB31451E294A39FB /* Scaffold.swift */; };
 		11E323D001E7144BACADDF3E /* RepoNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EB79973281716559A209B2 /* RepoNotes.swift */; };
+		1955033602085126C60BEAB8 /* RunLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3870570BA7A5EDCE6632BA /* RunLog.swift */; };
 		1A2AD71C3C8D5A309441562B /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5225FCAE223BB17548EEBD8D /* Store.swift */; };
 		1AC8E331711B872E3219C61B /* GuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C475F592B99AE48A33769A5 /* GuideView.swift */; };
 		28A7B9748900FC55CE5A5CEE /* Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC4D5228C69A5DD4DC81D7DE /* Shell.swift */; };
@@ -67,6 +68,7 @@
 		4C475F592B99AE48A33769A5 /* GuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuideView.swift; sourceTree = "<group>"; };
 		4CF611CBBA4B443D645B90B0 /* DeployProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployProgress.swift; sourceTree = "<group>"; };
 		4D33D4B35E9C46D91AD0A7C8 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
+		4D3870570BA7A5EDCE6632BA /* RunLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunLog.swift; sourceTree = "<group>"; };
 		5225FCAE223BB17548EEBD8D /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		6817E153578A4E00168F8A72 /* AppFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFilter.swift; sourceTree = "<group>"; };
 		7C45C322FB31451E294A39FB /* Scaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scaffold.swift; sourceTree = "<group>"; };
@@ -152,6 +154,7 @@
 				4AB262BB2814990ED93B6B9B /* Localization.swift */,
 				F20B29C4108A3C3EACA4C831 /* Models.swift */,
 				C9EE1D707F414933B0F50390 /* Readiness.swift */,
+				4D3870570BA7A5EDCE6632BA /* RunLog.swift */,
 				AC4D5228C69A5DD4DC81D7DE /* Shell.swift */,
 				EF0A178D9B14B29740E924E4 /* Status.swift */,
 				A4C12FC724FA840EF3C06E16 /* StatusChange.swift */,
@@ -292,6 +295,7 @@
 				FC178E1F7E1D1CE28E752B88 /* ReadinessChecklist.swift in Sources */,
 				4A69BADEE3A0780C7136E4C5 /* ReleaseNotes.swift in Sources */,
 				11E323D001E7144BACADDF3E /* RepoNotes.swift in Sources */,
+				1955033602085126C60BEAB8 /* RunLog.swift in Sources */,
 				0B3A995605865CD370FD476F /* Scaffold.swift in Sources */,
 				28A7B9748900FC55CE5A5CEE /* Shell.swift in Sources */,
 				C4115D5F0BEF807D014A5A6C /* ShotPrompt.swift in Sources */,

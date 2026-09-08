@@ -3,8 +3,12 @@ import SwiftUI
 @MainActor
 final class Job: ObservableObject {
     let title: String
-    @Published var lines: [String] = []
-    @Published var running = true
+    /// 화면에 찍히는 줄. **여기에 들어간 것은 그대로 파일에도 남는다** —
+    /// 창을 닫으면 사라지던 실패 원인을 나중에도 읽을 수 있게 (RunLog 주석 참고).
+    /// 훅을 append 자리마다 두지 않고 didSet 에 두는 이유는, 새 로그 줄을 더하는
+    /// 코드가 앞으로도 여기저기 생길 텐데 그때마다 파일 쓰기를 잊지 않게 하기 위해서다.
+    @Published var lines: [String] = [] { didSet { flushToFile() } }
+    @Published var running = true { didSet { if !running { closeFile() } } }
     @Published var error: String?
     /// 마지막 실패를 구조로 들고 있는다 — 로그 창이 '지금 할 일' 을 그릴 수 있도록.
     /// 문자열만 남기면 사람이 수백 줄 로그를 거슬러 올라가 원인을 찾아야 한다.
@@ -27,7 +31,31 @@ final class Job: ObservableObject {
         else { progress?.finish(stage, state, note: note) }
     }
 
-    init(title: String) { self.title = title }
+    // ── 파일로 남기기 ────────────────────────────────────────────────
+    /// 이번 실행이 남는 파일. 실패 패널이 "어디에 남았는지" 를 말해 줄 수 있게 공개한다.
+    let logFile: URL?
+    private let log: RunLog?
+    private var flushed = 0
+
+    private func flushToFile() {
+        guard let log else { return }
+        if lines.count < flushed { flushed = 0 }   // 목록이 초기화된 경우
+        while flushed < lines.count {
+            log.write(lines[flushed])
+            flushed += 1
+        }
+    }
+    private func closeFile() {
+        flushToFile()
+        log?.close("━━ 끝 \(error == nil && failure == nil ? "성공" : "실패")")
+    }
+
+    init(title: String) {
+        self.title = title
+        let log = RunLog(title: title)
+        self.log = log
+        self.logFile = log?.url
+    }
 }
 
 @MainActor

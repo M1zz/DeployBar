@@ -10,6 +10,7 @@ import Foundation
 //   --template <앱>     설치될 deploy.env·predeploy.sh 미리보기 (--write 로 실제 설치)
 //   --notes   <앱>      언어별 릴리즈노트 초안 미리보기
 //   --shots   <앱>      앱스토어 스크린샷 다시 만들 때 붙여넣을 지시문 (--video 면 미리보기 영상)
+//   --logs [n|last]     지난 배포·점검 로그 (창을 닫아도 남는다). last 면 최근 것 전체를 출력
 //   --selftest-changes  상태 변화 알림 규칙 검증
 //
 // App.init 에서 부른다 — Scene 이 만들어지기 전에 끝나야 창이 뜨지 않는다.
@@ -164,6 +165,37 @@ enum CLI {
             sem.signal()
         }
         sem.wait()
+        exit(0)
+    }
+    // 지난 실행 로그: DeployBar --logs [개수|last]
+    //
+    // 로그 창은 닫으면 사라지지만 파일은 남는다. "어젯밤 업로드가 왜 거부됐더라" 는
+    // 앱을 다시 돌려서는 알 수 없으므로, 여기서 지난 실행을 그대로 다시 읽는다.
+    if let i = CommandLine.arguments.firstIndex(of: "--logs") {
+        let arg = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        let files = RunLog.recent(Int(arg) ?? 20)
+        guard !files.isEmpty else {
+            print("남은 로그가 없습니다 — \(RunLog.dir.path)"); exit(0)
+        }
+        if arg == "last" {
+            let u = files[0]
+            print("━━ \(u.path)\n")
+            print((try? String(contentsOf: u, encoding: .utf8)) ?? "읽지 못했습니다")
+            exit(0)
+        }
+        print("로그 폴더: \(RunLog.dir.path)\n")
+        for u in files {
+            // 실패한 실행부터 눈에 띄어야 한다 — 로그를 뒤지는 이유는 거의 항상 실패다
+            let body = (try? String(contentsOf: u, encoding: .utf8)) ?? ""
+            let bad = body.contains("❌") || body.contains("끝 실패")
+            let head = body.split(separator: "\n").first(where: { $0.contains("━━ ") }).map(String.init) ?? ""
+            print("\(bad ? "❌" : "✅") \(u.lastPathComponent)")
+            if !head.isEmpty { print("   \(head)") }
+            if bad, let line = body.split(separator: "\n").first(where: { $0.contains("❌") }) {
+                print("   \(line)")
+            }
+        }
+        print("\n전체 보기: DeployBar --logs last  ·  파일 하나: cat '<위 경로>'")
         exit(0)
     }
     // 스크린샷·미리보기 영상 지시문: DeployBar --shots 앱이름 [--video]

@@ -1,5 +1,6 @@
 import SwiftUI
 import Translation
+import AppKit
 
 struct LogView: View {
     @EnvironmentObject var store: Store
@@ -17,6 +18,16 @@ struct LogView: View {
                     Image(systemName: bad ? "xmark.circle.fill" : "checkmark.circle.fill")
                         .foregroundStyle(bad ? .red : .green)
                     Text(bad ? "실패" : "완료").font(.caption).foregroundStyle(.secondary)
+                }
+                // 이 창을 닫아도 남는다 — 그 자리를 여기서 알려 준다
+                if let file = store.job?.logFile {
+                    Button {
+                        NSWorkspace.shared.selectFile(file.path, inFileViewerRootedAtPath: RunLog.dir.path)
+                    } label: {
+                        Image(systemName: "doc.text")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("이 실행의 로그 파일을 Finder 에서 엽니다\n\(file.path)")
                 }
             }
             .padding(12)
