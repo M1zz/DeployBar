@@ -12,6 +12,7 @@ import Foundation
 //   --shots   <앱>      앱스토어 스크린샷 다시 만들 때 붙여넣을 지시문 (--video 면 미리보기 영상)
 //   --logs [n|last]     지난 배포·점검 로그 (창을 닫아도 남는다). last 면 최근 것 전체를 출력
 //   --selftest-changes  상태 변화 알림 규칙 검증
+//   --selftest-lock     '무엇이 배포를 잠그는가' 규칙 검증 (조회 실패는 잠그면 안 된다)
 //
 // App.init 에서 부른다 — Scene 이 만들어지기 전에 끝나야 창이 뜨지 않는다.
 enum CLI {
@@ -100,6 +101,40 @@ enum CLI {
             print("\(ok ? "✅" : "❌") \(name)\(e.map { "  → \($0.title): \($0.body)" } ?? "  → (알림 없음)")")
         }
         print(bad == 0 ? "\n전부 통과" : "\n실패 \(bad)건")
+        exit(bad == 0 ? 0 : 1)
+    }
+    // 잠금 규칙 검증: DeployBar --selftest-lock
+    //
+    // 지키려는 것 하나: **우리가 못 물어본 것으로 사람의 배포를 막지 않는다.**
+    // 애플이 429 를 주거나 와이파이가 끊겼다고 앱 전부가 '잠김' 이 되면,
+    // 정작 altool 로는 올라갔을 배포를 시도조차 못 하게 된다.
+    if CommandLine.arguments.contains("--selftest-lock") {
+        guard let app = AppRepo.registry().first else { print("관리 중인 앱이 없습니다"); exit(1) }
+        func level(_ reach: AppStatus.ASCReach?, _ msg: String) -> ReadyItem.Level? {
+            var st = AppStatus(name: app.name, path: app.path, state: .ready)
+            if let r = AppRepo.resolve(app) as ResolvedApp?, r.exists {
+                st.bundleId = (try? AppRepo.buildSettings(r))?.bundleId
+                st.localVersion = (try? AppRepo.buildSettings(r))?.marketingVersion
+            }
+            st.ascError = msg
+            st.ascReach = reach
+            return Readiness.evaluate(app, status: st).items.first { $0.key == "asc" }?.level
+        }
+        let cases: [(String, AppStatus.ASCReach?, ReadyItem.Level)] = [
+            ("네트워크 끊김 — 잠그면 안 된다", .unreachable, .need),
+            ("애플 5xx·429 — 잠그면 안 된다", .unreachable, .need),
+            ("ASC 에 앱이 없음 — 잠가야 한다", .missing, .blocked),
+            ("키·발급자 오류 — 잠가야 한다 (altool 도 같은 키)", .unauthorized, .blocked),
+            ("옛 캐시(분류 없음) — 예전처럼 잠근다", nil, .blocked),
+        ]
+        var bad = 0
+        for (name, reach, expect) in cases {
+            let got = level(reach, "테스트")
+            let ok = got == expect
+            if !ok { bad += 1 }
+            print("\(ok ? "✅" : "❌") \(name) — \(got.map { "\($0)" } ?? "항목 없음") (기대: \(expect))")
+        }
+        print(bad == 0 ? "\n전부 통과 (기준 앱: \(app.name))" : "\n실패 \(bad)건")
         exit(bad == 0 ? 0 : 1)
     }
     // 관리 대상 점검: DeployBar --audit  (뭐가 관리되고, 뭐가 왜 빠졌나)

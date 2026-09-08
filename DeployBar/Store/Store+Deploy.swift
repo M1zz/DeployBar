@@ -2,6 +2,19 @@ import Foundation
 
 // 배포 실행 — 한 앱 배포, 전체 배포, 커밋 때문에 막힌 앱 풀기.
 extension Store {
+    /// 전체 배포에서 이 앱이 왜 빠졌나, 한 줄로.
+    static func exclusionReason(_ s: AppStatus) -> String {
+        if s.inReview { return "\(s.reviewLabel ?? "심사 중") — 올리면 심사가 취소됩니다" }
+        if s.state == .loading { return "조회 중" }
+        if s.state == .error { return s.error ?? "오류 — 카드의 [왜 안 되나] 를 보세요" }
+        if let b = s.readiness.blockers.first {
+            let more = s.readiness.blockers.count > 1 ? " 외 \(s.readiness.blockers.count - 1)건" : ""
+            return "잠김: \(b.title)\(more)"
+        }
+        if s.state == .deployed { return "올릴 것 없음 — 로컬이 이미 스토어와 같습니다" }
+        return "배포 대상이 아님"
+    }
+
     /// Xcode·macOS 가 만든 파일 때문에 배포가 막힌 앱을 푼다.
     /// .gitignore 에 표준 항목을 넣고, 이미 추적 중인 것은 추적만 해제한 뒤 커밋한다.
     /// (파일 자체는 지우지 않는다 — Xcode 가 계속 쓰는 파일이다)
@@ -138,22 +151,37 @@ extension Store {
         // 막힌 앱(체크리스트 ❌)과 **심사 중인 앱**은 뺀다 —
         // 심사 중에 새 빌드를 올리면 그 심사가 취소되고 처음부터 다시 시작한다.
         let targets = statuses.filter(\.deployable).compactMap { app(named: $0.path) }
-        let inReview = statuses.filter(\.inReview)
+        // 빠진 앱은 **하나도 빠짐없이 이유와 함께** 적는다.
+        // 예전엔 심사 중인 앱만 적고 잠긴 앱은 조용히 사라져서,
+        // "31개를 눌렀는데 22개만 돌았다" 의 이유를 로그에서 찾을 수 없었다.
+        let excluded = statuses.filter { !$0.deployable }
         let job = Job(title: "전체 배포 · \(targets.count)개")
         self.job = job
+        // 빠진 앱은 대상이 하나도 없을 때 **더더욱** 적어야 한다 —
+        // "배포할 앱이 없습니다" 만 남으면 무엇을 풀어야 하는지 알 길이 없다.
+        func reportExcluded() {
+            guard !excluded.isEmpty else { return }
+            job.lines.append("")
+            job.lines.append("── 이번에 빠진 앱 \(excluded.count)개 ──")
+            for s in excluded { job.lines.append("   · \(s.name) — \(Store.exclusionReason(s))") }
+            if excluded.contains(where: \.inReview) {
+                job.lines.append("   (심사 중인 앱은 지금 올리면 그 심사가 취소되고 처음부터 다시 시작합니다)")
+            }
+            if excluded.contains(where: { !$0.inReview && !$0.readiness.blockers.isEmpty }) {
+                job.lines.append("   (잠긴 앱은 카드의 ⋯ ▸ [잠긴 채로 그래도 배포] 로 하나씩 밀어붙일 수 있습니다)")
+            }
+            job.lines.append("")
+        }
         guard !targets.isEmpty else {
             job.lines.append("배포할 앱이 없습니다 — 막힌 곳 없는 '배포 가능' 앱만 대상입니다.")
-            job.lines.append("개발 중이거나 이미 배포된 앱, 체크리스트에 ❌ 가 있는 앱은 제외됩니다.")
+            reportExcluded()
             job.running = false
             return
         }
         batchRunning = true
         Task {
             job.lines.append("배포 순서: \(targets.map { $0.name }.joined(separator: " → "))")
-            if !inReview.isEmpty {
-                job.lines.append("심사 중이라 제외: \(inReview.map { "\($0.name)(\($0.reviewLabel ?? "-"))" }.joined(separator: ", "))")
-                job.lines.append("(지금 올리면 그 심사가 취소되고 새 빌드로 다시 시작합니다)")
-            }
+            reportExcluded()
             job.lines.append("(순서는 대시보드 헤더의 ↑↓ 버튼에서 바꿉니다)")
             var ok = 0
             var fails: [String] = []

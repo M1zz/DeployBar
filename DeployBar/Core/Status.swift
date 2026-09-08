@@ -70,11 +70,19 @@ enum Status {
                 }
             } else {
                 st.ascError = "ASC 에서 앱을 찾지 못함 (bundleId 불일치)"
+                st.ascReach = .missing
             }
         } catch let e as ASCClient.APIError {
-            st.ascError = "ASC \(e.status)"
+            // 401·403 은 키가 잘못된 것 — altool 도 같은 키를 쓰므로 업로드까지 못 한다.
+            // status 0 은 키·발급자가 아예 설정되지 않은 경우(jwt() 가 그렇게 던진다).
+            // 나머지(429·5xx·그 밖)는 '우리가 못 물어본 것' 이지 앱의 문제가 아니다.
+            let credential = [0, 401, 403].contains(e.status)
+            st.ascError = e.status == 0 ? e.body : "ASC \(e.status)"
+            st.ascReach = credential ? .unauthorized : .unreachable
         } catch {
+            // URLError = 네트워크. 그 밖(.p8 키 파일을 못 읽는 등)은 자격증명 쪽으로 본다.
             st.ascError = error.localizedDescription
+            st.ascReach = error is URLError ? .unreachable : .unauthorized
         }
 
         // 마지막 배포(deploy-*) 태그 이후 새 커밋이 있으면 같은 버전이라도 배포할 게 있는 것.

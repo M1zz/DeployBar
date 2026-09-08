@@ -137,12 +137,32 @@ struct Readiness: Codable, Hashable {
             : ReadyItem(key: "project", level: .ok, title: "Xcode 프로젝트",
                         detail: "\(container) · scheme \(r.scheme)"))
 
-        // 2) App Store 등록 — 여기서 막히면 업로드 자체가 안 된다
+        // 2) App Store 등록 — 여기서 막히면 업로드 자체가 안 된다.
+        //
+        //    단, **막는 것과 못 물어본 것을 구분한다.** 예전엔 ascError 가 있으면 무조건
+        //    잠갔더니, 애플이 429 를 주거나 네트워크가 끊긴 순간 관리 중인 앱이 전부
+        //    한꺼번에 '잠김' 이 되어 배포를 시도조차 못 했다. 업로드는 altool 이 하므로
+        //    조회를 못 했다는 이유로 배포를 막을 근거가 없다.
         if let e = status.ascError {
-            out.append(ReadyItem(
-                key: "asc", level: .blocked, title: "App Store 앱 확인 실패",
-                detail: "\(e)\(status.bundleId.map { " · \($0)" } ?? "")",
-                todo: "App Store Connect 에 이 번들 ID 로 앱이 등록돼 있는지 확인하세요"))
+            let bundle = status.bundleId.map { " · \($0)" } ?? ""
+            switch status.ascReach ?? .missing {
+            case .missing:
+                out.append(ReadyItem(
+                    key: "asc", level: .blocked, title: "App Store 앱 확인 실패",
+                    detail: "\(e)\(bundle)",
+                    todo: "App Store Connect 에 이 번들 ID 로 앱이 등록돼 있는지 확인하세요"))
+            case .unauthorized:
+                // altool 도 같은 키를 쓴다 — 이건 조회만이 아니라 업로드도 못 하는 상태다
+                out.append(ReadyItem(
+                    key: "asc", level: .blocked, title: "App Store Connect 자격증명 실패",
+                    detail: "\(e)\(bundle) — 업로드도 같은 키를 쓰므로 배포가 됩니다",
+                    todo: "~/Documents/workspace/fastlane-shared/asc.env 의 ASC_KEY_ID·ASC_ISSUER_ID 와 ~/.appstoreconnect/private_keys/AuthKey_*.p8 를 확인하세요"))
+            case .unreachable:
+                out.append(ReadyItem(
+                    key: "asc", level: .need, title: "App Store 상태를 확인하지 못함",
+                    detail: "\(e)\(bundle) — 앱의 문제가 아니라 조회가 안 된 것입니다. 배포는 됩니다",
+                    todo: "잠시 뒤 [새로고침] 을 누르세요 — 스토어 버전·릴리즈노트 칸만 비어 있습니다"))
+            }
         } else {
             out.append(ReadyItem(
                 key: "asc", level: .ok, title: "App Store 앱 확인됨",

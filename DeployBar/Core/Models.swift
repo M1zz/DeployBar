@@ -75,7 +75,19 @@ struct AppStatus: Identifiable, Codable {
     /// 가장 최근 올라간 빌드의 마케팅 버전. "이 버전 빌드가 아직 없는 것" 과
     /// "있는데 버전에 안 붙인 것" 을 가르는 데 쓴다.
     var ascBuildVersion: String?
+    /// ASC 조회가 왜 실패했나. **'앱이 없다' 와 '못 물어봤다' 는 전혀 다른 일이다** —
+    /// 앞은 사람이 고쳐야 배포되고, 뒤는 잠시 뒤 저절로 풀린다. 예전엔 둘을 같은
+    /// 잠김으로 다뤄서, 와이파이가 끊기거나 애플이 429 를 주면 관리 중인 앱 전부가
+    /// 동시에 '잠김' 이 되어 **배포를 시도조차 못 했다.** 정작 업로드는 altool 이 하므로
+    /// 조회가 안 돼도 대개 그냥 성공했을 일이었다.
+    enum ASCReach: String, Codable {
+        case missing        // ASC 에 그 번들 ID 의 앱이 없다 — 올릴 자리가 없으니 진짜 잠김
+        case unauthorized   // 키·발급자 문제 — altool 도 같은 키를 쓰므로 업로드도 못 한다
+        case unreachable    // 네트워크·5xx·429·타임아웃 — 우리가 못 물어본 것뿐
+    }
     var ascError: String?
+    /// 옵셔널인 이유: status-cache.json 에 이 키가 없던 시절 파일도 그대로 읽혀야 한다.
+    var ascReach: ASCReach?
     var dirty: Bool = false
     var branch: String?
     var error: String?

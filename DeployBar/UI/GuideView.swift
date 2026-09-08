@@ -68,6 +68,8 @@ struct GuideView: View {
                     Row(color: .orange, title: "번역 구멍", detail: "Xcode 에서 String Catalog 를 열어 빈 칸을 채우세요")
                     Row(color: .orange, title: "릴리즈노트 비어 있음", detail: "[릴리즈노트] 창에서 [빈 언어 채우기] 후 적용하세요")
                     Row(color: .orange, title: "App Store 앱 확인 실패", detail: "App Store Connect 에 그 번들 ID 로 앱이 있어야 합니다")
+                    Note("네트워크가 끊기거나 애플이 응답하지 않는 것은 잠금이 아니라 ⚠️ 로만 표시됩니다 — 업로드는 altool 이 하므로 조회를 못 했다고 배포를 막지 않습니다.")
+                    Note("잠긴 채로도 밀어붙일 수 있습니다: ⋯ ▸ [잠긴 채로 그래도 배포]. 체크리스트만 건너뛰고 배포 자체의 검사(원격 받기·다국어·릴리즈노트)는 그대로 돕니다.")
                 }
 
                 Section(title: "7. 새 앱을 배포 대상으로 만들기", icon: "wand.and.stars") {

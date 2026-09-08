@@ -120,9 +120,10 @@ struct AppCard: View {
                 if status.state == .loading || refreshing {
                     ProgressView().controlSize(.small)
                 }
-                if status.state != .loading && status.state != .error {
+                if status.state != .loading {
                     deployControl
-                    notesButton
+                    // 노트는 ASC 에 물어봐야 하므로 오류 상태에서는 열어도 할 일이 없다
+                    if status.state != .error { notesButton }
                 }
                 overflowMenu
             }
@@ -216,7 +217,21 @@ struct AppCard: View {
 
     // ── 버튼: 지금 할 수 있는 일 하나 ──────────────────────────────────
     @ViewBuilder private var deployControl: some View {
-        if let cur = status.localVersion, let app = store.app(named: status.path) {
+        // 예전엔 여기가 `if let cur = localVersion, let app = …` 하나였다. 둘 중 하나가
+        // nil 이면 **버튼이 통째로 안 그려져서**, 카드가 무엇이 잘못됐는지 말하지도 못하고
+        // 사람은 시도조차 할 수 없었다. 못 하는 상태일수록 이유를 여는 버튼이 필요하다.
+        if status.state == .error || status.localVersion == nil || store.app(named: status.path) == nil {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded = true }
+            } label: {
+                Text("왜 안 되나").frame(minWidth: 52)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .fixedSize()
+            .tint(.red)
+            .help(status.error ?? "이 앱의 버전을 읽지 못했습니다 — 눌러서 이유 보기")
+        } else if let cur = status.localVersion, let app = store.app(named: status.path) {
             if inReview {
                 // 한 번 눌러 배포되면 심사가 취소된다. 그래서 기본 동작이 없는 버튼으로 둔다.
                 Button {
@@ -325,6 +340,22 @@ struct AppCard: View {
             .disabled(refreshing || store.loading || store.job?.running == true)
             Divider()
 
+            // 잠김에도 탈출구를 둔다. 심사 취소(되돌릴 수 없는 손실)에는 길을 열어 두면서
+            // 잠김에는 아무 길도 없던 건 앞뒤가 안 맞았다 — 막는 근거가 우리 판단일 뿐인
+            // 경우(스토어 조회가 어긋났다든지)에도 사람이 시도조차 못 했다.
+            if !inReview, !isDone, !canDeploy, status.state != .error, status.state != .loading,
+               let app = store.app(named: status.path), let cur = status.localVersion {
+                Menu("잠긴 채로 그래도 배포") {
+                    Text("막고 있는 것: " + readiness.blockers.map(\.title).joined(separator: " · "))
+                    Text("체크리스트만 건너뜁니다 — 배포 자체의 검사(원격 받기·다국어·릴리즈노트)는 그대로 돕니다")
+                    Divider()
+                    Button("그래도 지금 배포  ·  v\(cur)") {
+                        openLog(); store.startDeploy(app, lane: .appstore, versionBump: nil)
+                    }
+                }
+                .disabled(store.job?.running == true)
+                Divider()
+            }
             if inReview, let app = store.app(named: status.path) {
                 Menu("심사 취소하고 다시 배포") {
                     Text("v\(status.reviewVersion ?? "?") 심사가 취소되고 새 빌드로 다시 시작합니다")
