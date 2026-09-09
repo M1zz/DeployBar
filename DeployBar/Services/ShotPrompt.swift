@@ -18,6 +18,31 @@ enum ShotPrompt {
         var label: String { self == .shots ? "스크린샷" : "미리보기 영상" }
     }
 
+    // ── 지금이 다시 찍을 때인가 ──────────────────────────────────────
+    // 체크리스트가 "가끔 있는 그때" 를 스스로 말하려면 이 판단이 필요하다.
+    //
+    // ⚠️ 그림 폴더가 없는 앱에는 **아무 말도 하지 않는다.** 이 워크플로를 쓰지 않는
+    //    앱에까지 "스크린샷이 없습니다" 를 띄우면, 사람이 고칠 생각이 없는 경고가
+    //    34개 카드에 영원히 붙는다 — 그런 경고는 체크리스트 전체의 신뢰를 깎는다.
+    struct Staleness {
+        var rel: String          // "docs/screenshots"
+        var takenAt: Date
+        var shots: Int
+        var commits: Int
+        var screens: [String]    // 그림을 찍은 뒤 손댄 화면 파일
+        /// 화면이 바뀐 뒤로 그림이 그대로다 = 다시 찍을 때
+        var isStale: Bool { !screens.isEmpty }
+    }
+
+    static func staleness(_ root: String) -> Staleness? {
+        let a = scan(root)
+        guard a.dir != nil, !a.files.isEmpty, let taken = a.newest,
+              GitInfo.isRepo(root) else { return nil }
+        let c = changes(root, since: taken)
+        return Staleness(rel: a.rel, takenAt: taken, shots: a.imageCount,
+                         commits: c.commits.count, screens: c.screens)
+    }
+
     // ── 만들기 ────────────────────────────────────────────────────────
     static func text(for app: ManagedApp, status: AppStatus? = nil, kind: Kind = .shots) -> String {
         let r = AppRepo.resolve(app)
@@ -219,6 +244,7 @@ enum ShotPrompt {
         var files: [(name: String, line: String)] = []
         var groups: [(name: String, count: Int)] = []
         var videos: [String] = []   // "demo.mp4 48초"
+        var imageCount = 0          // 영상은 '몇 장' 에 넣지 않는다
         var newest: Date?
         var script: (path: String, size: String?)?
     }
@@ -256,6 +282,7 @@ enum ShotPrompt {
             } else if imageExts.contains(ext) {
                 let dim = pngSize(path).map { "\($0.w)×\($0.h)" } ?? ""
                 a.files.append((name, "\(name.padded(28))\(dim)"))
+                a.imageCount += 1
             } else if videoExts.contains(ext) {
                 let secs = duration(path).map { "\(Int($0.rounded()))초" } ?? ""
                 a.files.append((name, "\(name.padded(28))\(secs)"))
@@ -346,7 +373,7 @@ enum ShotPrompt {
         return f.string(from: d)
     }
 
-    private static func dateLabel(_ d: Date) -> String {
+    static func dateLabel(_ d: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "ko_KR")
         f.dateFormat = "M월 d일"

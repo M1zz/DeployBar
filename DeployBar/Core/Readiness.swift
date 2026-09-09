@@ -15,6 +15,7 @@ enum Fix: String, Codable {
     case openNotes   // 릴리즈노트 창 열기
     case reveal      // Finder 에서 앱 폴더 열기 (커밋하러 갈 때)
     case ignoreNoise // Xcode 가 만든 파일을 .gitignore 에 넣고 추적 해제 후 커밋
+    case shotPrompt  // 스크린샷 다시 찍을 지시문을 클립보드에 (찍는 건 붙여넣은 세션이 한다)
 
     var label: String {
         switch self {
@@ -23,6 +24,7 @@ enum Fix: String, Codable {
         case .openNotes: return "릴리즈노트"
         case .reveal: return "폴더 열기"
         case .ignoreNoise: return "정리하고 커밋"
+        case .shotPrompt: return "프롬프트 복사"
         }
     }
 }
@@ -452,6 +454,27 @@ struct Readiness: Codable, Hashable {
                 detail: "v\(status.notesVersion ?? "?") · \(status.notesFilled.count)개 언어 모두 채워짐"))
         }
 
+        // 10.5) 스크린샷 — **배포를 막지 않는다.** 그림이 낡았다고 배포를 멈추면
+        //       고쳐야 할 것이 아닌 데서 발이 묶인다. 다만 "가끔 있는 그때" 는
+        //       사람이 기억해서 찾아내야 했으므로, 근거가 있을 때만 이쪽에서 먼저 말한다.
+        if let shots = ShotPrompt.staleness(app.path) {
+            let day = ShotPrompt.dateLabel(shots.takenAt)
+            if shots.isStale {
+                let head = shots.screens.prefix(3).joined(separator: ", ")
+                let more = shots.screens.count > 3 ? " 외 \(shots.screens.count - 3)개" : ""
+                out.append(ReadyItem(
+                    key: "shots", level: .need,
+                    title: "스크린샷이 화면 변화보다 오래됐습니다",
+                    detail: "\(shots.rel) \(shots.shots)장 (\(day)) — 그 뒤 커밋 \(shots.commits)개에서 화면 파일이 바뀌었습니다: \(head)\(more)",
+                    fix: .shotPrompt,
+                    todo: "[프롬프트 복사] 를 눌러 Claude Code 에 붙여넣으면 시뮬레이터로 다시 찍습니다 — 스토어에 올리는 건 사람이 웹에서 합니다"))
+            } else {
+                out.append(ReadyItem(
+                    key: "shots", level: .ok, title: "스크린샷 최신",
+                    detail: "\(shots.rel) \(shots.shots)장 (\(day)) — 그 뒤 화면 파일 변화 없음"))
+            }
+        }
+
         // 10.4) deploy.env 에 적었지만 App Store 페이지에 없는 언어.
         //       이 언어의 노트는 만들어도 올릴 자리가 없어 조용히 버려진다.
         //       "영어 노트를 분명히 썼는데 왜 스토어엔 한국어뿐이지" 의 답이 여기 있다.
@@ -589,7 +612,9 @@ extension ReadyItem {
 extension Readiness {
     /// 붙여넣기용 지시문. `only` 를 주면 그 항목 하나만 다룬다.
     func promptText(for status: AppStatus, only: ReadyItem? = nil) -> String {
-        let targets = only.map { [$0] } ?? items.filter { $0.level != .ok }
+        // 스크린샷은 [프롬프트 복사] 로 **자기 지시문**을 따로 받는다.
+        // 한 프롬프트에 배포 잠김 해결과 시뮬레이터 촬영을 섞으면 둘 다 어설프게 끝난다.
+        let targets = only.map { [$0] } ?? items.filter { $0.level != .ok && $0.key != "shots" }
         let blocked = targets.filter { $0.level == .blocked }
         let advised = targets.filter { $0.level == .need }
 
