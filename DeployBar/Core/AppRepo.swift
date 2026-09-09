@@ -232,11 +232,14 @@ enum AppRepo {
     static func buildSettings(_ r: ResolvedApp, fresh: Bool = false) throws -> BuildInfo {
         if !fresh, let hit = cache.get(r.path) { return hit }
         guard r.exists else { throw NSError(domain: "DeployBar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Xcode 프로젝트 없음: \(r.path)"]) }
+        // 시간 제한을 둔다. xcodebuild 는 패키지 해석 락 같은 데서 영영 안 돌아오는 일이 있고,
+        // 그러면 이 앱 하나 때문에 새로고침 전체가 끝나지 않는다 (git 쪽은 이미 제한이 있다).
+        // 90초: 패키지를 처음 받아오는 앱도 그 안에는 끝난다.
         let out = try Shell.capture("/usr/bin/xcodebuild", [
             "-showBuildSettings", "-json",
             r.projFlag, r.projContainer,
             "-scheme", r.scheme, "-configuration", "Release",
-        ], cwd: URL(fileURLWithPath: r.path))
+        ], cwd: URL(fileURLWithPath: r.path), timeout: 90)
         guard let arr = try JSONSerialization.jsonObject(with: Data(out.utf8)) as? [[String: Any]] else {
             throw NSError(domain: "DeployBar", code: 2, userInfo: [NSLocalizedDescriptionKey: "빌드 설정 파싱 실패: \(r.name)"])
         }

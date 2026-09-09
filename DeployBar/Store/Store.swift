@@ -176,6 +176,9 @@ final class Store: ObservableObject {
         if isRefreshing { return }   // 중복 조회 방지
         isRefreshing = true
         loading = true
+        // 어떻게 빠져나가든 깃발은 내린다. 하나라도 켜진 채 남으면 새로고침 버튼이
+        // 스피너로 굳고(누를 수도 없다) 15분마다 도는 자동 조회까지 같이 멈춘다.
+        defer { loading = false; isRefreshing = false }
         if fresh { AppRepo.clearCache() }
 
         fixResult.removeAll()   // 지난 '자동 설정' 결과 메시지는 새로 조회할 때 지운다
@@ -204,8 +207,6 @@ final class Store: ObservableObject {
         }
         announce(pullEvents(working) + StatusChange.events(from: before, to: working))
 
-        loading = false
-        isRefreshing = false
         if let data = try? JSONEncoder().encode(working) { try? data.write(to: Self.cacheURL) }
     }
 
@@ -219,6 +220,7 @@ final class Store: ObservableObject {
         if isRefreshing || refreshingApps.contains(path) { return }
         guard let app = appsByPath[path] else { return }
         refreshingApps.insert(path)
+        defer { refreshingApps.remove(path) }   // 카드가 영영 도는 표시로 남지 않게
         fixResult[path] = nil          // 지난 '자동 설정' 결과 한 줄은 새로 조회할 때 지운다
         if fresh { AppRepo.clearCache(path) }
 
@@ -226,7 +228,6 @@ final class Store: ObservableObject {
         let sync = await GitSync.run([app], pull: pull)
         let st = await Status.of(app, fresh: fresh, sync: sync[path])
 
-        refreshingApps.remove(path)
         if let i = statuses.firstIndex(where: { $0.path == path }) { statuses[i] = st }
 
         var events = pullEvents([st])

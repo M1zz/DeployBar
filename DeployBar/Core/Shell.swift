@@ -142,8 +142,22 @@ enum Shell {
                        timedOut: killed.value)
     }
 
+    /// 시간 제한에 걸려 죽인 명령. 종료코드로 말할 수 없는 실패라 따로 둔다.
+    struct Timeout: Swift.Error, LocalizedError {
+        let cmd: String
+        let seconds: TimeInterval
+        var errorDescription: String? {
+            "\((cmd as NSString).lastPathComponent) 가 \(Int(seconds))초 동안 응답하지 않아 중단했습니다"
+        }
+    }
+
     // 동기 캡처(stdout). stderr 는 버린다. showBuildSettings·git 용.
-    static func capture(_ launch: String, _ args: [String], cwd: URL? = nil) throws -> String {
+    //
+    // timeout 을 주면 넘길 때 죽이고 throw 한다. 시간 제한 없이 부르면 멈춘 명령 하나가
+    // 그 명령을 기다리는 조회 전체를 영영 잡아 둔다 — 앱은 '조회 중' 인 채로 굳고,
+    // 새로고침 버튼은 스피너로 바뀐 채 돌아오지 않는다. 한 앱의 실패는 한 앱에서 끝나야 한다.
+    static func capture(_ launch: String, _ args: [String], cwd: URL? = nil,
+                        timeout: TimeInterval? = nil) throws -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launch)
         p.arguments = args
@@ -153,8 +167,19 @@ enum Shell {
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
         try p.run()
+
+        // 죽이면 파이프가 닫혀 아래 읽기도 함께 풀린다 (outcome 과 같은 방식).
+        let killed = Flag()
+        if let timeout {
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak p] in
+                guard let p, p.isRunning else { return }
+                killed.set()
+                p.terminate()
+            }
+        }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
+        if killed.value { throw Timeout(cmd: launch, seconds: timeout ?? 0) }
         return String(data: data, encoding: .utf8) ?? ""
     }
 }
