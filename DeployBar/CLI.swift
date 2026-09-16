@@ -9,6 +9,9 @@ import Foundation
 //   --doctor  [앱]      배포 규칙 점검
 //   --template <앱>     설치될 deploy.env·predeploy.sh 미리보기 (--write 로 실제 설치)
 //   --notes   <앱>      언어별 릴리즈노트 초안 미리보기
+//   --reponotes [앱] [버전]  레포의 RELEASE_NOTES.md 에서 무엇을 읽어 가는지
+//   --check   <앱>      게이트까지만 돌려 본다 (업로드 안 함)
+//   --help              사용법 (모르는 -- 명령도 창을 띄우지 않고 사용법으로 끝난다)
 //   --shots   <앱>      앱스토어 스크린샷 다시 만들 때 붙여넣을 지시문 (--video 면 미리보기 영상)
 //   --logs [n|last]     지난 배포·점검 로그 (창을 닫아도 남는다). last 면 최근 것 전체를 출력
 //   --selftest-changes  상태 변화 알림 규칙 검증
@@ -16,7 +19,43 @@ import Foundation
 //
 // App.init 에서 부른다 — Scene 이 만들어지기 전에 끝나야 창이 뜨지 않는다.
 enum CLI {
+    static let usage = """
+    DeployBar — UI 없이 확인만 할 때 쓰는 명령
+
+      --status [--pull]          앱별 배포 준비 N/M + 체크리스트 전체 (--pull 이면 원격 커밋도 받아온다)
+      --audit                    무엇이 관리되고, 무엇이 왜 빠졌나
+      --doctor [앱]              배포 규칙 점검
+      --builds <앱>              올린 빌드가 App Store Connect 에 도착했나
+      --prompt <앱>              잠김 해결 지시문 (UI 의 [해결 프롬프트] 와 같은 글)
+      --template <앱> [--write]  설치될 deploy.env·predeploy.sh 미리보기 (--write 로 실제 설치)
+      --notes <앱>               언어별 릴리즈노트 초안 미리보기 (업로드 안 함)
+      --reponotes [앱] [버전]    레포의 RELEASE_NOTES.md 에서 무엇을 읽어 가는지
+      --check <앱> [--verbose]   게이트까지만 돌려 보고 단계판을 그린다 (업로드 안 함)
+      --shots <앱> [--video]     스크린샷(영상) 다시 만들 때 붙여넣을 지시문
+      --logs [n|last]            지난 배포·점검 로그
+      --selftest-changes         상태 변화 알림 규칙 검증
+      --selftest-lock            '무엇이 배포를 잠그는가' 규칙 검증
+      --help                     이 안내
+    """
+
+    /// 명령줄에서 부른 걸 창으로 받지 않는다. 모르는 `--` 명령이 오면 앱을 띄우지 말고
+    /// 사용법을 말하고 끝낸다 — 에이전트가 `--help` 나 옛 빌드에 없는 명령으로 부를 때마다
+    /// 창 달린 앱이 하나씩 더 뜨고 있었다. (Xcode 가 넘기는 `-NS…` 같은 한 줄 인자는 건드리지 않는다)
+    static let known: Set<String> = [
+        "--status", "--pull", "--audit", "--doctor", "--builds", "--prompt", "--template", "--write",
+        "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
+        "--selftest-changes", "--selftest-lock",
+    ]
+
     static func runIfRequested() {
+    let args = CommandLine.arguments.dropFirst()
+    if args.contains("--help") || args.contains("-h") {
+        print(usage); exit(0)
+    }
+    if let unknown = args.first(where: { $0.hasPrefix("--") && !known.contains($0) }) {
+        FileHandle.standardError.write(Data("모르는 명령입니다: \(unknown)\n\n\(usage)\n".utf8))
+        exit(2)
+    }
     // 헤드리스 상태 조회 (테스트/CLI 용): DeployBar --status
     if CommandLine.arguments.contains("--status") {
         let sem = DispatchSemaphore(value: 0)
@@ -377,6 +416,11 @@ enum CLI {
         }
         sem.wait()
         exit(0)
+    }
+    // 여기까지 왔는데 `--` 인자가 남아 있으면(--pull 만 단독으로 줬다든가) 역시 창을 띄우지 않는다
+    if args.contains(where: { $0.hasPrefix("--") }) {
+        FileHandle.standardError.write(Data("혼자서는 쓸 수 없는 옵션입니다\n\n\(usage)\n".utf8))
+        exit(2)
     }
     }
 }
