@@ -259,6 +259,8 @@ final class Store: ObservableObject {
     /// 단일 배포면 곧바로 클립보드로 가고, 전체 배포면 여기 남아 있다가
     /// 카드의 ⋯ ▸ 앱스토어 그림 프롬프트로 꺼내진다.
     @Published var shotPromptReady: [String: String] = [:]
+    /// 첫 출시 배포가 알아낸 '사람만 할 수 있는 일' (앱 경로 → 목록)
+    @Published var humanTodoReady: [String: [String]] = [:]
     @Published var fixResult: [String: String] = [:]
     @Published var fixing: Set<String> = []
 

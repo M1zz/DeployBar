@@ -455,104 +455,101 @@ enum StorePublish {
     }
 
     // ── 누가 무엇을 해야 하나 ───────────────────────────────────────────
-    /// 제출까지 남은 일을 **도구가 할 것 / 사람만 할 수 있는 것** 으로 갈라 준다.
+    /// 스토어 쪽을 **한 번** 훑어, 남은 일을 도구 몫과 사람 몫으로 가른다.
     ///
     /// 이 구분이 중요한 이유: 이제 대부분을 도구가 하므로, 남은 몇 가지가 정말 사람 몫인지
     /// 아니면 버튼을 안 누른 것뿐인지가 헷갈린다. 헷갈리면 사람은 둘 다 안 한다.
-    struct Todo { var mine: [String] = []; var yours: [String] = [] }
+    ///
+    /// 조회를 한 함수에 모은 이유도 같다 — 체크리스트·`--todo`·배포 끝 안내가 각자 물어보면
+    /// 같은 질문을 세 번 하게 되고, 답이 서로 어긋나면 그게 더 나쁘다.
+    struct StoreState {
+        var isFirstRelease = false
+        /// 스토어 페이지에서 비어 있는 칸 (체크리스트가 한 줄로 요약한다)
+        var gaps: [String] = []
+        /// DeployBar 가 버튼 하나로 할 수 있는 것
+        var mine: [String] = []
+        /// 사람이 App Store Connect 웹에서만 할 수 있는 것
+        var human: [String] = []
+    }
 
-    static func todo(_ app: ManagedApp) async -> Todo {
-        var out = Todo()
+    static func inspect(_ app: ManagedApp) async -> StoreState {
         let r = AppRepo.resolve(app)
-        guard let info = try? AppRepo.buildSettings(r) else { return out }
+        guard let info = try? AppRepo.buildSettings(r) else { return StoreState() }
         guard let appId = try? await ASCClient.appId(bundleId: info.bundleId) else {
-            out.yours.append("App Store Connect 에 \(info.bundleId) 로 앱 만들기 — API 에 없는 단 하나의 단계입니다")
-            return out
+            var st = StoreState()
+            st.human.append("App Store Connect 에 \(info.bundleId) 로 앱 만들기 — API 에 없는 단 하나의 단계입니다")
+            return st
         }
         let vers = (try? await ASCClient.appStoreVersions(appId: appId)) ?? []
-        let editable = vers.first { ReleaseNotes.editableStates.contains($0.state) }
-        guard let v = editable else {
-            out.mine.append("편집 가능한 버전 만들기 — [스토어 올리기] 가 만듭니다")
-            return out
+        return await inspect(app, appId: appId, versions: vers)
+    }
+
+    static func inspect(_ app: ManagedApp, appId: String,
+                        versions: [ASCClient.Version]) async -> StoreState {
+        var st = StoreState()
+        st.isFirstRelease = !versions.contains { $0.state == "READY_FOR_SALE" }
+        guard let v = versions.first(where: { ReleaseNotes.editableStates.contains($0.state) }) else {
+            st.mine.append("편집 가능한 버전 만들기 — [스토어 올리기] 가 만듭니다")
+            return st
         }
-        if !v.hasBuild {
-            out.mine.append("v\(v.versionString) 에 빌드 연결 — [빌드 연결]")
-        }
+        if !v.hasBuild { st.mine.append("v\(v.versionString) 에 빌드 연결 — [빌드 연결]") }
+
         let texts = (try? await ASCClient.storeTexts(versionId: v.id)) ?? []
+        guard !texts.isEmpty else {
+            st.gaps.append("스토어 페이지 언어가 하나도 없음")
+            return st
+        }
         let repoMeta = StoreMeta.read(app.path, locales: texts.map(\.locale))
-        let emptyText = texts.filter { !$0.hasDescription || !$0.hasKeywords }
-        if !emptyText.isEmpty {
-            let names = emptyText.map { Locales.displayName($0.locale) }.joined(separator: ", ")
-            out.mine.append(repoMeta == nil
-                ? "설명·키워드 (\(names)) — APPSTORE.md 에 쓰면 [스토어 올리기] 가 올립니다"
-                : "설명·키워드 (\(names)) — [스토어 올리기] 로 반영하세요")
+        func names(_ list: [ASCClient.StoreText]) -> String {
+            list.prefix(3).map { Locales.displayName($0.locale) }.joined(separator: ", ")
+                + (list.count > 3 ? " 외" : "")
+        }
+        let noDesc = texts.filter { !$0.hasDescription }
+        let noKey = texts.filter { !$0.hasKeywords }
+        if !noDesc.isEmpty { st.gaps.append("설명 없음(\(names(noDesc)))") }
+        if !noKey.isEmpty { st.gaps.append("키워드 없음(\(names(noKey)))") }
+        if !noDesc.isEmpty || !noKey.isEmpty {
+            st.mine.append(repoMeta == nil
+                ? "설명·키워드 — APPSTORE.md 에 쓰면 [스토어 올리기] 가 올립니다"
+                : "설명·키워드 — [스토어 올리기] 로 반영하세요")
         }
         if let first = texts.first {
             let sets = (try? await ASCClient.shotSets(localizationId: first.id)) ?? []
             if sets.reduce(0, { $0 + $1.shots.count }) == 0 {
-                out.mine.append(hasShots(app.path)
+                st.gaps.append("스크린샷 없음")
+                st.mine.append(hasShots(app.path)
                     ? "스크린샷 — 레포에 있습니다. [스토어 올리기] 가 올립니다"
                     : "스크린샷 — 먼저 찍어야 합니다 (`--shots \(app.name)` 지시문)")
             }
         }
         if let appInfo = try? await ASCClient.appInfo(appId: appId),
            (try? await ASCClient.ageRatingDone(appInfoId: appInfo.id)) == false {
+            st.gaps.append("연령 등급 미작성")
             if repoMeta?.ageRatingNone == true {
-                out.mine.append("연령 등급 '해당 없음' 신고 — [스토어 올리기] 가 합니다")
+                st.mine.append("연령 등급 '해당 없음' 신고 — [스토어 올리기] 가 합니다")
             } else {
-                out.yours.append("연령 등급 설문 — 내용 신고라 사람이 판단합니다 (전부 '해당 없음' 이면 APPSTORE.md 에 적어 두면 다음부터 자동)")
+                st.human.append("연령 등급 설문 — 애플에 하는 내용 신고라 사람이 판단합니다 (전부 '해당 없음' 이면 APPSTORE.md 의 `## 연령 등급` 절에 적어 두면 다음부터 자동)")
             }
         }
         if let wanted = iapProductIds(app.path), !wanted.isEmpty {
             let have = Set((try? await ASCClient.inAppPurchaseIds(appId: appId)) ?? [])
             let missing = wanted.filter { !have.contains($0) }
             if !missing.isEmpty {
-                out.yours.append("인앱결제 만들기 — \(missing.joined(separator: ", ")) · 가격이 걸린 값이라 도구가 정하지 않습니다")
+                st.human.append("인앱결제 만들기 — \(missing.joined(separator: ", ")) · 값이 돈이라 도구가 정하지 않습니다. 없으면 페이월이 빈 화면으로 뜨고 심사도 막힙니다")
             }
         }
-        if await !ASCClient.priceSet(appId: appId) {
-            out.yours.append("가격 정하기 — 무료인지 얼마인지는 사람이 정합니다")
+        // 가격·판매 지역·개인정보 라벨은 한 번 정하면 다음 버전부터 따라오므로 첫 출시에만 묻는다
+        if st.isFirstRelease {
+            if await !ASCClient.priceSet(appId: appId) {
+                st.human.append("가격 정하기 — 무료인지 얼마인지는 사람이 정합니다")
+            }
+            if await !ASCClient.availabilitySet(appId: appId) {
+                st.human.append("판매 지역 고르기")
+            }
+            st.human.append("앱 개인정보(데이터 수집) 라벨 — 공개 API 에 없습니다. 한 번 답하면 다음 버전부터 따라옵니다")
         }
-        if await !ASCClient.availabilitySet(appId: appId) {
-            out.yours.append("판매 지역 고르기")
-        }
-        out.yours.append("앱 개인정보(데이터 수집) 라벨 — 공개 API 에 없습니다. 한 번 답하면 다음 버전부터 따라옵니다")
-        out.yours.append("심사 제출 버튼 누르기 — 준비가 끝났다고 판단하는 건 사람입니다 (`--submit \(app.name)` 으로 도구가 눌러 줄 수는 있습니다)")
-        return out
-    }
-
-    // ── 첫 출시에 남은 칸 ───────────────────────────────────────────────
-    /// 아직 한 번도 판매된 적 없는 앱만 본다.
-    ///
-    /// 업데이트는 지난 버전의 설명·키워드·그림이 그대로 따라오므로 물어볼 필요가 없다.
-    /// 반대로 **첫 출시는 이 칸들이 비어 있는 게 진짜로 제출을 막는 것**인데,
-    /// 여태 체크리스트는 그걸 한 줄도 말하지 않았다 — 빌드는 올라갔고 릴리즈노트도 됐는데
-    /// 웹에 가 보면 제출 버튼이 회색인 이유를 앱 안에서는 알 길이 없었다.
-    static func firstReleaseGaps(appId: String, versions: [ASCClient.Version]) async -> [String]? {
-        guard !versions.contains(where: { $0.state == "READY_FOR_SALE" }) else { return nil }
-        guard let editable = versions.first(where: { ReleaseNotes.editableStates.contains($0.state) })
-        else { return nil }
-        var gaps: [String] = []
-        let texts = (try? await ASCClient.storeTexts(versionId: editable.id)) ?? []
-        if texts.isEmpty { return ["스토어 페이지 언어가 하나도 없음"] }
-        func names(_ list: [ASCClient.StoreText]) -> String {
-            list.prefix(3).map { Locales.displayName($0.locale) }.joined(separator: ", ")
-                + (list.count > 3 ? " 외" : "")
-        }
-        let noDesc = texts.filter { !$0.hasDescription }
-        if !noDesc.isEmpty { gaps.append("설명 없음(\(names(noDesc)))") }
-        let noKey = texts.filter { !$0.hasKeywords }
-        if !noKey.isEmpty { gaps.append("키워드 없음(\(names(noKey)))") }
-        if let first = texts.first {
-            let sets = (try? await ASCClient.shotSets(localizationId: first.id)) ?? []
-            let shots = sets.reduce(0) { $0 + $1.shots.count }
-            if shots == 0 { gaps.append("스크린샷 없음") }
-        }
-        if let info = try? await ASCClient.appInfo(appId: appId),
-           (try? await ASCClient.ageRatingDone(appInfoId: info.id)) == false {
-            gaps.append("연령 등급 미작성")
-        }
-        return gaps
+        st.human.append("심사 제출 버튼 누르기 — 준비가 끝났다는 판단은 사람이 합니다 (`--submit \(app.name)` 으로 도구가 눌러 줄 수는 있습니다)")
+        return st
     }
 
     // ── 그림 찾기 ───────────────────────────────────────────────────────

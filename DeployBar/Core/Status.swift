@@ -71,7 +71,11 @@ enum Status {
                 }
                 // 아직 출시된 적 없는 앱만 — 스토어 페이지가 비어 있으면 제출 자체가 안 된다.
                 // (업데이트 앱에는 묻지 않으므로 요청이 늘지 않는다)
-                st.storeGaps = await StorePublish.firstReleaseGaps(appId: id, versions: vers)
+                if !vers.contains(where: { $0.state == "READY_FOR_SALE" }) {
+                    let store = await StorePublish.inspect(app, appId: id, versions: vers)
+                    st.storeGaps = store.gaps
+                    st.humanTodo = store.human
+                }
             } else {
                 st.ascError = "ASC 에서 앱을 찾지 못함 (bundleId 불일치)"
                 st.ascReach = .missing

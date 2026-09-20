@@ -68,6 +68,7 @@ struct ReadyItem: Codable, Identifiable, Hashable {
         case "i18n": return "번역 채우면 풀림"
         case "asc": return "App Store Connect 확인"
         case "storepage": return "[스토어 올리기]"
+        case "humanonly": return "웹에서 사람이"
         case "version": return "xcconfig 경로 확인"
         case "project": return "scheme 이름 확인"
         default: return nil
@@ -515,6 +516,21 @@ struct Readiness: Codable, Hashable {
                         + "형식은 `## 한국어` 같은 언어 절 아래 `###` 항목이다. DeployBar 가 이 파일을 읽어 App Store 페이지에 그대로 올린다. "
                         + "설명은 4000자, 이름·부제는 30자, 키워드는 쉼표로만 나눠 100자까지다. 스크린샷은 찍지 말고 없으면 그렇다고 알려줘."))
             }
+        }
+
+        // 10.47) 사람만 할 수 있는 일 — 첫 출시에만 뜬다.
+        //        배포를 막지 않는다. 업로드는 되고, 스토어에 나가는 걸 막는 것들이라
+        //        "지금 배포를 누를 수 있나" 와는 다른 질문이기 때문이다.
+        if let human = status.humanTodo, !human.isEmpty {
+            // 항목 이름만 나열한다. 긴 설명까지 여기 붙이면 한 줄이 문단이 되어
+            // 체크리스트에서 아무도 안 읽는다 — 자세한 건 로그와 `--todo` 가 말한다.
+            let names = human.map { $0.components(separatedBy: " — ").first ?? $0 }
+            out.append(ReadyItem(
+                key: "humanonly", level: .need,
+                title: "사람이 웹에서 해야 하는 일 \(human.count)가지",
+                detail: names.joined(separator: " · ") + " — 첫 출시라 이것들이 비면 심사 제출 버튼이 눌리지 않습니다",
+                todo: "appstoreconnect.apple.com 에서 끝낸 뒤 ⋯ ▸ 스토어 페이지 ▸ [심사 제출] 을 누르세요 (자세한 설명은 `--todo` 또는 배포 로그)",
+                agent: "이건 네가 할 수 있는 일이 아니다. App Store Connect 웹에서 사람이 하는 절차라 코드에 고칠 게 없어. 손대지 말고 알려만 줘."))
         }
 
         // 10.5) 업로드한 빌드를 버전에 붙였는가 — 이걸 안 하면 심사 제출 자체가 안 된다.

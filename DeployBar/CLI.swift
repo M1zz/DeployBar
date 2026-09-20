@@ -490,16 +490,16 @@ enum CLI {
         }
         let sem = DispatchSemaphore(value: 0)
         Task.detached {
-            let t = await StorePublish.todo(app)
-            print("\n━━ \(app.name) — 제출까지 남은 일")
-            if t.mine.isEmpty && t.yours.isEmpty { print("\n남은 게 없습니다.") }
+            let t = await StorePublish.inspect(app)
+            print("\n━━ \(app.name) — 제출까지 남은 일\(t.isFirstRelease ? " (첫 출시)" : "")")
+            if t.mine.isEmpty && t.human.isEmpty { print("\n남은 게 없습니다.") }
             if !t.mine.isEmpty {
                 print("\n🤖 DeployBar 가 합니다 (\(t.mine.count))")
                 for x in t.mine { print("   · \(x)") }
             }
-            if !t.yours.isEmpty {
-                print("\n🙋 사람만 할 수 있습니다 (\(t.yours.count))  — appstoreconnect.apple.com")
-                for x in t.yours { print("   · \(x)") }
+            if !t.human.isEmpty {
+                print("\n🙋 사람만 할 수 있습니다 (\(t.human.count))  — appstoreconnect.apple.com")
+                for x in t.human { print("   · \(x)") }
             }
             print("")
             sem.signal()

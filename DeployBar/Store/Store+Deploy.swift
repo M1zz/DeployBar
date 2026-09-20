@@ -95,6 +95,15 @@ extension Store {
             // 배포가 "지금 다시 찍을 때" 로 판정했으면 지시문을 손에 남긴다.
             // 로그에는 이미 전문이 들어갔고, 여기서는 **나중에 꺼낼 수 있게** 들고 있는다 —
             // 전체 배포 중이면 클립보드를 앱마다 덮어쓰면 안 되므로 복사는 부르는 쪽이 정한다.
+            // 첫 출시의 사람 몫은 **✕ 로 지울 때까지 남는 배너**로도 알린다.
+            // 로그는 창을 닫으면 찾아 들어가야 하는데, 이건 "다음에 할 일" 이라 눈에 남아야 한다.
+            if !res.humanTodo.isEmpty {
+                humanTodoReady[app.path] = res.humanTodo
+                announce([.init(title: "🙋 \(app.name) — 스토어에 내려면 사람이 할 일 \(res.humanTodo.count)가지",
+                                body: res.humanTodo.map { $0.components(separatedBy: " — ").first ?? $0 }
+                                    .joined(separator: " · ") + " (로그에 자세히 적어 뒀습니다)",
+                                important: true)])
+            }
             if let prompt = res.shotPrompt {
                 shotPromptReady[app.path] = prompt
                 announce([.init(title: "📸 \(app.name) 스크린샷 다시 찍을 때",

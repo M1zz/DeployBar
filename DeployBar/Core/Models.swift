@@ -114,6 +114,9 @@ struct AppStatus: Identifiable, Codable {
     /// nil = 확인하지 않음(이미 판매 중인 앱은 지난 버전 값이 따라오므로 볼 필요가 없다),
     /// [] = 확인했고 다 찼다. 옛 status-cache.json 과도 호환되도록 옵셔널이다.
     var storeGaps: [String]?
+    /// 첫 출시 앱에서 **사람만** 할 수 있는 일 (연령 등급·인앱결제·가격·개인정보 라벨…).
+    /// 도구가 할 수 있는 것과 섞으면 사람은 둘 다 안 한다 — 그래서 따로 들고 다닌다.
+    var humanTodo: [String]?
     /// deploy.env 의 LOCALES 중 App Store 페이지에 없는 언어.
     /// 여기에 적어 둔 언어의 릴리즈노트는 만들어도 올라갈 자리가 없어 조용히 버려진다.
     var notesUnlistedLocales: [String] = []

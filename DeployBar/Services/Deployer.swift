@@ -83,10 +83,15 @@ enum Deployer {
     struct Result {
         let version: String
         let build: Int
+        /// 첫 출시에서 **사람만** 할 수 있는 남은 일. 배포가 끝나는 자리에서 알려 준다 —
+        /// 여기서 안 말하면 사람은 웹에 가 보고서야 제출 버튼이 회색인 걸 알게 된다.
         /// 배포 끝에서 "지금이 다시 찍을 때" 로 판정됐을 때의 붙여넣기용 지시문.
         /// 찍는 것은 이 글을 받은 세션(Claude Code)이 한다 — Deployer 는 글만 만든다.
         var shotPrompt: String? = nil
         var shotReason: String? = nil
+        /// 첫 출시에서 **사람만** 할 수 있는 남은 일. 배포가 끝나는 자리에서 알려 준다 —
+        /// 여기서 안 말하면 사람은 웹에 가 보고서야 제출 버튼이 회색인 걸 알게 된다.
+        var humanTodo: [String] = []
     }
 
     // versionBump: nil = 빌드만 올리기(버전 유지), .patch/.minor/.major = 그만큼 버전 올린 뒤 배포(빌드 1부터)
@@ -459,9 +464,29 @@ enum Deployer {
         //    기다리는 대신, 끝나는 김에 붙여넣을 글까지 만들어 둔다.
         let shot = await shotStage(app, info: info, lane: lane, onLog: onLog, onStage: onStage)
 
+        // 7) 첫 출시라면 — **사람만 할 수 있는 일**을 여기서 안내한다.
+        //
+        //    업로드가 끝났다고 스토어에 나가는 게 아니다. 첫 출시는 연령 등급·인앱결제·
+        //    가격·판매 지역·개인정보 라벨이 비어 있으면 제출 버튼이 아예 안 눌리는데,
+        //    그걸 웹에 가 보고서야 알게 되면 "올렸는데 왜 아무 일도 안 일어나지" 가 된다.
+        //    업데이트 앱에는 말하지 않는다 — 지난 버전 값이 그대로 따라오기 때문이다.
+        var humanTodo: [String] = []
+        let store = await StorePublish.inspect(app)
+        if store.isFirstRelease, !store.human.isEmpty {
+            humanTodo = store.human
+            onLog("")
+            onLog("🙋 첫 출시입니다 — 여기서부터는 사람이 App Store Connect 웹에서 해야 합니다 (\(store.human.count)가지)")
+            for (n, item) in store.human.enumerated() { onLog("   \(n + 1)) \(item)") }
+            if !store.mine.isEmpty {
+                onLog("   · 나머지 \(store.mine.count)가지는 ⋯ ▸ 스토어 페이지 ▸ [스토어에 올리기] 가 합니다")
+            }
+            onLog("   · 언제든 다시 보려면: DeployBar --todo \(app.name)")
+        }
+
         // 버전은 사용자가 '버전 올리기'를 고를 때만 바뀐다 — 배포 후 자동 증가 없음
         return Result(version: marketingVersion, build: newBuild,
-                      shotPrompt: shot?.text, shotReason: shot?.reason)
+                      shotPrompt: shot?.text, shotReason: shot?.reason,
+                      humanTodo: humanTodo)
     }
 
     // ── 스크린샷 칸 ──────────────────────────────────────────────────
