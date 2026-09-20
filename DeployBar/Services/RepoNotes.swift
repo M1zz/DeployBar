@@ -130,46 +130,10 @@ enum RepoNotes {
         return script
     }
 
-    /// 절 제목이 가리키는 로케일. 이 앱이 실제로 쓰는 로케일 목록에 대고만 맞춘다 —
-    /// 세상의 모든 언어 이름을 표로 들고 있을 이유가 없고, 목록 밖의 언어를 알아봐야
-    /// 올릴 자리도 없다.
+    /// 절 제목이 가리키는 로케일. 표는 Locales 에 있다 — RELEASE_NOTES.md 와
+    /// APPSTORE.md 가 같은 이름표를 봐야 한쪽에서만 읽히는 언어가 생기지 않는다.
     private static func headingLocale(_ heading: String, among locales: [String]) -> String? {
-        let h = normalize(heading)
-        guard !h.isEmpty else { return nil }
-        var best: (locale: String, score: Int)?
-        for loc in locales {
-            for alias in aliases(for: loc) where h.contains(alias) {
-                // 더 긴 이름이 이긴다 — "중국어(간체)" 가 "중국어" 보다 구체적이다
-                if best == nil || alias.count > best!.score { best = (loc, alias.count) }
-            }
-        }
-        return best?.locale
-    }
-
-    /// 로케일 하나를 제목에서 알아볼 이름들 (한국어 이름·영어 이름·현지 이름·코드).
-    private static func aliases(for locale: String) -> [String] {
-        var out: Set<String> = []
-        let ids = Set([locale, Locales.language(locale)])
-        for id in ids {
-            let under = id.replacingOccurrences(of: "-", with: "_")
-            // 코드 자체 ("zh-Hans" → "zhhans"). 두 글자 코드("ko","en")는 아무 단어에나
-            // 걸리므로 쓰지 않는다 — 이름으로 충분하다.
-            let code = normalize(id)
-            if code.count >= 4 { out.insert(code) }
-            for named in [Locale(identifier: "ko_KR"), Locale(identifier: "en_US"), Locale(identifier: under)] {
-                if let n = named.localizedString(forIdentifier: under) {
-                    let x = normalize(n)
-                    if x.count >= 2 { out.insert(x) }
-                }
-            }
-        }
-        return Array(out)
-    }
-
-    /// 이름 대조용 정규화 — 괄호·공백·하이픈을 걷어내고 소문자로.
-    /// "중국어(간체)" 와 "중국어 간체" 가 같은 것으로 읽혀야 한다.
-    private static func normalize(_ s: String) -> String {
-        String(s.lowercased().filter { $0.isLetter || $0.isNumber })
+        Locales.match(heading: heading, among: locales)
     }
 
     /// 글자를 보고 언어를 정한다. 제목이 아무 말도 안 할 때의 마지막 수단이다.

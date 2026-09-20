@@ -17,6 +17,10 @@ extension Store {
             Task { await loadNotes(app) }
         case .reveal:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: app.path)
+        case .attachBuild:
+            Task { await attachBuild(app) }
+        case .publishStore:
+            publishStore(app)
         case .shotPrompt:
             // 지시문을 만들려면 시뮬레이터 목록·git 로그를 훑어야 한다.
             // 누른 자리에서 그러면 창이 잠깐 얼어붙으므로 밖에서 만들어 온다.
@@ -35,6 +39,6 @@ extension Store {
 
     /// 이 고치기가 진행 중이라 스피너를 보여 줄지
     func isApplying(_ fix: Fix, _ path: String) -> Bool {
-        [.configure, .ignoreNoise, .shotPrompt].contains(fix) && fixing.contains(path)
+        [.configure, .ignoreNoise, .shotPrompt, .attachBuild].contains(fix) && fixing.contains(path)
     }
 }

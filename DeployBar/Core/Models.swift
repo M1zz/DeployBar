@@ -37,6 +37,8 @@ enum Platform: String {
     var destination: String { self == .macOS ? "generic/platform=macOS" : "generic/platform=iOS" }
     var altoolType: String { self == .macOS ? "macos" : "ios" }   // xcrun altool -t
     var exportExt: String { self == .macOS ? "pkg" : "ipa" }      // export 산출물 확장자
+    /// App Store Connect 가 쓰는 플랫폼 이름 (버전·심사 제출을 만들 때 필요하다)
+    var ascPlatform: String { self == .macOS ? "MAC_OS" : "IOS" }
 }
 
 struct BuildInfo {
@@ -104,8 +106,14 @@ struct AppStatus: Identifiable, Codable {
     var notesMissing: [String] = []
     /// 편집 가능한 버전이 아직 없어 확인 자체를 못 한 경우 (첫 업로드 전)
     var notesUncheckable: Bool = false
+    /// 첫 출시(아직 판매된 적 없음) — 이 버전에는 '새로운 기능' 칸 자체가 없다
+    var notesFirstRelease: Bool = false
     /// 편집 가능한 App Store 버전에 빌드가 붙어 있는가 (안 붙으면 심사 제출이 안 된다)
     var editableHasBuild: Bool?
+    /// 첫 출시 앱이 심사 제출에 닿기까지 남은 칸 (설명·키워드·스크린샷·연령 등급).
+    /// nil = 확인하지 않음(이미 판매 중인 앱은 지난 버전 값이 따라오므로 볼 필요가 없다),
+    /// [] = 확인했고 다 찼다. 옛 status-cache.json 과도 호환되도록 옵셔널이다.
+    var storeGaps: [String]?
     /// deploy.env 의 LOCALES 중 App Store 페이지에 없는 언어.
     /// 여기에 적어 둔 언어의 릴리즈노트는 만들어도 올라갈 자리가 없어 조용히 버려진다.
     var notesUnlistedLocales: [String] = []

@@ -255,6 +255,10 @@ final class Store: ObservableObject {
     // Swift 확장에는 저장 프로퍼티를 둘 수 없어 여기 모은다.
     // 기능별 코드는 Store+Deploy / Store+ReleaseNotes / Store+Scaffold / Store+Fix 에 있다.
     // 카드에 잠깐 띄우는 '자동 설정' 결과 한 줄 (path → 메시지)
+    /// 배포가 만들어 둔 '스크린샷 다시 찍기' 지시문 (앱 경로 → 글).
+    /// 단일 배포면 곧바로 클립보드로 가고, 전체 배포면 여기 남아 있다가
+    /// 카드의 ⋯ ▸ 앱스토어 그림 프롬프트로 꺼내진다.
+    @Published var shotPromptReady: [String: String] = [:]
     @Published var fixResult: [String: String] = [:]
     @Published var fixing: Set<String> = []
 

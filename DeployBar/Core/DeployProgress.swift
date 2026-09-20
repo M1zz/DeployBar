@@ -24,6 +24,7 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
     case upload         // 업로드
     case confirm        // 도착 확인
     case tag            // 태그
+    case shots          // 스크린샷 — 다시 찍을 때인지 보고, 그렇다면 지시문을 만든다
     case notesApply     // 릴리즈노트 반영
 
     var id: Int { rawValue }
@@ -42,6 +43,7 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
         case .upload:     return "업로드"
         case .confirm:    return "도착 확인"
         case .tag:        return "태그"
+        case .shots:      return "스크린샷 점검"
         case .notesApply: return "릴리즈노트 반영"
         }
     }
@@ -62,6 +64,7 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
         case .upload:     return "altool 로 App Store Connect 에 올리는 중"
         case .confirm:    return "정말 도착했는지 App Store Connect 에 되묻는 중"
         case .tag:        return "이번 배포 지점에 git 태그를 다는 중"
+        case .shots:      return "그림이 이번 화면과 맞는지 보고, 아니면 다시 찍을 지시문을 만드는 중"
         case .notesApply: return "언어별 릴리즈노트를 만들어 App Store 에 반영하는 중"
         }
     }
@@ -83,6 +86,7 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
         case .upload:     return 70
         case .confirm:    return 20
         case .tag:        return 1
+        case .shots:      return 3
         case .notesApply: return 20
         }
     }

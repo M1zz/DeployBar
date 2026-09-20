@@ -13,6 +13,9 @@ import Foundation
 //   --check   <앱>      게이트까지만 돌려 본다 (업로드 안 함)
 //   --help              사용법 (모르는 -- 명령도 창을 띄우지 않고 사용법으로 끝난다)
 //   --shots   <앱>      앱스토어 스크린샷 다시 만들 때 붙여넣을 지시문 (--video 면 미리보기 영상)
+//   --storemeta <앱>    APPSTORE.md 에서 무엇을 읽어 가는지 (--write 면 뼈대 생성)
+//   --publish <앱>      스토어 페이지 올리기 (--dry-run 이면 무엇이 올라갈지만)
+//   --attach/--submit/--release <앱>   빌드 연결 · 심사 제출 · 출시
 //   --logs [n|last]     지난 배포·점검 로그 (창을 닫아도 남는다). last 면 최근 것 전체를 출력
 //   --selftest-changes  상태 변화 알림 규칙 검증
 //   --selftest-lock     '무엇이 배포를 잠그는가' 규칙 검증 (조회 실패는 잠그면 안 된다)
@@ -32,6 +35,14 @@ enum CLI {
       --reponotes [앱] [버전]    레포의 RELEASE_NOTES.md 에서 무엇을 읽어 가는지
       --check <앱> [--verbose]   게이트까지만 돌려 보고 단계판을 그린다 (업로드 안 함)
       --shots <앱> [--video]     스크린샷(영상) 다시 만들 때 붙여넣을 지시문
+      --storemeta <앱> [--write] APPSTORE.md 를 어떻게 읽는지 (--write 면 뼈대 생성)
+      --shotplan <앱>            docs/screenshots 의 그림이 어느 기기 자리에 올라갈지 (네트워크 없음)
+      --todo <앱>                제출까지 남은 일 — 도구가 할 것 / 사람만 할 수 있는 것
+      --publish <앱> [--dry-run] 스토어 페이지 올리기 (문구·스크린샷·버전·빌드 연결)
+                     [--overwrite]  스토어에 이미 있는 글까지 레포 글로 덮어쓴다
+      --attach <앱>              올라간 빌드를 App Store 버전에 연결
+      --submit <앱>              심사 제출 (여기서부터 애플이 본다)
+      --release <앱>             '출시 대기' 를 지금 출시
       --logs [n|last]            지난 배포·점검 로그
       --selftest-changes         상태 변화 알림 규칙 검증
       --selftest-lock            '무엇이 배포를 잠그는가' 규칙 검증
@@ -45,6 +56,8 @@ enum CLI {
         "--status", "--pull", "--audit", "--doctor", "--builds", "--prompt", "--template", "--write",
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
         "--selftest-changes", "--selftest-lock",
+        "--storemeta", "--publish", "--dry-run", "--overwrite", "--attach", "--submit", "--release",
+        "--shotplan", "--todo",
     ]
 
     static func runIfRequested() {
@@ -411,6 +424,179 @@ enum CLI {
                 let onDevice = Locales.supportsOnDeviceTranslation(loc) ? "온디바이스 번역 가능" : "온디바이스 번역 불가 — 직접 입력 필요"
                 print("\n── \(loc) (\(Locales.displayName(loc))) \(text.isEmpty ? "· 비어 있음 · \(onDevice)" : "")")
                 if !text.isEmpty { print(text) }
+            }
+            sem.signal()
+        }
+        sem.wait()
+        exit(0)
+    }
+    // 스토어 문구 원본(APPSTORE.md)을 어떻게 읽는지: DeployBar --storemeta 앱이름 [--write]
+    //
+    // --reponotes 와 같은 자리의 명령이다. 올리기 전에 "무엇이 어느 칸에 들어가는지" 를
+    // 눈으로 확인할 수 있어야, 스토어에 올라간 뒤에 처음 알게 되는 일이 없다.
+    if let i = CommandLine.arguments.firstIndex(of: "--storemeta") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let r = AppRepo.resolve(app)
+        if let found = StoreMeta.read(app.path, locales: r.locales) {
+            print("\(found.source) · \(found.entries.count)개 언어")
+            if found.ageRatingNone { print("연령 등급: '해당 없음' 으로 신고하라고 적혀 있습니다") }
+            for loc in found.locales {
+                guard let e = found.entries[loc] else { continue }
+                print("\n── \(loc) (\(Locales.displayName(loc)))")
+                func row(_ label: String, _ v: String?, _ limit: Int) {
+                    guard let v else { return }
+                    let one = v.replacingOccurrences(of: "\n", with: " ⏎ ")
+                    let head = one.count > 60 ? String(one.prefix(60)) + "…" : one
+                    print("   \(label.padding(toLength: 18, withPad: " ", startingAt: 0))\(head)  (\(v.count)/\(limit))")
+                }
+                row("이름", e.name, 30)
+                row("부제", e.subtitle, 30)
+                row("설명", e.description, 4000)
+                row("키워드", e.keywords, 100)
+                row("프로모션 텍스트", e.promotionalText, 170)
+                row("지원 URL", e.supportUrl, 255)
+                row("마케팅 URL", e.marketingUrl, 255)
+                row("개인정보 URL", e.privacyPolicyUrl, 255)
+                for p in StoreMeta.problems(loc, e) { print("   ⚠️  \(p)") }
+            }
+            if let dir = StorePublish.shotDir(app.path) {
+                print("\n── 그림: \(dir.path)")
+            } else {
+                print("\n── 그림: 없음 (docs/screenshots/ 에 두면 같이 올라갑니다)")
+            }
+        } else if CommandLine.arguments.contains("--write") {
+            let path = (app.path as NSString).appendingPathComponent("APPSTORE.md")
+            let locales = r.locales.isEmpty ? Localization.scan(app.path).locales : r.locales
+            try? StoreMeta.template(appName: app.name, locales: locales)
+                .write(toFile: path, atomically: true, encoding: .utf8)
+            print("만들었습니다: \(path)")
+            print("문구를 채운 뒤 `--publish \(app.name)` 으로 올리세요.")
+        } else {
+            print("\(app.name): APPSTORE.md 가 없습니다. --write 를 붙이면 뼈대를 만듭니다.")
+        }
+        exit(0)
+    }
+    // 제출까지 남은 일을 둘로 갈라 본다: DeployBar --todo 앱이름
+    //
+    // 대부분을 도구가 하게 된 뒤로, 남은 몇 가지가 **정말 사람 몫인지 버튼을 안 누른 것인지**가
+    // 헷갈리기 시작했다. 헷갈리면 사람은 둘 다 안 한다. 그래서 갈라서 보여 준다.
+    if let i = CommandLine.arguments.firstIndex(of: "--todo") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            let t = await StorePublish.todo(app)
+            print("\n━━ \(app.name) — 제출까지 남은 일")
+            if t.mine.isEmpty && t.yours.isEmpty { print("\n남은 게 없습니다.") }
+            if !t.mine.isEmpty {
+                print("\n🤖 DeployBar 가 합니다 (\(t.mine.count))")
+                for x in t.mine { print("   · \(x)") }
+            }
+            if !t.yours.isEmpty {
+                print("\n🙋 사람만 할 수 있습니다 (\(t.yours.count))  — appstoreconnect.apple.com")
+                for x in t.yours { print("   · \(x)") }
+            }
+            print("")
+            sem.signal()
+        }
+        sem.wait()
+        exit(0)
+    }
+    // 그림이 어디로 갈지만 본다(네트워크 없음): DeployBar --shotplan 앱이름
+    //
+    // 업로드와 **같은 함수**로 묶으므로, 여기서 제대로 나뉘면 올릴 때도 제대로 나뉜다.
+    // 규격이 아닌 그림은 올릴 때 조용히 빠지는 게 아니라 여기서 미리 이름을 말해 준다.
+    if let i = CommandLine.arguments.firstIndex(of: "--shotplan") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let r = AppRepo.resolve(app)
+        let platform = (try? AppRepo.buildSettings(r))?.platform ?? .iOS
+        let plan = StorePublish.shotPlan(app.path, platform: platform, locales: r.locales)
+        guard let dir = plan.dir else {
+            print("\(app.name): 그림 폴더가 없습니다 — \(StorePublish.canonicalShotDir)/ 에 두면 배포가 올립니다")
+            exit(0)
+        }
+        print("\(dir.path)")
+        if plan.rows.isEmpty { print("  올릴 그림이 없습니다") }
+        for row in plan.rows {
+            print("\n── \(row.locale) · \(StorePublish.typeLabel(row.type)) (\(row.type)) · \(row.files.count)장")
+            for (n, f) in row.files.enumerated() {
+                print("   \(n + 1). \(f.lastPathComponent)")
+            }
+        }
+        if !plan.skipped.isEmpty {
+            print("\n⚠️  올라가지 않는 파일 \(plan.skipped.count)개")
+            for x in plan.skipped { print("   · \(x)") }
+        }
+        print("\n보이는 순서가 스토어 순서입니다. 실제로 올리려면 `--publish \(app.name)` 또는 배포하세요.")
+        exit(0)
+    }
+    // 스토어 페이지 올리기: DeployBar --publish 앱이름 [--dry-run] [--overwrite]
+    if let i = CommandLine.arguments.firstIndex(of: "--publish") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        var o = StorePublish.Options()
+        o.dryRun = CommandLine.arguments.contains("--dry-run")
+        if CommandLine.arguments.contains("--overwrite") { o.overwriteText = true; o.replaceShots = true }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            do {
+                let rep = try await StorePublish.run(app, options: o) { print("   \($0)") }
+                print("")
+                print("── v\(rep.version) \(o.dryRun ? "(미리보기 — 아무것도 쓰지 않았습니다)" : "")")
+                func list(_ title: String, _ items: [String]) {
+                    guard !items.isEmpty else { return }
+                    print("\n\(title) \(items.count)건")
+                    for x in items { print("   · \(x)") }
+                }
+                if rep.changed.isEmpty { print("\n바꾼 것 없음 — 스토어가 이미 레포와 같습니다") }
+                list(o.dryRun ? "✅ 올라갈 것" : "✅ 바꾼 것", rep.changed)
+                list("그대로 둔 것", rep.kept)
+                list("⚠️  하려다 못 한 것", rep.warnings)
+                list("🙋 사람이 웹에서 해야 하는 것", rep.manual)
+            } catch let e as DeployError {
+                print("\n❌ \(e.stage) — \(e.title)")
+                for t in e.todo { print("   → \(t)") }
+                if !e.detail.isEmpty { print("   \(e.detail)") }
+            } catch {
+                print("\n❌ \(error.localizedDescription)")
+            }
+            sem.signal()
+        }
+        sem.wait()
+        exit(0)
+    }
+    // 빌드 연결 · 심사 제출 · 출시 — 한 줄짜리 동작들
+    for (flag, label) in [("--attach", "빌드 연결"), ("--submit", "심사 제출"), ("--release", "출시")] {
+        guard let i = CommandLine.arguments.firstIndex(of: flag) else { continue }
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            do {
+                let msg: String
+                switch flag {
+                case "--attach": msg = try await StorePublish.attachBuild(app)
+                case "--submit": msg = try await StorePublish.submit(app) { print("   \($0)") }
+                default: msg = try await StorePublish.release(app)
+                }
+                print("✅ \(label): \(msg)")
+            } catch let e as DeployError {
+                print("❌ \(label) — \(e.title)")
+                for t in e.todo { print("   → \(t)") }
+            } catch {
+                print("❌ \(label) — \(error.localizedDescription)")
             }
             sem.signal()
         }

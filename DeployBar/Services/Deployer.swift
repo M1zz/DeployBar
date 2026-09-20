@@ -80,7 +80,14 @@ enum Deployer {
         return false
     }
 
-    struct Result { let version: String; let build: Int }
+    struct Result {
+        let version: String
+        let build: Int
+        /// 배포 끝에서 "지금이 다시 찍을 때" 로 판정됐을 때의 붙여넣기용 지시문.
+        /// 찍는 것은 이 글을 받은 세션(Claude Code)이 한다 — Deployer 는 글만 만든다.
+        var shotPrompt: String? = nil
+        var shotReason: String? = nil
+    }
 
     // versionBump: nil = 빌드만 올리기(버전 유지), .patch/.minor/.major = 그만큼 버전 올린 뒤 배포(빌드 1부터)
     /// 단계가 바뀔 때마다 부르는 보고 채널. 로그(무슨 일이 있었나)와 별개로
@@ -204,7 +211,12 @@ enum Deployer {
                 onLog("⚠️  릴리즈노트 확인 실패(\(probeError)) — RELEASE_NOTES_GATE=warn 이라 진행합니다")
                 done(.notes, "확인 실패 — \(probeError)")
             } else if let notes {
-                if notes.missing.isEmpty {
+                if notes.firstRelease {
+                    // 첫 출시에는 쓸 칸이 없다 (App Store 는 업데이트에만 그 칸을 만든다).
+                    // 없는 칸을 비었다고 막으면 첫 배포가 영원히 풀리지 않는다.
+                    onLog("📝 릴리즈노트: 첫 출시라 '이 버전의 새로운 기능' 칸이 없습니다 — 검사 건너뜀")
+                    skip(.notes, "첫 출시 — 스토어에 그 칸이 없습니다")
+                } else if notes.missing.isEmpty {
                     onLog("📝 릴리즈노트 준비됨 — v\(notes.version) · \(notes.filled.count)개 언어")
                     done(.notes, "v\(notes.version) · \(notes.filled.count)개 언어 채워짐")
                 } else {
@@ -265,7 +277,11 @@ enum Deployer {
         if lane == .check {
             onLog("✅ 게이트 통과 (check 모드 — 배포 없음)")
             onStage(.version, .skipped, "check 모드 — 여기까지만 합니다")
-            return Result(version: info.marketingVersion, build: Int(info.buildNumber) ?? 0)
+            // 스크린샷 판단은 읽기만 하므로 check 에서도 돌린다 —
+            // "배포하면 어떻게 되나" 를 미리 보는 자리에서 이것도 미리 알수록 좋다.
+            let shot = await shotStage(app, info: info, lane: lane, onLog: onLog, onStage: onStage)
+            return Result(version: info.marketingVersion, build: Int(info.buildNumber) ?? 0,
+                          shotPrompt: shot?.text, shotReason: shot?.reason)
         }
 
         // 1.5) 버전 처리 — 배포 전에 결정한다. 올릴지(버전), 유지할지(빌드만) 여기서 갈린다.
@@ -420,9 +436,9 @@ enum Deployer {
         onLog("🚀 [\(r.scheme)] 업로드 완료 — v\(marketingVersion) (build \(newBuild))")
         // '배포 완료' 가 '출시됨' 으로 읽히지 않게, 여기서 끝나는 지점을 분명히 말한다.
         // DeployBar 는 빌드를 올리는 데까지다 — 버전에 빌드를 붙이고 심사에 내는 건 사람이 한다.
-        onLog("ℹ️  여기까지가 '빌드 업로드' 입니다. App Store 에 올리려면 남은 일이 있습니다:")
-        onLog("   1) App Store Connect ▸ \(app.name) ▸ v\(marketingVersion) 에서 빌드 \(newBuild) 선택")
-        onLog("   2) '심사에 제출' 누르기 — DeployBar 는 심사 제출까지는 하지 않습니다")
+        onLog("ℹ️  여기까지가 '빌드 업로드' 입니다. 스토어에 나가려면 남은 일:")
+        onLog("   1) ⋯ ▸ 스토어 페이지 ▸ [스토어에 올리기] — 빌드 연결·설명·키워드·그림을 한 번에 반영합니다")
+        onLog("   2) ⋯ ▸ 스토어 페이지 ▸ [심사 제출] — 여기서부터 애플이 봅니다")
         onLog("   · 빌드가 목록에 뜨기까지 Apple 처리에 몇 분 걸릴 수 있습니다")
         if GitInfo.isRepo(r.path) {
             begin(.tag)
@@ -436,8 +452,86 @@ enum Deployer {
         } else {
             skip(.tag, "git 저장소가 아님")
         }
+        // 6) 스크린샷 — **찍지는 않지만, 지금이 다시 찍을 때인지는 배포가 제일 잘 안다.**
+        //
+        //    이 판단에 필요한 것(무엇이 바뀐 커밋인지, 이번 버전이 뭘 자랑하는지)은
+        //    배포하는 이 자리에 다 모여 있다. 사람이 나중에 체크리스트를 펼쳐 보기를
+        //    기다리는 대신, 끝나는 김에 붙여넣을 글까지 만들어 둔다.
+        let shot = await shotStage(app, info: info, lane: lane, onLog: onLog, onStage: onStage)
+
         // 버전은 사용자가 '버전 올리기'를 고를 때만 바뀐다 — 배포 후 자동 증가 없음
-        return Result(version: marketingVersion, build: newBuild)
+        return Result(version: marketingVersion, build: newBuild,
+                      shotPrompt: shot?.text, shotReason: shot?.reason)
+    }
+
+    // ── 스크린샷 칸 ──────────────────────────────────────────────────
+    /// 배포(와 check)가 끝나는 김에 "지금이 다시 찍을 때인가" 를 묻고, 그렇다면 지시문까지 만든다.
+    ///
+    /// **찍지는 않는다.** 시뮬레이터를 몰고 다니며 화면을 넘기는 건 사람이나 Claude Code 의 일이고,
+    /// DeployBar 가 아는 것은 *언제 찍어야 하는지와 무엇을 찍어야 하는지* 다. 그 둘을 글로 넘긴다.
+    /// 읽기만 하므로 배포를 실패시키지 않는다 — 여기서 나는 오류로 업로드가 무효가 되면 안 된다.
+    private static func shotStage(_ app: ManagedApp, info: BuildInfo, lane: Lane,
+                                  onLog: @escaping @Sendable (String) -> Void,
+                                  onStage: @escaping StageReport) async -> (reason: String, text: String)? {
+        onStage(.shots, .running, nil)
+
+        // (1) 레포에 그림이 있으면 **그걸로 스토어를 맞춘다.**
+        //     예전엔 찍어서 폴더에 두고도 사람이 웹에 하나씩 끌어다 놓아야 했다.
+        //     폴더에 있는 것이 이번 버전의 그림이라는 뜻이므로, 배포가 그대로 올린다.
+        //     (이미 같은 파일이 올라가 있으면 건너뛴다 — 한 장에 수 MB 라 느리다)
+        var uploadedNote: String?
+        if lane == .appstore, StorePublish.hasShots(app.path) {
+            var o = StorePublish.Options()
+            o.text = false; o.ageRating = false; o.attachBuild = false
+            o.manualCheck = false; o.createVersion = true
+            do {
+                let rep = try await StorePublish.run(app, options: o, onLog: onLog)
+                let shots = rep.changed.filter { $0.contains("장") }
+                if !shots.isEmpty {
+                    onLog("🖼  스토어 스크린샷을 레포의 그림으로 맞췄습니다")
+                    for c in rep.changed { onLog("   · \(c)") }
+                    uploadedNote = shots.joined(separator: " · ")
+                } else if !rep.kept.isEmpty {
+                    uploadedNote = "이미 같은 그림이 올라가 있습니다"
+                }
+                for w in rep.warnings { onLog("   ⚠️  \(w)") }
+            } catch {
+                // 그림 반영이 실패해도 **업로드된 빌드는 그대로다.** 배포를 깨지 않는다.
+                let msg = (error as? DeployError)?.title ?? error.localizedDescription
+                onLog("⚠️  스크린샷 반영 실패 — \(msg) (⋯ ▸ 스토어 페이지 ▸ [스토어에 올리기] 로 다시 시도할 수 있습니다)")
+                uploadedNote = "반영 실패 — \(msg)"
+            }
+        }
+
+        // (2) 그러고도 다시 찍어야 하는가 — 그림이 화면보다 오래됐거나, 아직 한 장도 없거나.
+        var state: ASCClient.ShotState?
+        if let id = try? await ASCClient.appId(bundleId: info.bundleId) {
+            state = try? await ASCClient.screenshotState(appId: id)
+        }
+        // 지시문이 이번 배포의 사실(올린 버전·스토어 버전·번들 ID)을 담도록 상태를 꾸려 넘긴다.
+        // 이게 없으면 글에 "스토어 미등록" 처럼 틀린 말이 섞인다 — 붙여넣는 쪽은 그걸 믿는다.
+        var st = AppStatus(name: app.name, path: app.path, state: .ready)
+        st.bundleId = info.bundleId
+        st.localVersion = info.marketingVersion
+        st.localBuild = info.buildNumber
+        st.liveVersion = state?.storeVersion
+        guard let shot = ShotPrompt.forDeploy(app, status: st, storeShots: state?.count) else {
+            if let uploadedNote {
+                onStage(.shots, .done, uploadedNote)
+            } else {
+                onStage(.shots, .skipped, state?.count == nil ? "App Store 쪽 그림을 확인하지 못했습니다"
+                                                              : "그림이 이번 화면과 맞습니다")
+            }
+            return nil
+        }
+        onLog("")
+        onLog("📸 \(shot.reason)")
+        onLog("   아래 지시문을 Claude Code 에 붙여넣으면 시뮬레이터로 다시 찍습니다.")
+        onLog("   (`--shots \(app.name)` 으로 언제든 다시 꺼낼 수 있고, 찍은 뒤 [스토어에 올리기] 가 올립니다)")
+        onLog("")
+        for line in shot.text.components(separatedBy: "\n") { onLog("   │ \(line)") }
+        onStage(.shots, .done, [uploadedNote, shot.reason].compactMap { $0 }.joined(separator: " · "))
+        return shot
     }
 
     // ── 업로드 실패의 원문 찾기 ──────────────────────────────────────

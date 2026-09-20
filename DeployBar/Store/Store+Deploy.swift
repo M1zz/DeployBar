@@ -92,6 +92,15 @@ extension Store {
             c.finish(); await consumer.value
             sc.finish(); await stageConsumer.value
             job.lines.append("✅ \(app.name) — v\(res.version) (build \(res.build))")
+            // 배포가 "지금 다시 찍을 때" 로 판정했으면 지시문을 손에 남긴다.
+            // 로그에는 이미 전문이 들어갔고, 여기서는 **나중에 꺼낼 수 있게** 들고 있는다 —
+            // 전체 배포 중이면 클립보드를 앱마다 덮어쓰면 안 되므로 복사는 부르는 쪽이 정한다.
+            if let prompt = res.shotPrompt {
+                shotPromptReady[app.path] = prompt
+                announce([.init(title: "📸 \(app.name) 스크린샷 다시 찍을 때",
+                                body: res.shotReason ?? "화면이 바뀌었습니다",
+                                important: false)])
+            }
             // 릴리즈노트 반영은 Deployer 밖(Store)에서 도므로 여기서 칸을 옮긴다
             if lane != .check {
                 // 업로드 뒤에 한 번 더. 첫 업로드 전에는 편집 가능한 App Store 버전 자체가
@@ -134,6 +143,11 @@ extension Store {
             let outcome = await runOneDeploy(app, lane: lane, versionBump: versionBump, into: job)
             job.running = false
             await refresh(fresh: true)
+            // 앱 하나만 배포했을 때만 클립보드로 — 전체 배포에서 31번 덮어쓰면 아무 뜻도 없다
+            if let prompt = shotPromptReady[app.path] {
+                Clipboard.copy(prompt)
+                fixResult[app.path] = "📸 스크린샷 지시문을 복사했습니다 — Claude Code 에 붙여넣으세요"
+            }
             switch outcome {
             case .success(let v, let b):
                 announce([.init(title: "✅ \(app.name) 업로드 완료",

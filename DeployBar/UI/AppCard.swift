@@ -376,6 +376,41 @@ struct AppCard: View {
                 .disabled(store.job?.running == true)
                 Divider()
             }
+            // 스토어 페이지 쪽 — 업로드가 끝난 뒤의 일들. 여태 웹에서 하던 것들이다.
+            if let app = store.app(named: status.path) {
+                Menu("스토어 페이지") {
+                    Button("스토어에 올리기  ·  문구 + 스크린샷") {
+                        openLog(); store.publishStore(app)
+                    }
+                    Button("무엇이 올라갈지 미리보기") {
+                        var o = StorePublish.Options(); o.dryRun = true
+                        openLog(); store.publishStore(app, options: o)
+                    }
+                    Divider()
+                    Button("빌드 연결") { Task { await store.attachBuild(app) } }
+                    Button("스토어 글을 레포 글로 덮어쓰기") {
+                        var o = StorePublish.Options()
+                        o.overwriteText = true; o.replaceShots = true
+                        openLog(); store.publishStore(app, options: o)
+                    }
+                    Divider()
+                    if status.reviewState == "PENDING_DEVELOPER_RELEASE" {
+                        Button("지금 출시") { store.releaseApp(app) }
+                    }
+                    // 제출은 되돌리려면 심사를 취소해야 한다 — 한 겹 더 눌러야 닿게 둔다
+                    if !status.inReview {
+                        Menu("심사 제출") {
+                            Text("여기서부터 애플이 봅니다 — 되돌리려면 심사를 취소해야 합니다")
+                            Divider()
+                            Button("v\(status.notesVersion ?? status.localVersion ?? "?") 를 심사에 제출") {
+                                openLog(); store.submitForReview(app)
+                            }
+                        }
+                    }
+                }
+                .disabled(store.job?.running == true)
+                Divider()
+            }
             if let app = store.app(named: status.path) {
                 Button { Task { await store.autoConfigure(app) } } label: {
                     Label("배포 설정 자동 정리", systemImage: "wand.and.stars")

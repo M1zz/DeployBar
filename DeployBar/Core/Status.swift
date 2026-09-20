@@ -58,6 +58,7 @@ enum Status {
                     st.notesVersion = n.version
                     st.notesFilled = n.filled
                     st.notesMissing = n.missing
+                    st.notesFirstRelease = n.firstRelease
                     // deploy.env 에 적었지만 App Store 페이지에는 없는 언어.
                     // 이 언어의 릴리즈노트는 만들어도 올릴 자리가 없어 그냥 버려진다 —
                     // 아무 말도 안 하면 "영어 노트를 썼는데 왜 안 나오지" 를 알 길이 없다.
@@ -68,6 +69,9 @@ enum Status {
                 } else {
                     st.notesUncheckable = true   // 편집 가능한 버전이 아직 없음 (첫 업로드 전)
                 }
+                // 아직 출시된 적 없는 앱만 — 스토어 페이지가 비어 있으면 제출 자체가 안 된다.
+                // (업데이트 앱에는 묻지 않으므로 요청이 늘지 않는다)
+                st.storeGaps = await StorePublish.firstReleaseGaps(appId: id, versions: vers)
             } else {
                 st.ascError = "ASC 에서 앱을 찾지 못함 (bundleId 불일치)"
                 st.ascReach = .missing

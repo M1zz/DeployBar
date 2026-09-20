@@ -223,6 +223,13 @@ enum ReleaseNotes {
         var version: String
         var filled: [String] = []
         var missing: [String] = []
+        /// 아직 한 번도 판매된 적 없는 앱의 첫 버전인가.
+        ///
+        /// **첫 버전에는 '이 버전의 새로운 기능' 칸이 아예 없다.** App Store 는 업데이트에만
+        /// 그 칸을 보여 주기 때문이다. 그런데 API 로 보면 whatsNew 가 그냥 빈 값이라,
+        /// 게이트가 "릴리즈노트 비어 있음" 으로 읽고 첫 출시를 통째로 막았다 —
+        /// 사람이 아무리 글을 써도 풀 수 없는 잠김이었다 (쓸 칸이 없으니까).
+        var firstRelease: Bool = false
         var ready: Bool { missing.isEmpty && !filled.isEmpty }
     }
     static func notesState(appId: String) async throws -> NotesState? {
@@ -234,7 +241,8 @@ enum ReleaseNotes {
         let locs = try await ASCClient.versionLocalizations(versionId: editable.id)
         return NotesState(version: editable.versionString,
                           filled: locs.filter { !$0.isEmpty }.map(\.locale).sorted(),
-                          missing: locs.filter { $0.isEmpty }.map(\.locale).sorted())
+                          missing: locs.filter { $0.isEmpty }.map(\.locale).sorted(),
+                          firstRelease: !vers.contains { $0.state == "READY_FOR_SALE" })
     }
 
     static func editableVersionAndLocales(_ app: ManagedApp) async throws -> EditableVersion? {

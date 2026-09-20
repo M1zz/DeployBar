@@ -43,6 +43,30 @@ enum ShotPrompt {
                          commits: c.commits.count, screens: c.screens)
     }
 
+    // ── 배포가 끝났을 때 ──────────────────────────────────────────────
+    /// "지금이 다시 찍을 때인가" 를 배포 끝에서 한 번 더 묻는다.
+    ///
+    /// 체크리스트도 같은 걸 말하지만, **사람이 가장 확실히 보는 순간은 배포 직후**다.
+    /// 그때 지시문까지 손에 쥐어 주면 "다음에 찍어야지" 가 다음 버전으로 밀리지 않는다.
+    /// 찍는 것은 여전히 붙여넣은 세션(Claude Code)이 한다 — 여기서는 글만 만든다.
+    ///
+    /// - storeShots: App Store 에 지금 걸려 있는 그림 수 (nil = 못 물어봄).
+    ///   레포에 그림 폴더가 아예 없는 앱은 평소엔 조용히 두지만,
+    ///   **스토어에도 한 장이 없으면** 그건 심사 제출을 막는 진짜 문제라 말해 준다.
+    static func forDeploy(_ app: ManagedApp, status: AppStatus? = nil,
+                          storeShots: Int? = nil) -> (reason: String, text: String)? {
+        if let s = staleness(app.path), s.isStale {
+            let head = s.screens.prefix(3).joined(separator: ", ")
+            return ("스크린샷이 화면 변화보다 오래됐습니다 — 커밋 \(s.commits)개에서 화면 파일이 바뀌었습니다 (\(head))",
+                    text(for: app, status: status, kind: .shots))
+        }
+        if storeShots == 0 {
+            return ("App Store 에 그림이 한 장도 없습니다 — 이대로는 심사 제출이 안 됩니다",
+                    text(for: app, status: status, kind: .shots))
+        }
+        return nil
+    }
+
     // ── 만들기 ────────────────────────────────────────────────────────
     static func text(for app: ManagedApp, status: AppStatus? = nil, kind: Kind = .shots) -> String {
         let r = AppRepo.resolve(app)
@@ -132,13 +156,37 @@ enum ShotPrompt {
         s += "\n## 규격\n"
         s += platform == .macOS ? Spec.mac : (kind == .shots ? Spec.iosShots : Spec.iosVideo)
 
+        // ── 어디에 저장하나 ──────────────────────────────────────────
+        // 이 절이 이 글에서 제일 중요하다. **DeployBar 가 배포할 때 이 폴더를 그대로 올리므로**,
+        // 다른 곳에 두면 찍어 놓고도 스토어에는 아무 일도 일어나지 않는다.
+        let base = StorePublish.canonicalShotDir
+        s += "\n## 어디에 저장하나 — 이 경로가 곧 배포다\n"
+        s += "```\n"
+        if locales.count > 1 {
+            let first = Locales.sorted(locales).first ?? "ko"
+            s += "\(base)/marketing/\(first)/01-….png   ← 제출본. 언어별로 다르게 만들 때\n"
+            s += "\(base)/marketing/01-….png        ← 제출본. 한 벌로 모든 언어에 쓸 때\n"
+        } else {
+            s += "\(base)/marketing/01-….png        ← 제출본 (스토어에 올라가는 그림)\n"
+        }
+        s += "\(base)/raw/01-….png              ← 원본 캡처. 올라가지 않는다\n"
+        s += "```\n"
+        s += "- **제출본은 `marketing/` 에 둬라.** 배포가 그 폴더를 스토어에 그대로 올린다.\n"
+        s += "  원본과 제출본이 한 폴더에 섞여 있으면 **제출본 쪽이 이긴다** — 그래서 둘을 나눠 둬야 한다.\n"
+        s += "  (이미 `appstore-65/` 같은 폴더를 쓰는 앱이면 그 이름을 그대로 유지해라. 이름은 달라도 같은 자리다)\n"
+        s += "- **파일 이름 순서가 스토어에 보이는 순서다.** `01-`, `02-` … 접두사를 꼭 붙여라.\n"
+        s += "- **규격이 아닌 크기는 DeployBar 가 건너뛴다.** 아래 규격표의 크기로 저장해라 —\n"
+        s += "  올릴 때 픽셀로 기기를 판별하므로 파일 이름으로는 못 구한다.\n"
+        s += "- 다 만든 뒤 `DeployBar --shotplan \(app.name)` 으로 무엇이 어느 자리에 올라갈지 확인해라.\n"
+
         // ── 지켜야 할 것 ─────────────────────────────────────────────
         s += """
 
         ## 지켜야 할 것
         - 빌드해서 올리지 마. 배포는 DeployBar 가 한다 — 너는 시뮬레이터로 찍기만 해라.
-        - **App Store Connect 에 올리는 건 사람이 웹에서 한다.** DeployBar 도 스크린샷은 안 올린다.
-          너는 규격에 맞는 파일을 폴더에 놓고, 어느 파일을 어느 자리에 올리면 되는지 목록으로 알려주면 된다.
+        - **스토어에 올리는 건 DeployBar 가 한다.** 다음 배포 때 위 폴더의 그림으로 스토어를 맞춘다
+          (지금 당장 올리려면 사람이 `⋯ ▸ 스토어 페이지 ▸ [스토어에 올리기]` 를 누르면 된다).
+          너는 규격에 맞는 파일을 그 폴더에 놓고, 무엇을 몇 장 찍었는지 알려주면 된다.
         - 원본 캡처와 최종 제출본을 같은 폴더에 섞지 마라. 다음 릴리즈에 원본만 다시 찍게.
         - 찍다가 UI 버그(잘림·번역 누락·오타)를 보면 **고치지 말고 목록으로 알려줘.** 지금 목적은 에셋이다.
         - 빈 화면(empty state)은 찍지 마라. 데이터를 먼저 만들어 넣고 찍어라.
@@ -168,7 +216,7 @@ enum ShotPrompt {
         if a.dir != nil, !a.files.isEmpty {
             s += "\n   \(a.rel)/ 의 기존 파일 이름을 그대로 덮어써라 — 합성 스크립트가 그 이름을 참조한다.\n"
         } else {
-            s += "\n   `docs/screenshots/01-….png` 처럼 번호 접두사로 저장한다.\n"
+            s += "\n   `\(StorePublish.canonicalShotDir)/01-….png` 처럼 번호 접두사로 저장한다 (아래 '어디에 저장하나' 참고).\n"
         }
         s += """
         4. 마케팅 합성: 헤드라인 + 서브카피 + 디바이스 목업으로 슬라이드마다 레이아웃을 다르게
@@ -214,6 +262,9 @@ enum ShotPrompt {
         | **iPhone 제출 규격 (이 계정이 쓰는 값)** | **\(submit)** |
         | iPhone 6.9" 원본 캡처 | 1320×2868 (시뮬레이터가 그대로 출력) |
         | iPad 13" | 2064×2752 또는 2048×2732 |
+
+        위 표의 크기여야 DeployBar 가 어느 기기 자리에 올릴지 판별한다.
+        그 밖의 크기는 올릴 때 건너뛰고 "규격이 아닙니다" 로 보고된다.
 
         원본(1320×2868)을 제출 규격으로 바꿀 땐 리사이즈+크롭:
         `ffmpeg -i in.png -vf "scale=1242:2699,crop=1242:2688" out.png`

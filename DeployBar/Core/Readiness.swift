@@ -16,6 +16,8 @@ enum Fix: String, Codable {
     case reveal      // Finder 에서 앱 폴더 열기 (커밋하러 갈 때)
     case ignoreNoise // Xcode 가 만든 파일을 .gitignore 에 넣고 추적 해제 후 커밋
     case shotPrompt  // 스크린샷 다시 찍을 지시문을 클립보드에 (찍는 건 붙여넣은 세션이 한다)
+    case attachBuild // 올라간 빌드를 App Store 버전에 고른다 (ASC API)
+    case publishStore // APPSTORE.md 문구 + docs/screenshots 그림을 스토어에 올린다 (ASC API)
 
     var label: String {
         switch self {
@@ -25,6 +27,8 @@ enum Fix: String, Codable {
         case .reveal: return "폴더 열기"
         case .ignoreNoise: return "정리하고 커밋"
         case .shotPrompt: return "프롬프트 복사"
+        case .attachBuild: return "빌드 연결"
+        case .publishStore: return "스토어 올리기"
         }
     }
 }
@@ -63,6 +67,7 @@ struct ReadyItem: Codable, Identifiable, Hashable {
         case "remote": return "원격 커밋 받아오기"
         case "i18n": return "번역 채우면 풀림"
         case "asc": return "App Store Connect 확인"
+        case "storepage": return "[스토어 올리기]"
         case "version": return "xcconfig 경로 확인"
         case "project": return "scheme 이름 확인"
         default: return nil
@@ -388,13 +393,18 @@ struct Readiness: Codable, Hashable {
             // 빈 '이 버전의 새로운 기능' 으로 심사에 나간다. 누가 무엇을 해야 하는지 말한다.
             let v = status.localVersion ?? "다음 버전"
             out.append(ReadyItem(
-                key: "notes", level: .need, title: "릴리즈노트 확인 불가",
-                detail: "App Store Connect 에 편집 가능한 버전이 없어 확인할 수 없습니다"
+                key: "notes", level: .need, title: "App Store 버전 없음 — 릴리즈노트 확인 불가",
+                detail: "편집 가능한 버전이 없어 '이 버전의 새로운 기능' 을 확인할 수 없습니다"
                     + (repoNotes != nil ? " · 원고(\(repoNotes!.source))는 준비돼 있습니다" : ""),
-                fix: .openNotes,
-                todo: "App Store Connect 에서 v\(v) 버전을 먼저 만드세요 — DeployBar 는 버전을 만들지 않습니다. "
-                    + "만들고 나면 배포가 시작할 때 릴리즈노트를 채웁니다",
-                agent: "이건 네가 할 수 있는 일이 아니다. App Store Connect 웹에서 사람이 새 버전을 만드는 절차라 코드에 고칠 게 없어. 손대지 말고 알려만 줘."))
+                fix: .publishStore,
+                todo: "[스토어 올리기] 가 v\(v) 버전을 만들고 문구·그림까지 올립니다",
+                agent: "이건 DeployBar 가 API 로 하는 일이다 — 코드에 고칠 게 없어. [스토어 올리기] 를 누르라고 알려만 줘."))
+        } else if status.notesFirstRelease {
+            // 첫 출시에는 '이 버전의 새로운 기능' 칸이 없다 — 없는 칸을 비었다고 막으면
+            // 사람이 무슨 글을 써도 풀 수 없는 잠김이 된다.
+            out.append(ReadyItem(
+                key: "notes", level: .ok, title: "첫 출시 — 릴리즈노트 없음이 정상",
+                detail: "App Store 는 업데이트에만 '이 버전의 새로운 기능' 을 보여 줍니다"))
         } else if !status.notesMissing.isEmpty {
             let head = status.notesMissing.prefix(4).map { Locales.displayName($0) }.joined(separator: ", ")
             let v = status.notesVersion ?? status.localVersion ?? "버전"
@@ -486,6 +496,27 @@ struct Readiness: Codable, Hashable {
                 todo: "App Store Connect ▸ 앱 정보 ▸ 현지화에서 언어를 추가하거나, deploy.env 의 LOCALES 에서 빼세요"))
         }
 
+        // 10.45) 첫 출시라면 — 스토어 페이지가 차 있어야 제출 버튼이 눌린다.
+        //        빌드도 올라갔고 릴리즈노트도 됐는데 웹에 가 보면 제출이 회색인 이유가
+        //        대개 여기 있다. 이제는 앱 안에서 먼저 말하고, 올리는 것까지 한다.
+        if let gaps = status.storeGaps {
+            if gaps.isEmpty {
+                out.append(ReadyItem(
+                    key: "storepage", level: .ok, title: "스토어 페이지 준비됨",
+                    detail: "설명·키워드·스크린샷·연령 등급이 채워져 있습니다 (첫 출시 기준)"))
+            } else {
+                out.append(ReadyItem(
+                    key: "storepage", level: .need,
+                    title: "스토어 페이지 미완성 — \(gaps.count)가지",
+                    detail: gaps.joined(separator: " · ") + " — 첫 출시라 이 칸이 비면 심사 제출이 안 됩니다",
+                    fix: .publishStore,
+                    todo: "APPSTORE.md 에 문구를, docs/screenshots/ 에 그림을 두고 [스토어 올리기] 를 누르세요",
+                    agent: "레포 최상단 APPSTORE.md 에 언어별 `### 이름`·`### 부제`·`### 설명`·`### 키워드`·`### 지원 URL`·`### 개인정보처리방침 URL` 을 써서 커밋해줘. "
+                        + "형식은 `## 한국어` 같은 언어 절 아래 `###` 항목이다. DeployBar 가 이 파일을 읽어 App Store 페이지에 그대로 올린다. "
+                        + "설명은 4000자, 이름·부제는 30자, 키워드는 쉼표로만 나눠 100자까지다. 스크린샷은 찍지 말고 없으면 그렇다고 알려줘."))
+            }
+        }
+
         // 10.5) 업로드한 빌드를 버전에 붙였는가 — 이걸 안 하면 심사 제출 자체가 안 된다.
         //       "업로드 완료" 와 "App Store 에 올라감" 사이의 빈칸이라 놓치기 쉽다.
         //
@@ -503,7 +534,9 @@ struct Readiness: Codable, Hashable {
                 out.append(ReadyItem(
                     key: "asbuild", level: .need, title: "버전에 빌드 미연결",
                     detail: "v\(v) 빌드는 올라갔는데 버전에 선택돼 있지 않아 심사 제출이 안 됩니다",
-                    todo: "App Store Connect ▸ v\(v) ▸ '빌드' 에서 업로드한 빌드를 고르세요"))
+                    fix: .attachBuild,
+                    todo: "[빌드 연결] 을 누르면 올라간 빌드를 이 버전에 겁니다 (웹에서 고르는 것과 같은 일)",
+                    agent: "이건 DeployBar 가 버튼 하나로 하는 일이다 — 코드에 고칠 게 없어. 손대지 말고 [빌드 연결] 을 누르라고 알려만 줘."))
             } else {
                 out.append(ReadyItem(
                     key: "asbuild", level: .ok, title: "빌드 업로드 전",
