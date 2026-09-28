@@ -19,6 +19,7 @@ import Foundation
 //   --logs [n|last]     지난 배포·점검 로그 (창을 닫아도 남는다). last 면 최근 것 전체를 출력
 //   --selftest-changes  상태 변화 알림 규칙 검증
 //   --selftest-lock     '무엇이 배포를 잠그는가' 규칙 검증 (조회 실패는 잠그면 안 된다)
+//   --selftest-version  배포가 마케팅 버전을 스토어에 맞춰 정하는 규칙 검증
 //
 // App.init 에서 부른다 — Scene 이 만들어지기 전에 끝나야 창이 뜨지 않는다.
 enum CLI {
@@ -46,6 +47,7 @@ enum CLI {
       --logs [n|last]            지난 배포·점검 로그
       --selftest-changes         상태 변화 알림 규칙 검증
       --selftest-lock            '무엇이 배포를 잠그는가' 규칙 검증
+      --selftest-version         배포가 버전 번호를 스토어에 맞춰 정하는 규칙 검증
       --help                     이 안내
     """
 
@@ -55,7 +57,7 @@ enum CLI {
     static let known: Set<String> = [
         "--status", "--pull", "--audit", "--doctor", "--builds", "--prompt", "--template", "--write",
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
-        "--selftest-changes", "--selftest-lock",
+        "--selftest-changes", "--selftest-lock", "--selftest-version",
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--attach", "--submit", "--release",
         "--shotplan", "--todo",
     ]
@@ -189,6 +191,32 @@ enum CLI {
         print(bad == 0 ? "\n전부 통과 (기준 앱: \(app.name))" : "\n실패 \(bad)건")
         exit(bad == 0 ? 0 : 1)
     }
+    // 버전 규칙 검증: DeployBar --selftest-version
+    //
+    // 지키려는 것 둘: 스토어에 만들어 둔 버전이 있으면 **그 번호로** 올라가야 하고
+    // (그래야 빌드가 거기 붙는다), 이미 나간 번호로는 절대 올리지 않는다 (애플이 거부한다).
+    if CommandLine.arguments.contains("--selftest-version") {
+        typealias B = Deployer.VersionBump
+        let cases: [(String, String, B?, String?, String?, String)] = [
+            ("로컬이 뒤처짐 — 스토어에 준비된 번호로", "2.2.8", nil, "2.2.9", "2.2.8", "2.2.9"),
+            ("레포가 한참 뒤처짐 — 그래도 준비된 번호로", "2.2.5", nil, "2.2.9", "2.2.8", "2.2.9"),
+            ("이미 맞음 — 그대로", "5.1.6", nil, "5.1.6", "5.1.5", "5.1.6"),
+            ("로컬이 더 높음 — 로컬 (스토어 번호를 바꾼다)", "1.1.0", nil, "1.0.9", "1.0.8", "1.1.0"),
+            ("준비된 버전 없음, 나간 번호와 같음 — patch", "4.1.0", nil, nil, "4.1.0", "4.1.1"),
+            ("준비된 버전 없음, 로컬이 앞섬 — 그대로", "4.2.0", nil, nil, "4.1.0", "4.2.0"),
+            ("첫 출시 — 그대로", "1.0", nil, nil, nil, "1.0"),
+            ("patch 를 골랐는데 레포가 뒤처짐 — 나간 번호 위로", "2.2.5", .patch, "2.2.9", "2.2.8", "2.2.9"),
+            ("minor 를 골랐음 — 고른 대로", "2.2.8", .minor, "2.2.9", "2.2.8", "2.3.0"),
+        ]
+        var bad = 0
+        for (name, local, bump, editable, closed, expect) in cases {
+            let got = Deployer.planVersion(local: local, bump: bump, editable: editable, closed: closed).version
+            if got != expect { bad += 1 }
+            print("\(got == expect ? "✅" : "❌") \(name) — 로컬 \(local) · 준비 \(editable ?? "없음") · 나감 \(closed ?? "없음") → \(got) (기대 \(expect))")
+        }
+        print(bad == 0 ? "\n전부 통과" : "\n실패 \(bad)건")
+        exit(bad == 0 ? 0 : 1)
+    }
     // 관리 대상 점검: DeployBar --audit  (뭐가 관리되고, 뭐가 왜 빠졌나)
     if CommandLine.arguments.contains("--audit") {
         let apps = AppRepo.registry()
@@ -226,8 +254,14 @@ enum CLI {
                     print("ASC 에서 앱을 찾지 못했습니다: \(info.bundleId)"); sem.signal(); return
                 }
                 print("\(app.name) · \(info.bundleId) · 로컬 v\(info.marketingVersion)(\(info.buildNumber))")
-                for b in try await ASCClient.recentBuilds(appId: id) {
+                let builds = try await ASCClient.recentBuilds(appId: id)
+                for b in builds {
                     print("  v\(b.version) build \(b.build)  \(b.state)  \(b.uploaded)")
+                }
+                // 배포의 '빌드 연결' 칸이 기다릴 때 쓰는 조회 — 번호 하나를 콕 집어 묻는다
+                if let top = builds.first, let n = Int(top.build) {
+                    let hit = try await ASCClient.build(appId: id, marketingVersion: top.version, number: n)
+                    print("  ↳ 빌드 연결 칸이 보는 값: v\(top.version) build \(n) → \(hit?.state ?? "못 찾음")")
                 }
             } catch { print("조회 실패: \(error.localizedDescription)") }
             sem.signal()
@@ -492,6 +526,17 @@ enum CLI {
         Task.detached {
             let t = await StorePublish.inspect(app)
             print("\n━━ \(app.name) — 제출까지 남은 일\(t.isFirstRelease ? " (첫 출시)" : "")")
+            // 다음 배포가 어떤 번호로 올라가는지 — 배포 앞 '버전·빌드번호' 칸과 같은 규칙 (읽기만)
+            if let info = try? AppRepo.buildSettings(AppRepo.resolve(app)),
+               let id = try? await ASCClient.appId(bundleId: info.bundleId),
+               let vers = try? await ASCClient.appStoreVersions(appId: id) {
+                let editable = vers.first { ReleaseNotes.editableStates.contains($0.state) }?.versionString
+                let closed = vers.filter { !ReleaseNotes.editableStates.contains($0.state) }
+                    .map(\.versionString).max { Status.cmpVer($0, $1) < 0 }
+                let plan = Deployer.planVersion(local: info.marketingVersion, bump: nil,
+                                                editable: editable, closed: closed)
+                print("\n📦 다음 배포: v\(plan.version)\(plan.reason.map { " — \($0)" } ?? " (로컬 그대로)")")
+            }
             if t.mine.isEmpty && t.human.isEmpty { print("\n남은 게 없습니다.") }
             if !t.mine.isEmpty {
                 print("\n🤖 DeployBar 가 합니다 (\(t.mine.count))")

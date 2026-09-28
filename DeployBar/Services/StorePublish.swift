@@ -470,6 +470,9 @@ enum StorePublish {
         var mine: [String] = []
         /// 사람이 App Store Connect 웹에서만 할 수 있는 것
         var human: [String] = []
+        /// human 중에서 **확실히 제출을 막는 것**. 자동 제출은 이게 비었을 때만 낸다.
+        /// (개인정보 라벨은 API 로 확인할 수 없어 여기 넣지 않는다 — 내 보고 애플이 거절하면 그때 말한다)
+        var blocking: [String] = []
     }
 
     static func inspect(_ app: ManagedApp) async -> StoreState {
@@ -492,7 +495,7 @@ enum StorePublish {
             st.mine.append("편집 가능한 버전 만들기 — [스토어 올리기] 가 만듭니다")
             return st
         }
-        if !v.hasBuild { st.mine.append("v\(v.versionString) 에 빌드 연결 — [빌드 연결]") }
+        if !v.hasBuild { st.mine.append("v\(v.versionString) 에 빌드 연결 — 배포가 애플 처리를 기다렸다가 붙입니다") }
 
         let texts = (try? await ASCClient.storeTexts(versionId: v.id)) ?? []
         guard !texts.isEmpty else {
@@ -528,27 +531,37 @@ enum StorePublish {
             if repoMeta?.ageRatingNone == true {
                 st.mine.append("연령 등급 '해당 없음' 신고 — [스토어 올리기] 가 합니다")
             } else {
-                st.human.append("연령 등급 설문 — 애플에 하는 내용 신고라 사람이 판단합니다 (전부 '해당 없음' 이면 APPSTORE.md 의 `## 연령 등급` 절에 적어 두면 다음부터 자동)")
+                let line = "연령 등급 설문 — 애플에 하는 내용 신고라 사람이 판단합니다 (전부 '해당 없음' 이면 APPSTORE.md 의 `## 연령 등급` 절에 적어 두면 다음부터 자동)"
+                st.human.append(line); st.blocking.append(line)
             }
         }
         if let wanted = iapProductIds(app.path), !wanted.isEmpty {
             let have = Set((try? await ASCClient.inAppPurchaseIds(appId: appId)) ?? [])
             let missing = wanted.filter { !have.contains($0) }
             if !missing.isEmpty {
-                st.human.append("인앱결제 만들기 — \(missing.joined(separator: ", ")) · 값이 돈이라 도구가 정하지 않습니다. 없으면 페이월이 빈 화면으로 뜨고 심사도 막힙니다")
+                let line = "인앱결제 만들기 — \(missing.joined(separator: ", ")) · 값이 돈이라 도구가 정하지 않습니다. 없으면 페이월이 빈 화면으로 뜨고 심사도 막힙니다"
+                st.human.append(line); st.blocking.append(line)
             }
         }
         // 가격·판매 지역·개인정보 라벨은 한 번 정하면 다음 버전부터 따라오므로 첫 출시에만 묻는다
         if st.isFirstRelease {
             if await !ASCClient.priceSet(appId: appId) {
                 st.human.append("가격 정하기 — 무료인지 얼마인지는 사람이 정합니다")
+                st.blocking.append("가격 정하기")
             }
             if await !ASCClient.availabilitySet(appId: appId) {
                 st.human.append("판매 지역 고르기")
+                st.blocking.append("판매 지역 고르기")
             }
             st.human.append("앱 개인정보(데이터 수집) 라벨 — 공개 API 에 없습니다. 한 번 답하면 다음 버전부터 따라옵니다")
         }
-        st.human.append("심사 제출 버튼 누르기 — 준비가 끝났다는 판단은 사람이 합니다 (`--submit \(app.name)` 으로 도구가 눌러 줄 수는 있습니다)")
+        if AppRepo.resolve(app).autoSubmit {
+            st.mine.append(st.blocking.isEmpty
+                ? "심사 제출 — 배포가 끝나면 DeployBar 가 냅니다"
+                : "심사 제출 — 아래 사람 몫이 끝나면 다음 배포에서 DeployBar 가 냅니다")
+        } else {
+            st.human.append("심사 제출 버튼 누르기 — deploy.env 에 AUTO_SUBMIT=off 라 사람이 냅니다 (`--submit \(app.name)` 으로 도구가 눌러 줄 수는 있습니다)")
+        }
         return st
     }
 
@@ -776,5 +789,146 @@ enum StorePublish {
                             _ todo: [String], detail: String = "") -> DeployError {
         DeployError(app: app.name, path: app.path, stage: stage, title: title,
                     todo: todo, detail: detail)
+    }
+}
+
+// ── 업로드 뒤 끝까지: 빌드 연결 → 심사 제출 ──────────────────────────────
+//
+// 예전엔 배포가 업로드에서 끝났다. 그 뒤 "애플 처리가 끝날 때까지 몇 분 기다렸다가
+// [빌드 연결] 을 누르고, [심사 제출] 을 누르는" 두 번의 클릭이 사람 몫으로 남았는데,
+// 둘 다 판단이 필요 없는 일이다 — 기다리는 것과 누르는 것뿐이다.
+// 판단이 필요한 것(인앱결제 값, 연령 등급 신고, 가격)이 남아 있으면 내지 않고 그걸 말한다.
+extension StorePublish {
+    struct Finish {
+        var attached = false
+        var submitted = false
+        /// 사람이 해야 해서 제출을 멈춘 이유 (비면 막힌 게 없었다)
+        var blockers: [String] = []
+        /// 알림에 쓸 한 줄
+        var summary = ""
+    }
+
+    /// 방금 올린 빌드를 심사 제출까지 민다. 칸은 onStage 로 보고한다.
+    /// 던지지 않는다 — 업로드는 이미 됐으니, 멈춘 칸과 이유를 남기면 그걸로 충분하다.
+    static func finish(_ app: ManagedApp, version: String, build: Int,
+                       onLog: @escaping @Sendable (String) -> Void,
+                       onStage: @escaping Deployer.StageReport) async -> Finish {
+        var out = Finish()
+        let r = AppRepo.resolve(app)
+        func stop(_ note: String) -> Finish {
+            onStage(.attach, .failed, note)
+            onStage(.submit, .skipped, "빌드를 붙이지 못해 건너뜀")
+            onLog("⚠️  빌드 연결 실패 — \(note)")
+            out.summary = "업로드는 됐지만 빌드 연결에서 멈춤 — \(note)"
+            return out
+        }
+        onStage(.attach, .running, nil)
+        guard let info = try? AppRepo.buildSettings(r),
+              let appId = try? await ASCClient.appId(bundleId: info.bundleId) else {
+            return stop("App Store Connect 에서 앱을 찾지 못했습니다")
+        }
+
+        // 1) 애플 처리 기다리기 — 이 빌드 번호 **그 자체**가 VALID 가 될 때까지.
+        //    처리 중에 '고를 수 있는 아무 빌드' 를 붙이면 지난 바이너리가 심사에 나간다.
+        onLog("⏳ 애플이 build \(build) 를 처리하길 기다립니다 (보통 5~20분, 최대 1시간)")
+        let started = Date()
+        var ref: ASCClient.BuildRef?
+        while true {
+            ref = try? await ASCClient.build(appId: appId, marketingVersion: version, number: build)
+            if ref?.state == "VALID" { break }
+            if let st = ref?.state, ["INVALID", "FAILED"].contains(st) {
+                return stop("애플이 build \(build) 를 받지 않았습니다 (\(st)) — 사유는 개발자 계정 메일로 옵니다")
+            }
+            let waited = Date().timeIntervalSince(started)
+            if waited > 60 * 60 {
+                return stop("1시간이 지나도 처리가 끝나지 않았습니다 — 나중에 ⋯ ▸ 스토어 페이지 ▸ [빌드 연결]")
+            }
+            if Task.isCancelled { return stop("중단됨") }
+            let mins = Int(waited / 60)
+            onStage(.attach, .running, ref == nil
+                ? "build \(build) 가 목록에 뜨길 기다리는 중 · \(mins)분째"
+                : "애플이 build \(build) 를 처리하는 중 · \(mins)분째")
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+        }
+        guard let ref else { return stop("빌드를 찾지 못했습니다") }
+        onLog("✅ build \(build) 처리 완료 (\(Int(Date().timeIntervalSince(started) / 60))분)")
+
+        // 2) 버전 — 배포 앞에서 맞춰 뒀지만, 그때 못 만들었거나 번호를 못 바꿨으면 여기서 다시
+        let versionId: String
+        do {
+            let versions = try await ASCClient.appStoreVersions(appId: appId)
+            if let v = versions.first(where: { ReleaseNotes.editableStates.contains($0.state) }) {
+                if v.versionString != version {
+                    try await ASCClient.updateVersionString(versionId: v.id, to: version)
+                    onLog("🔗 스토어 버전 번호 v\(v.versionString) → v\(version)")
+                }
+                versionId = v.id
+            } else {
+                versionId = try await ASCClient.createVersion(appId: appId, versionString: version,
+                                                              platform: info.platform).id
+                onLog("🆕 스토어에 v\(version) 버전을 만들었습니다")
+            }
+            // 이미 다른(지난) 빌드가 붙어 있어도 이번 빌드로 바꾼다 — 방금 올린 게 이번 버전이다
+            try await ASCClient.attachBuild(versionId: versionId, buildId: ref.id)
+            onLog("🔧 build \(build) 를 v\(version) 에 붙였습니다")
+            out.attached = true
+        } catch {
+            return stop(reason(error))
+        }
+
+        // 문구·연령 등급 — APPSTORE.md 에 적은 것만, 스토어에 이미 있는 글은 덮지 않는다
+        var o = Options()
+        o.attachBuild = false; o.screenshots = false; o.createVersion = false; o.manualCheck = false
+        if let rep = try? await run(app, options: o, onLog: onLog) {
+            for w in rep.warnings { onLog("   ⚠️  \(w)") }
+        }
+        onStage(.attach, .done, "build \(build) → v\(version)")
+
+        // 3) 심사 제출
+        onStage(.submit, .running, nil)
+        guard r.autoSubmit else {
+            onStage(.submit, .skipped, "AUTO_SUBMIT=off — 제출은 사람이 합니다")
+            out.summary = "v\(version) build \(build) 연결 완료 — 제출은 사람이 (AUTO_SUBMIT=off)"
+            return out
+        }
+        let versions = (try? await ASCClient.appStoreVersions(appId: appId)) ?? []
+        let state = await inspect(app, appId: appId, versions: versions)
+        var blockers = state.blocking
+        if let n = try? await ReleaseNotes.notesState(versions: versions), !n.firstRelease, !n.missing.isEmpty {
+            let names = n.missing.prefix(3).map { Locales.displayName($0) }.joined(separator: ", ")
+            blockers.append("릴리즈노트가 빈 언어 — \(names)\(n.missing.count > 3 ? " 외" : "") · [릴리즈노트] 창에서 채우세요")
+        }
+        if !blockers.isEmpty {
+            out.blockers = blockers
+            let head = blockers[0].components(separatedBy: " — ").first ?? blockers[0]
+            onStage(.submit, .skipped, "사람 몫 \(blockers.count)가지가 남아 내지 않았습니다 — \(head)\(blockers.count > 1 ? " 외" : "")")
+            onLog("🙋 심사에 내지 않았습니다 — 사람이 먼저 해야 하는 일:")
+            for (i, b) in blockers.enumerated() { onLog("   \(i + 1)) \(b)") }
+            onLog("   · 끝내고 다시 배포하거나 `DeployBar --submit \(app.name)` 으로 내면 됩니다")
+            out.summary = "v\(version) 연결까지 — 사람 몫 \(blockers.count)가지가 남아 제출하지 않았습니다"
+            return out
+        }
+        // 심사를 통과한 뒤 '출시 대기' 에서 또 사람을 기다리지 않게
+        do {
+            try await ASCClient.setReleaseType(versionId: versionId, afterApproval: r.autoRelease)
+            onLog(r.autoRelease ? "🚦 심사를 통과하면 바로 출시되게 했습니다"
+                                : "🚦 심사를 통과해도 [출시] 는 사람이 누릅니다 (AUTO_RELEASE=off)")
+        } catch {
+            onLog("⚠️  출시 방식을 정하지 못했습니다 — \(reason(error)) · 스토어에 설정된 대로 갑니다")
+        }
+        do {
+            let msg = try await submit(app, onLog: onLog)
+            out.submitted = true
+            let tail = r.autoRelease ? "통과하면 바로 출시" : "통과 뒤 [출시] 는 사람이"
+            onStage(.submit, .done, "\(msg) · \(tail)")
+            out.summary = "v\(version) (build \(build)) 심사 제출 완료 — \(tail)"
+        } catch {
+            let why = (error as? DeployError)?.title ?? reason(error)
+            onStage(.submit, .failed, why)
+            onLog("❌ 심사 제출 실패 — \(why)")
+            for t in (error as? DeployError)?.todo ?? [] { onLog("   → \(t)") }
+            out.summary = "v\(version) 연결까지 — 심사 제출 실패: \(why)"
+        }
+        return out
     }
 }

@@ -26,6 +26,8 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
     case tag            // 태그
     case shots          // 스크린샷 — 다시 찍을 때인지 보고, 그렇다면 지시문을 만든다
     case notesApply     // 릴리즈노트 반영
+    case attach         // 애플 처리가 끝나길 기다렸다가 빌드를 버전에 붙인다
+    case submit         // 심사 제출
 
     var id: Int { rawValue }
 
@@ -45,6 +47,8 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
         case .tag:        return "태그"
         case .shots:      return "스크린샷 점검"
         case .notesApply: return "릴리즈노트 반영"
+        case .attach:     return "빌드 연결"
+        case .submit:     return "심사 제출"
         }
     }
 
@@ -66,6 +70,8 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
         case .tag:        return "이번 배포 지점에 git 태그를 다는 중"
         case .shots:      return "그림이 이번 화면과 맞는지 보고, 아니면 다시 찍을 지시문을 만드는 중"
         case .notesApply: return "언어별 릴리즈노트를 만들어 App Store 에 반영하는 중"
+        case .attach:     return "애플이 빌드를 처리하길 기다리는 중 — 끝나면 버전에 붙입니다 (보통 5~20분)"
+        case .submit:     return "막히는 게 없는지 보고 심사에 내는 중"
         }
     }
 
@@ -88,6 +94,8 @@ enum DeployStage: Int, CaseIterable, Identifiable, Codable {
         case .tag:        return 1
         case .shots:      return 3
         case .notesApply: return 20
+        case .attach:     return 300
+        case .submit:     return 5
         }
     }
 }
@@ -142,6 +150,12 @@ struct DeployProgress {
         steps[i].state = .running
         steps[i].startedAt = Date()
         steps[i].endedAt = nil
+    }
+
+    /// 도는 칸의 한 줄만 고친다 — "처리 중 · 6분째" 처럼 오래 기다리는 칸이 살아 있다고 말하게.
+    mutating func update(_ s: DeployStage, note: String) {
+        guard let i = index(s), steps[i].state == .running else { return }
+        steps[i].note = note
     }
 
     mutating func finish(_ s: DeployStage, _ state: StageState, note: String? = nil) {

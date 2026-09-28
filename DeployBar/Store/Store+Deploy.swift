@@ -51,7 +51,8 @@ extension Store {
     // 앱 하나를 배포하고 로그를 job 에 스트리밍. 결과 반환.
     func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump?,
                       into job: Job,
-                      batch: (index: Int, total: Int, name: String)? = nil) async -> DeployOutcome {
+                      batch: (index: Int, total: Int, name: String)? = nil,
+                      deferStore: Bool = false) async -> DeployOutcome {
         job.resetProgress(app: app.name, batch: batch)
 
         var cont: AsyncStream<String>.Continuation!
@@ -121,7 +122,19 @@ extension Store {
             } else {
                 job.report(.notesApply, .skipped, "check 모드 — 배포 없음")
             }
-            return .success(version: res.version, build: res.build)
+            // 빌드 연결 → 심사 제출. 애플 처리를 기다리느라 길게는 수십 분 걸린다.
+            // 전체 배포는 앱마다 여기서 기다리면 줄 전체가 멈추므로, 업로드를 다 끝낸 뒤 한꺼번에 한다
+            // (그사이 앞 앱들의 처리가 끝나 있어서 대개 기다릴 게 없다).
+            var storeNote: String?
+            if lane != .appstore {
+                let why = lane == .check ? "check 모드 — 배포 없음" : "\(laneLabel(lane)) 배포 — 스토어 제출 없음"
+                job.report(.attach, .skipped, why)
+                job.report(.submit, .skipped, why)
+            } else if !deferStore {
+                let fin = await finishOnStore(app, version: res.version, build: res.build, into: job)
+                storeNote = fin.summary
+            }
+            return .success(version: res.version, build: res.build, store: storeNote)
         } catch {
             c.finish(); await consumer.value
             sc.finish(); await stageConsumer.value
@@ -143,6 +156,32 @@ extension Store {
         }
     }
 
+    /// 빌드 연결·심사 제출을 돌리고 칸과 로그를 job 에 흘린다.
+    /// runOneDeploy 와 같은 이유로 스트림을 쓴다 — 이벤트마다 Task 를 띄우면 칸이 거꾸로 켜진다.
+    func finishOnStore(_ app: ManagedApp, version: String, build: Int, into job: Job) async -> StorePublish.Finish {
+        var cont: AsyncStream<String>.Continuation!
+        let stream = AsyncStream<String> { cont = $0 }
+        let c = cont!
+        let consumer = Task { for await line in stream { job.lines.append(line) } }
+        var stageCont: AsyncStream<(DeployStage, StageState, String?)>.Continuation!
+        let stageStream = AsyncStream<(DeployStage, StageState, String?)> { stageCont = $0 }
+        let sc = stageCont!
+        let stageConsumer = Task { for await e in stageStream { job.report(e.0, e.1, e.2) } }
+
+        let fin = await StorePublish.finish(app, version: version, build: build,
+                                            onLog: { c.yield($0) }, onStage: { sc.yield(($0, $1, $2)) })
+        c.finish(); await consumer.value
+        sc.finish(); await stageConsumer.value
+        if !fin.blockers.isEmpty {
+            humanTodoReady[app.path] = fin.blockers
+            announce([.init(title: "🙋 \(app.name) — 심사에 내려면 사람이 할 일 \(fin.blockers.count)가지",
+                            body: fin.blockers.map { $0.components(separatedBy: " — ").first ?? $0 }
+                                .joined(separator: " · "),
+                            important: true)])
+        }
+        return fin
+    }
+
     // 개별 배포 (원 버튼: 빌드→업로드→언어별 릴리즈노트까지 자동)
     // versionBump nil = 빌드만 올리기, .patch/.minor/.major = 버전 올려 배포
     func startDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump? = nil) {
@@ -158,9 +197,9 @@ extension Store {
                 fixResult[app.path] = "📸 스크린샷 지시문을 복사했습니다 — Claude Code 에 붙여넣으세요"
             }
             switch outcome {
-            case .success(let v, let b):
-                announce([.init(title: "✅ \(app.name) 업로드 완료",
-                                body: "v\(v) (build \(b)) — App Store Connect 에서 빌드를 선택하고 심사에 제출하세요",
+            case .success(let v, let b, let store):
+                announce([.init(title: "✅ \(app.name) 배포 완료",
+                                body: store ?? "v\(v) (build \(b)) 업로드 완료",
                                 important: true)])
             case .failure(let m):
                 announce([.init(title: "❌ \(app.name) 배포 실패", body: m, important: true)])
@@ -208,22 +247,44 @@ extension Store {
             job.lines.append("(순서는 대시보드 헤더의 ↑↓ 버튼에서 바꿉니다)")
             var ok = 0
             var fails: [String] = []
+            // 업로드가 끝난 앱 — 끝에서 빌드 연결·심사 제출을 이어 한다. 그때 칸을 이어 그리려고 진행 상태도 들고 있는다.
+            var uploaded: [(app: ManagedApp, version: String, build: Int, progress: DeployProgress?)] = []
             for (i, app) in targets.enumerated() {
                 job.lines.append("")
                 job.lines.append("━━━━━━ [\(i + 1)/\(targets.count)] \(app.name) ━━━━━━")
                 switch await runOneDeploy(app, lane: lane, versionBump: nil, into: job,
-                                          batch: (i + 1, targets.count, app.name)) {
-                case .success: ok += 1
+                                          batch: (i + 1, targets.count, app.name),
+                                          deferStore: lane == .appstore) {
+                case .success(let v, let b, _):
+                    ok += 1
+                    uploaded.append((app, v, b, job.progress))
                 case .failure(let m): fails.append("\(app.name): \(m)")
+                }
+            }
+            var storeLines: [String] = []
+            if lane == .appstore, !uploaded.isEmpty {
+                job.lines.append("")
+                job.lines.append("══════ 빌드 연결 · 심사 제출 — \(uploaded.count)개 ══════")
+                for (i, u) in uploaded.enumerated() {
+                    job.lines.append("")
+                    job.lines.append("━━━━━━ [\(i + 1)/\(uploaded.count)] \(u.app.name) · 스토어 ━━━━━━")
+                    // 이 앱의 업로드까지 칸을 되살려 그 뒤를 이어 칠한다
+                    job.progress = u.progress
+                    job.batch = (i + 1, uploaded.count, u.app.name)
+                    let fin = await finishOnStore(u.app, version: u.version, build: u.build, into: job)
+                    storeLines.append("\(u.app.name): \(fin.summary)")
                 }
             }
             job.lines.append("")
             job.lines.append("══════ 전체 완료 — 성공 \(ok)/\(targets.count) ══════")
+            for l in storeLines { job.lines.append("   · \(l)") }
             job.running = false
             batchRunning = false
             await refresh(fresh: true)
             if fails.isEmpty {
-                announce([.init(title: "✅ 전체 배포 완료", body: "\(ok)/\(targets.count) 성공", important: true)])
+                announce([.init(title: "✅ 전체 배포 완료",
+                                body: "\(ok)/\(targets.count) 성공" + (storeLines.isEmpty ? "" : "\n" + storeLines.joined(separator: "\n")),
+                                important: true)])
             } else {
                 announce([.init(title: "⚠️ 전체 배포 — 실패 \(fails.count)건",
                                 body: fails.joined(separator: "\n"), important: true)])

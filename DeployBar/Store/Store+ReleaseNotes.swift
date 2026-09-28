@@ -94,7 +94,10 @@ extension Store {
             // App Store 가 실제로 요구하는 언어 그대로 초안을 만든다 (AI 키가 있으면 호출 1회로 전부)
             let draft = await ReleaseNotes.draft(app,
                                                  liveVersion: st?.liveVersion,
-                                                 localVersion: st?.localVersion,
+                                                 // 레포 원고는 **스토어의 이 버전** 절을 읽는다.
+                                                 // 로컬 번호(st.localVersion)로 읽으면 로컬이 뒤처진 앱(2.2.8 ↔ 스토어 2.2.9)은
+                                                 // 써 둔 `## 2.2.9` 를 못 찾고 커밋 제목 초안을 올린다.
+                                                 localVersion: target.versionString,
                                                  locales: codes)
             if draft.base.isEmpty && draft.filled.isEmpty {
                 // 조용히 건너뛰면 '이 버전의 새로운 기능' 이 빈 채로 배포된다 — 왜 비었는지 말한다

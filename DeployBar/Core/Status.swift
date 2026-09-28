@@ -105,8 +105,11 @@ enum Status {
             && cmpVer(st.localVersion, st.liveVersion) == 0
             && (Int(st.localBuild ?? "0") ?? 0) > (Int(st.ascBuild ?? "0") ?? 0)
         let commitsAhead = st.commitsSinceDeploy > 0
+        // 스토어에 새 버전을 만들어 두고(부제·키워드를 고치려고 등) 빌드를 기다리는 중이면,
+        // 코드가 그대로여도 올릴 게 있는 것이다 — 배포가 번호를 그 버전에 맞춰 올린다.
+        let storeWaiting = st.editableHasBuild == false
         if st.dirty { st.state = .dev }
-        else if verAhead || buildAhead || commitsAhead { st.state = .ready }
+        else if verAhead || buildAhead || commitsAhead || storeWaiting { st.state = .ready }
         else { st.state = .deployed }
 
         // 상태가 정해진 뒤에 준비 체크리스트를 만든다 (판정 결과를 그대로 쓴다)

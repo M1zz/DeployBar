@@ -34,6 +34,40 @@ extension ASCClient {
                        state: attr["appStoreState"] as? String ?? "PREPARE_FOR_SUBMISSION")
     }
 
+    /// 아직 안 낸 버전의 번호를 바꾼다. 거기 적어 둔 문구(부제·키워드·릴리즈노트)는 그대로 따라온다 —
+    /// 버전을 지우고 새로 만들면 그 글이 전부 사라지므로, 번호가 어긋나면 이쪽으로 맞춘다.
+    static func updateVersionString(versionId: String, to versionString: String) async throws {
+        let payload: [String: Any] = ["data": [
+            "type": "appStoreVersions", "id": versionId,
+            "attributes": ["versionString": versionString],
+        ]]
+        _ = try await api("PATCH", "/v1/appStoreVersions/\(versionId)",
+                          body: try JSONSerialization.data(withJSONObject: payload))
+    }
+
+    /// 심사를 통과하면 바로 출시할지(AFTER_APPROVAL), 사람이 [출시] 를 누를 때까지 기다릴지(MANUAL).
+    static func setReleaseType(versionId: String, afterApproval: Bool) async throws {
+        let payload: [String: Any] = ["data": [
+            "type": "appStoreVersions", "id": versionId,
+            "attributes": ["releaseType": afterApproval ? "AFTER_APPROVAL" : "MANUAL"],
+        ]]
+        _ = try await api("PATCH", "/v1/appStoreVersions/\(versionId)",
+                          body: try JSONSerialization.data(withJSONObject: payload))
+    }
+
+    /// 이번에 올린 **바로 그 빌드**. attachableBuild 는 '고를 수 있는 아무 빌드' 라서,
+    /// 방금 올린 빌드가 처리 중일 때 지난 빌드를 대신 돌려준다 — 그걸 붙이면 옛 바이너리가 심사에 나간다.
+    static func build(appId: String, marketingVersion: String, number: Int) async throws -> BuildRef? {
+        let v = marketingVersion.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? marketingVersion
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)"
+            + "&filter[preReleaseVersion.version]=\(v)&filter[version]=\(number)&limit=5"
+            + "&fields[builds]=version,processingState")
+        let item = (j["data"] as? [[String: Any]] ?? []).first
+        guard let id = item?["id"] as? String, let attr = item?["attributes"] as? [String: Any] else { return nil }
+        return BuildRef(id: id, build: attr["version"] as? String ?? "\(number)",
+                        state: attr["processingState"] as? String ?? "?")
+    }
+
     /// 업로드된 빌드를 버전에 고른다. 이걸 안 하면 심사 제출 버튼 자체가 안 눌린다.
     static func attachBuild(versionId: String, buildId: String) async throws {
         let payload: [String: Any] = ["data": ["type": "builds", "id": buildId]]

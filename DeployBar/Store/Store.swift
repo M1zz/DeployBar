@@ -27,7 +27,11 @@ final class Job: ObservableObject {
     }
     func report(_ stage: DeployStage, _ state: StageState, _ note: String?) {
         guard progress != nil else { return }
-        if state == .running { progress?.begin(stage) }
+        if state == .running {
+            // 이미 도는 칸에 다시 running 이 오면 설명만 바꾼다 (시작 시각을 되돌리지 않는다)
+            if progress?.current?.stage == stage, let note { progress?.update(stage, note: note) }
+            else { progress?.begin(stage); if let note { progress?.update(stage, note: note) } }
+        }
         else { progress?.finish(stage, state, note: note) }
     }
 
@@ -327,5 +331,6 @@ final class Store: ObservableObject {
 
     @Published var batchRunning = false
 
-    enum DeployOutcome { case success(version: String, build: Int); case failure(String) }
+    /// store: 업로드 뒤 빌드 연결·심사 제출이 어떻게 끝났나 (한 줄). 아직 안 했으면 nil.
+    enum DeployOutcome { case success(version: String, build: Int, store: String?); case failure(String) }
 }

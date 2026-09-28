@@ -207,6 +207,11 @@ enum AppRepo {
         let envA = Config.loadEnv(dir.appendingPathComponent("deploy.env"))
         let envB = Config.loadEnv(dir.appendingPathComponent("fastlane/.env"))
         func pick(_ k: String) -> String? { envA[k] ?? envB[k] }
+        // 적지 않았으면 켜짐 — 끄는 쪽이 명시적이어야 한다 (off·false·0·no)
+        func isOn(_ v: String?) -> Bool {
+            guard let v = v?.trimmingCharacters(in: .whitespaces).lowercased(), !v.isEmpty else { return true }
+            return !["off", "false", "0", "no"].contains(v)
+        }
         // LOCALES=ko,en-US,ja  (쉼표/공백 구분). 비면 .xcstrings·ASC 에서 자동 판단한다.
         let locales = (pick("LOCALES") ?? "")
             .split(whereSeparator: { $0 == "," || $0 == " " })
@@ -224,7 +229,9 @@ enum AppRepo {
             locales: locales,
             localizationGate: pick("LOCALIZATION_GATE") ?? "warn",
             releaseNotesGate: pick("RELEASE_NOTES_GATE") ?? "strict",
-            platformOverride: pick("PLATFORM")
+            platformOverride: pick("PLATFORM"),
+            autoSubmit: isOn(pick("AUTO_SUBMIT")),
+            autoRelease: isOn(pick("AUTO_RELEASE"))
         )
     }
 

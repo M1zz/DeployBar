@@ -29,6 +29,11 @@ struct ResolvedApp {
     var releaseNotesGate: String = "strict"
     // 플랫폼 강제 지정 (deploy.env 의 PLATFORM=ios|macos). 자동 판별이 틀릴 때만 쓴다.
     var platformOverride: String?
+    // 업로드가 끝나면 빌드를 버전에 붙이고 심사까지 낼지 (deploy.env 의 AUTO_SUBMIT=off 로 끈다).
+    // 사람이 웹에서 [제출] 을 누르던 마지막 칸이다. 막히는 게 남아 있으면 내지 않는다.
+    var autoSubmit: Bool = true
+    // 심사를 통과하면 곧바로 출시할지 (AUTO_RELEASE=off 면 '출시 대기' 에서 사람을 기다린다)
+    var autoRelease: Bool = true
 }
 
 // 배포 대상 플랫폼 — archive destination·altool 타입·export 산출물이 다르다.

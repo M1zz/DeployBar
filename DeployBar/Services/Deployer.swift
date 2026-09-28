@@ -291,14 +291,15 @@ enum Deployer {
 
         // 1.5) 버전 처리 — 배포 전에 결정한다. 올릴지(버전), 유지할지(빌드만) 여기서 갈린다.
         begin(.version)
-        if let bump = versionBump {
-            let next = bumpVersion(marketingVersion, bump)
-            onLog("⬆️  버전 올리기: \(marketingVersion) → \(next)")
+        let next = await resolveVersion(local: marketingVersion, bump: versionBump,
+                                        bundleId: info.bundleId, platform: info.platform,
+                                        createOnStore: lane == .appstore, onLog: onLog)
+        if next != marketingVersion {
             setMarketingVersion(r, to: next, onLog: onLog)
             marketingVersion = next
             AppRepo.clearCache()   // 이후 상태 조회가 새 버전을 읽도록
         } else {
-            onLog("🔁 빌드만 올리기 — 버전 유지 (v\(marketingVersion))")
+            onLog("🔁 버전 유지 — v\(marketingVersion)")
         }
 
         // 2) 빌드번호 설정 — **여태 올라간 것 중 제일 큰 번호 + 1.**
@@ -439,12 +440,11 @@ enum Deployer {
         done(.confirm, "v\(marketingVersion) build \(newBuild)")
 
         onLog("🚀 [\(r.scheme)] 업로드 완료 — v\(marketingVersion) (build \(newBuild))")
-        // '배포 완료' 가 '출시됨' 으로 읽히지 않게, 여기서 끝나는 지점을 분명히 말한다.
-        // DeployBar 는 빌드를 올리는 데까지다 — 버전에 빌드를 붙이고 심사에 내는 건 사람이 한다.
-        onLog("ℹ️  여기까지가 '빌드 업로드' 입니다. 스토어에 나가려면 남은 일:")
-        onLog("   1) ⋯ ▸ 스토어 페이지 ▸ [스토어에 올리기] — 빌드 연결·설명·키워드·그림을 한 번에 반영합니다")
-        onLog("   2) ⋯ ▸ 스토어 페이지 ▸ [심사 제출] — 여기서부터 애플이 봅니다")
-        onLog("   · 빌드가 목록에 뜨기까지 Apple 처리에 몇 분 걸릴 수 있습니다")
+        // '업로드 완료' 가 '출시됨' 으로 읽히지 않게, 여기서 끝나는 지점을 분명히 말한다.
+        // 빌드 연결·심사 제출은 이 뒤의 칸(Store 쪽)이 이어서 한다.
+        if lane == .appstore {
+            onLog("ℹ️  업로드까지 끝났습니다. 이어서 애플 처리를 기다렸다가 빌드를 버전에 붙이고 심사에 냅니다.")
+        }
         if GitInfo.isRepo(r.path) {
             begin(.tag)
             let tag = "deploy-\(r.scheme)-\(marketingVersion)-\(newBuild)"
@@ -638,6 +638,84 @@ enum Deployer {
     }
 
     enum VersionBump { case patch, minor, major }
+
+    /// 번호 규칙만 — 스토어에 묻거나 쓰지 않는다 (`--selftest-version` 이 이걸 검증한다).
+    /// editable: 스토어에 준비 중인(아직 안 낸) 버전, closed: 이미 나갔거나 애플 손에 있는 가장 높은 번호.
+    static func planVersion(local: String, bump: VersionBump?, editable: String?,
+                            closed: String?) -> (version: String, reason: String?) {
+        let cmp = Status.cmpVer
+        if let bump {
+            let base = closed.map { cmp($0, local) > 0 ? $0 : local } ?? local
+            let v = bumpVersion(base, bump)
+            return (v, "⬆️  버전 올리기: \(local) → \(v)\(base != local ? " (스토어에 이미 v\(base) 가 있어 거기서 올림)" : "")")
+        }
+        var v = local
+        var why: String?
+        if let e = editable, cmp(e, v) > 0 {
+            v = e
+            why = "🔗 스토어에 준비된 v\(e) 에 맞춥니다 (로컬 \(local))"
+        }
+        if let c = closed, cmp(v, c) <= 0 {
+            v = bumpVersion(c, .patch)
+            why = "⬆️  v\(c) 는 이미 스토어에 나간 번호라 v\(v) 로 올립니다 (로컬 \(local))"
+        }
+        return (v, why)
+    }
+
+    /// 이번 빌드의 마케팅 버전을 **스토어를 보고** 정한다.
+    ///
+    /// 예전엔 로컬 버전만 보고 올렸다. 그래서 스토어에 v2.2.9 를 만들어 두고(부제·키워드까지 써 두고)
+    /// 로컬이 2.2.8 이면, 사람이 '버전 올리기 › patch' 를 정확히 골라야 했고 minor 를 고르면
+    /// 2.3.0 빌드가 올라가 그 버전에 붙지 않았다. 레포가 뒤처져 있으면(2.2.5) patch 로도 안 맞았다.
+    /// 번호를 맞추는 건 사람이 기억할 일이 아니다.
+    ///
+    ///  - 버전을 고르지 않았으면: 스토어에 준비된 버전이 로컬보다 높으면 그 번호를 쓴다.
+    ///    이미 나간(또는 심사에 들어간) 번호와 같거나 낮으면 그 위로 patch 를 올린다 —
+    ///    닫힌 번호로는 애플이 업로드를 받지 않는다.
+    ///  - 골랐으면: 로컬과 이미 나간 번호 중 높은 쪽에서 올린다.
+    ///  - appstore 배포면 스토어 쪽도 이 번호에 맞춘다: 준비된 버전이 있으면 번호를 바꾸고
+    ///    (거기 써 둔 글은 따라온다), 없으면 만든다. 그래야 업로드 뒤에 빌드를 붙일 자리가 있다.
+    ///
+    /// 스토어에 못 물어보면 예전처럼 로컬 기준으로 간다 — 조회 실패로 배포를 막지 않는다.
+    private static func resolveVersion(local: String, bump: VersionBump?, bundleId: String,
+                                       platform: Platform, createOnStore: Bool,
+                                       onLog: @escaping @Sendable (String) -> Void) async -> String {
+        let cmp = Status.cmpVer
+        guard let appId = try? await ASCClient.appId(bundleId: bundleId),
+              let versions = try? await ASCClient.appStoreVersions(appId: appId) else {
+            let v = bump.map { bumpVersion(local, $0) } ?? local
+            onLog("⚠️  스토어 버전을 확인하지 못해 로컬 기준으로 정합니다 — v\(v)")
+            return v
+        }
+        let editable = versions.first { ReleaseNotes.editableStates.contains($0.state) }
+        // 이미 나갔거나 애플 손에 있는 번호 중 가장 높은 것. 이 번호 이하로는 올릴 수 없다.
+        let closed = versions.filter { !ReleaseNotes.editableStates.contains($0.state) }
+            .map(\.versionString).max { cmp($0, $1) < 0 }
+
+        let plan = planVersion(local: local, bump: bump, editable: editable?.versionString, closed: closed)
+        let target = plan.version
+        if let why = plan.reason { onLog(why) }
+
+        guard createOnStore else { return target }
+        if let e = editable {
+            if e.versionString != target {
+                do {
+                    try await ASCClient.updateVersionString(versionId: e.id, to: target)
+                    onLog("🔗 스토어의 준비 중인 버전 번호를 v\(e.versionString) → v\(target) 로 바꿨습니다 (써 둔 글은 그대로)")
+                } catch {
+                    onLog("⚠️  스토어 버전 번호를 v\(target) 로 바꾸지 못했습니다 — \(error.localizedDescription) · 빌드 연결에서 다시 확인합니다")
+                }
+            }
+        } else {
+            do {
+                _ = try await ASCClient.createVersion(appId: appId, versionString: target, platform: platform)
+                onLog("🆕 스토어에 v\(target) 버전을 만들었습니다")
+            } catch {
+                onLog("⚠️  스토어에 v\(target) 버전을 만들지 못했습니다 — \(error.localizedDescription) · 빌드 연결에서 다시 시도합니다")
+            }
+        }
+        return target
+    }
 
     // "4.4.0" → patch:4.4.1 / minor:4.5.0 / major:5.0.0
     static func bumpVersion(_ v: String, _ kind: VersionBump) -> String {

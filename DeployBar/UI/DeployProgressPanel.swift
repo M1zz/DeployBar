@@ -90,6 +90,9 @@ struct DeployProgressPanel: View {
         if let f = p.failed { return "\(who)\(f.stage.title) 에서 멈췄습니다" }
         if let c = p.current { return "\(who)\(c.stage.title) 진행 중" }
         if job.running { return "\(who)시작하는 중" }
+        let step = { (s: DeployStage) in p.steps.first { $0.stage == s }?.state }
+        if step(.submit) == .done { return "\(who)배포 완료 — 심사에 냈습니다" }
+        if step(.attach) == .done { return "\(who)배포 완료 — 빌드 연결까지 (심사 제출은 \(p.steps.first { $0.stage == .submit }?.note ?? "안 함"))" }
         return "\(who)배포 완료 — 업로드까지 끝났습니다"
     }
 
