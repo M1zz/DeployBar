@@ -407,6 +407,14 @@ enum StorePublish {
             throw err(app, "심사 제출", "v\(v.versionString) 에 빌드가 연결돼 있지 않습니다",
                       ["[빌드 연결] 을 먼저 누르세요 — 빌드 없는 버전은 제출되지 않습니다"])
         }
+        // 수출 규정 준수 답이 비어 있으면 버전을 묶음에 넣는 단계에서 409 로 막힌다.
+        // 답은 법적 진술이라 대신 적지 않는다 — 어디서 적는지 알려 준다.
+        if try await ASCClient.buildEncryptionAnswer(versionId: v.id) == nil {
+            throw err(app, "심사 제출", "빌드의 수출 규정 준수(암호화) 답이 비어 있습니다", [
+                "HTTPS·iCloud 처럼 운영체제 암호화만 쓰면 면제 대상입니다 — Info.plist 에 ITSAppUsesNonExemptEncryption = NO 를 넣으면 다음 빌드부터 묻지 않습니다",
+                "이번 빌드는 App Store Connect ▸ TestFlight ▸ 빌드에서 '수출 규정 준수 정보' 에 답하세요",
+            ])
+        }
         let submissionId: String
         if let open = try await ASCClient.openSubmission(appId: appId) {
             if open.submitted {
@@ -423,6 +431,20 @@ enum StorePublish {
             try await ASCClient.addVersionToSubmission(submissionId: submissionId, versionId: v.id)
         } catch let e as ASCClient.APIError where e.status == 409 {
             onLog("📮 v\(v.versionString) 는 이미 묶음에 들어 있습니다")
+        }
+        // 준비된 인앱 구매를 같이 싣는다. 버전만 내면 심사자가 페이월에서 상품을 못 봐
+        // 거절될 수 있으므로, 싣지 못하면 **제출하지 않고** 멈춘다 (버전은 묶음에 남아 있다).
+        for purchase in (try? await ASCClient.purchasesReadyToSubmit(appId: appId)) ?? [] {
+            do {
+                try await ASCClient.submitPurchase(id: purchase.id)
+                onLog("🛒 인앱 구매 \(purchase.productId) 를 함께 싣습니다")
+            } catch let e as ASCClient.APIError where e.status == 409 && e.body.contains("no pending version") {
+                throw err(app, "심사 제출", "첫 인앱 구매(\(purchase.productId))는 웹에서 버전과 함께 골라야 합니다", [
+                    "App Store Connect ▸ 앱 ▸ v\(v.versionString) ▸ '인앱 구입 및 구독' 에서 \(purchase.productId) 를 고르세요",
+                    "그 페이지의 [심사에 추가] → [심사 제출] 을 누르면 됩니다 — 버전과 빌드는 이미 묶음에 들어 있습니다",
+                    "Apple API 는 앱의 첫 인앱 구매를 버전에 붙이지 못합니다. 두 번째부터는 DeployBar 가 같이 냅니다",
+                ])
+            }
         }
         try await ASCClient.submit(submissionId: submissionId)
         onLog("✅ v\(v.versionString) 심사 제출 완료")

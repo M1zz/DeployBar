@@ -383,8 +383,10 @@ extension ASCClient {
 
     /// 진행 중인 심사 제출 묶음. 같은 앱에 두 개를 만들 수 없어서 먼저 찾아본다.
     static func openSubmission(appId: String) async throws -> Submission? {
+        // ⚠️ `sort` 를 붙이면 안 된다 — reviewSubmissions 는 정렬을 받지 않고 HTTP 400 을 낸다
+        //    ("The parameter 'sort' can not be used with this request"). 상태로만 거르면 충분하다.
         let j = try await api("GET", "/v1/reviewSubmissions?filter[app]=\(appId)&limit=10"
-            + "&sort=-submittedDate&fields[reviewSubmissions]=state,submitted")
+            + "&fields[reviewSubmissions]=state,submitted")
         let data = j["data"] as? [[String: Any]] ?? []
         let open = data.compactMap { item -> Submission? in
             guard let id = item["id"] as? String else { return nil }
@@ -462,6 +464,39 @@ extension ASCClient {
     }
 
     /// 인앱결제가 코드에는 있는데 App Store Connect 에 없으면, 심사에서 반드시 막힌다.
+    /// 심사에 낼 준비가 끝난(READY_TO_SUBMIT) 인앱 구매. 버전과 함께 내야 한다.
+    struct PendingPurchase { let id: String; let productId: String }
+
+    static func purchasesReadyToSubmit(appId: String) async throws -> [PendingPurchase] {
+        let j = try await api("GET", "/v1/apps/\(appId)/inAppPurchasesV2?limit=50"
+            + "&fields[inAppPurchases]=productId,state")
+        let data = j["data"] as? [[String: Any]] ?? []
+        return data.compactMap { item in
+            let a = item["attributes"] as? [String: Any] ?? [:]
+            guard a["state"] as? String == "READY_TO_SUBMIT", let id = item["id"] as? String else { return nil }
+            return PendingPurchase(id: id, productId: a["productId"] as? String ?? id)
+        }
+    }
+
+    /// 인앱 구매를 다음 심사에 싣는다. **앱의 첫 인앱 구매는 여기로 실리지 않는다** —
+    /// Apple 이 "no pending version for submission"(409)으로 막고, 웹의 버전 페이지에서
+    /// '인앱 구입 및 구독' 으로 골라야만 붙는다.
+    static func submitPurchase(id: String) async throws {
+        let payload: [String: Any] = ["data": [
+            "type": "inAppPurchaseSubmissions",
+            "relationships": ["inAppPurchaseV2": ["data": ["type": "inAppPurchases", "id": id]]],
+        ]]
+        _ = try await api("POST", "/v1/inAppPurchaseSubmissions",
+                          body: try JSONSerialization.data(withJSONObject: payload))
+    }
+
+    /// 버전에 붙은 빌드가 수출 규정 준수(암호화) 질문에 답했는지. nil 이면 답이 비어 있다.
+    static func buildEncryptionAnswer(versionId: String) async throws -> Bool? {
+        let j = try await api("GET", "/v1/appStoreVersions/\(versionId)/build?fields[builds]=usesNonExemptEncryption")
+        let a = (j["data"] as? [String: Any])?["attributes"] as? [String: Any]
+        return a?["usesNonExemptEncryption"] as? Bool
+    }
+
     static func inAppPurchaseIds(appId: String) async throws -> [String] {
         let j = try await api("GET", "/v1/apps/\(appId)/inAppPurchasesV2?limit=50&fields[inAppPurchases]=productId")
         let data = j["data"] as? [[String: Any]] ?? []
