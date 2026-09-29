@@ -68,21 +68,32 @@ extension Store {
     func applyReleaseNotes(_ app: ManagedApp, into job: Job, when: String = "") async -> String {
         let st = statuses.first { $0.path == app.path }
         do {
-            guard let target = try await ReleaseNotes.editableVersionAndLocales(app) else {
+            guard var target = try await ReleaseNotes.editableVersionAndLocales(app) else {
                 job.lines.append("📝 릴리즈노트 보류 — 편집 가능한 App Store 버전이 없습니다. ASC 에서 새 버전을 만든 뒤 [릴리즈노트]로 적용하세요.")
                 return "보류 — 편집 가능한 App Store 버전이 없습니다"
             }
+            // deploy.env 에 적었지만 App Store 페이지에는 없는 언어 — **먼저 만든다.**
+            //
+            // 예전엔 경고만 하고 버렸다. 이 언어는 반영 대상에 아예 안 들어오므로
+            // 원고를 써 둬도 그 언어만 조용히 사라졌다. 만들 수 있으면 만들고,
+            // 못 만든 것만 이유와 함께 말한다.
+            let resolved = AppRepo.resolve(app)
+            let declared = resolved.locales
+            var unlisted = declared.filter { want in !target.localeCodes.contains { Locales.sameLanguage($0, want) } }
+            if !unlisted.isEmpty,
+               let bundleId = try? AppRepo.buildSettings(resolved).bundleId,
+               let appId = try await ASCClient.appId(bundleId: bundleId) {
+                let res = await StorePublish.addLanguages(appId: appId, versionId: target.versionId, want: unlisted,
+                                                          meta: StoreMeta.read(app.path, locales: declared))
+                if !res.added.isEmpty {
+                    job.lines.append("🌐 App Store 페이지에 언어를 추가했습니다: \(res.added.map { Locales.displayName($0) }.joined(separator: ", "))")
+                    if let fresh = try await ReleaseNotes.editableVersionAndLocales(app) { target = fresh }
+                }
+                for f in res.failed { job.lines.append("   ⚠️ \(f)") }
+                unlisted = declared.filter { want in !target.localeCodes.contains { Locales.sameLanguage($0, want) } }
+            }
             let codes = target.localeCodes
             job.lines.append("📝 릴리즈노트 자동 반영\(when.isEmpty ? "" : " (\(when))") · v\(target.versionString) — 이 앱 언어 \(codes.count)개: \(codes.joined(separator: ", "))")
-
-            // deploy.env 에 적었지만 App Store 페이지에는 없는 언어.
-            //
-            // 이 언어는 반영 대상(codes)에 아예 들어오지 않으므로 skipped 에도 안 잡힌다.
-            // 그래서 원고를 써 두고 배포해도 로그는 ✅ 로 끝나고 그 언어만 조용히 사라진다 —
-            // "일본어 노트를 분명히 썼는데 스토어엔 한국어뿐이지" 의 답이 여기 있다.
-            // 체크리스트에만 적어 두면 배포할 땐 안 보이니, 사라지는 자리에서 말한다.
-            let declared = AppRepo.resolve(app).locales
-            let unlisted = declared.filter { want in !codes.contains { Locales.sameLanguage($0, want) } }
             if !unlisted.isEmpty {
                 let names = unlisted.map { Locales.displayName($0) }.joined(separator: ", ")
                 job.lines.append("   ⚠️ deploy.env 의 \(names) 는 App Store 페이지에 없어 올릴 자리가 없습니다 — 이 언어 문구는 버려집니다")
@@ -116,7 +127,10 @@ extension Store {
             if !result.kept.isEmpty {
                 job.lines.append("   ✓ 이미 써 둔 문구가 있어 그대로 둔 언어 \(result.kept.count)개: \(result.kept.joined(separator: ", "))")
             }
-            job.lines.append("   ✓ 반영 완료 \(result.locales.count)/\(codes.count): \(result.locales.joined(separator: ", "))")
+            // 새로 채운 게 없으면(전부 이미 써 둔 글) '0/1' 로 실패처럼 읽히는 줄은 찍지 않는다
+            if !result.locales.isEmpty {
+                job.lines.append("   ✓ 새로 채운 언어 \(result.locales.count)/\(codes.count): \(result.locales.joined(separator: ", "))")
+            }
             if !result.skipped.isEmpty {
                 job.lines.append("   ⚠️ 못 채운 언어 \(result.skipped.count)개: \(result.skipped.joined(separator: ", ")) — [릴리즈노트] 창에서 직접 입력하세요")
             }

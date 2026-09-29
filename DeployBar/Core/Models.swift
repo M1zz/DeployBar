@@ -34,6 +34,10 @@ struct ResolvedApp {
     var autoSubmit: Bool = true
     // 심사를 통과하면 곧바로 출시할지 (AUTO_RELEASE=off 면 '출시 대기' 에서 사람을 기다린다)
     var autoRelease: Bool = true
+    // 수출 규정 준수(암호화) 답 (deploy.env 의 ENCRYPTION_EXEMPT=yes|no). 적지 않았으면 nil.
+    // yes 는 "운영체제 암호화(HTTPS 등)만 쓴다 — 면제 대상" 이라는 **사람의 선언**이다.
+    // 선언이 있을 때만 DeployBar 가 빌드마다 그 답을 대신 넣는다.
+    var encryptionExempt: Bool?
 }
 
 // 배포 대상 플랫폼 — archive destination·altool 타입·export 산출물이 다르다.

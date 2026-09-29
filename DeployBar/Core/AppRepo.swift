@@ -231,7 +231,13 @@ enum AppRepo {
             releaseNotesGate: pick("RELEASE_NOTES_GATE") ?? "strict",
             platformOverride: pick("PLATFORM"),
             autoSubmit: isOn(pick("AUTO_SUBMIT")),
-            autoRelease: isOn(pick("AUTO_RELEASE"))
+            autoRelease: isOn(pick("AUTO_RELEASE")),
+            encryptionExempt: pick("ENCRYPTION_EXEMPT").flatMap { v in
+                let v = v.trimmingCharacters(in: .whitespaces).lowercased()
+                if ["yes", "true", "1", "on"].contains(v) { return true }
+                if ["no", "false", "0", "off"].contains(v) { return false }
+                return nil
+            }
         )
     }
 

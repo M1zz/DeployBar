@@ -44,6 +44,21 @@ enum Locales {
 
     static func isKorean(_ locale: String) -> Bool { language(locale) == "ko" }
 
+    // ── App Store Connect 가 받는 로케일 코드 ─────────────────────────
+    /// "en" → "en-US" 처럼 ASC 가 받아 주는 코드로 바꾼다.
+    ///
+    /// deploy.env 의 LOCALES 와 APPSTORE.md 의 `## English (en)` 은 언어 코드만 적어도 되지만,
+    /// ASC 는 영어·프랑스어·독일어처럼 지역 변형이 있는 언어는 **지역까지 붙은 코드만** 받는다.
+    /// "en" 을 그대로 보내면 409 "'en' is not a valid 'locale'" 로 거부돼,
+    /// 영어 페이지를 한 번도 못 만들고 매 배포마다 "영어 문구는 버려집니다" 만 반복됐다.
+    static func ascCode(_ locale: String) -> String {
+        let defaults: [String: String] = [
+            "en": "en-US", "fr": "fr-FR", "de": "de-DE", "es": "es-ES", "pt": "pt-BR",
+            "nl": "nl-NL", "ar": "ar-SA", "zh": "zh-Hans", "iw": "he", "nb": "no",
+        ]
+        return defaults[locale.lowercased()] ?? locale
+    }
+
     // xcstrings 의 로케일 키를 ASC 로케일 후보로 넓힌다 ("en" ↔ "en-US" 매칭용)
     static func matches(xcstrings x: String, asc: String) -> Bool { sameLanguage(x, asc) }
 

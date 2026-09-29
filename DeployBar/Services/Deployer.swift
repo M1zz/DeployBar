@@ -62,7 +62,9 @@ enum Deployer {
 
     /// 업로드한 빌드가 App Store Connect 에 실제로 도착했는지 확인한다.
     /// altool 의 말만 믿지 않기 위한 이중 확인 — 도착이 곧 진실이다.
+    /// quietMiss: altool 이 성공을 말했고 뒤에서 처리 완료를 따로 기다리는 경우 — 안 보여도 경고가 아니다.
     private static func confirmOnASC(bundleId: String, marketingVersion: String, build: Int,
+                                     quietMiss: Bool = false,
                                      onLog: @escaping @Sendable (String) -> Void) async -> Bool {
         onLog("🔍 App Store Connect 에 빌드 도착 확인 중… (v\(marketingVersion) build \(build))")
         // 업로드 직후엔 아직 안 보일 수 있어 조금씩 기다리며 다시 본다 (최대 약 90초)
@@ -76,7 +78,9 @@ enum Deployer {
                 return true
             }
         }
-        onLog("⚠️  아직 확인되지 않았습니다 — Apple 처리가 늦는 것일 수 있습니다 (TestFlight 에서 확인하세요)")
+        onLog(quietMiss
+              ? "ℹ️  아직 목록에 안 보입니다 — 애플이 받아서 처리하는 중입니다 (뒤에서 처리 완료까지 기다립니다)"
+              : "⚠️  아직 확인되지 않았습니다 — Apple 처리가 늦는 것일 수 있습니다 (TestFlight 에서 확인하세요)")
         return false
     }
 
@@ -333,7 +337,15 @@ enum Deployer {
         try await setBuild(r, to: newBuild, onLog: onLog)
         done(.version, "v\(marketingVersion) · build \(newBuild)")
 
-        // 3) archive — 플랫폼(iOS/macOS)에 맞는 destination 사용
+        // 3) archive 전에 — 심사 제출에서 막힐 것을 **지금** 말한다.
+        //    수출 규정 준수(암호화) 답이 없으면 빌드·업로드·처리 대기를 다 거친 뒤 제출에서 멈춘다.
+        //    배포를 막지는 않는다 (업로드는 의미가 있다) — 끝이 '미완' 이 된다는 걸 미리 알린다.
+        if lane == .appstore, r.autoSubmit, !StorePublish.encryptionAnswered(r) {
+            onLog("⚠️  수출 규정 준수(암호화) 답이 준비돼 있지 않습니다 — 이대로면 업로드는 되지만 심사 제출에서 멈춥니다")
+            for t in StorePublish.encryptionTodo { onLog("   → \(t)") }
+        }
+
+        // archive — 플랫폼(iOS/macOS)에 맞는 destination 사용
         onLog("🖥  플랫폼: \(info.platform.rawValue) (destination \(info.platform.destination))")
         let archivePath = workDir.appendingPathComponent("\(r.scheme).xcarchive").path
         begin(.archive)
@@ -348,7 +360,15 @@ enum Deployer {
            todo: ["로그에서 **첫 번째** `error:` 줄이 원인입니다 (뒤쪽 줄은 그 여파인 경우가 많습니다)",
                   "Xcode 에서 같은 scheme 을 Product ▸ Archive 로 한 번 돌려 보면 같은 오류가 더 잘 보입니다",
                   "서명·프로비저닝 오류라면 Xcode ▸ Settings ▸ Accounts 에서 팀 로그인을 확인하세요"],
-           onLog: onLog)
+           onLog: { line in
+               // -quiet 는 컴파일 **경고**를 "failed with exit code 0" 이라는 error: 줄에 담아 찍는다.
+               // 종료코드 0 이면 실패가 아니다 — 빨간 줄로 겁주지 않고 경고라고 말한다.
+               if line.contains("failed with exit code 0") {
+                   onLog("⚠️  컴파일 경고 (오류 아님 — 빌드는 계속됩니다):")
+               } else {
+                   onLog(line)
+               }
+           })
         done(.archive, "Release · \(info.platform.rawValue)")
 
         // 4) export IPA
@@ -435,7 +455,7 @@ enum Deployer {
         } else {
             // 성공 문구가 있어도 실제 도착까지 확인해 둔다
             _ = await confirmOnASC(bundleId: info.bundleId, marketingVersion: marketingVersion,
-                                   build: newBuild, onLog: onLog)
+                                   build: newBuild, quietMiss: lane == .appstore, onLog: onLog)
         }
         done(.confirm, "v\(marketingVersion) build \(newBuild)")
 

@@ -162,29 +162,24 @@ enum StorePublish {
                       problems + ["줄인 뒤 다시 누르세요 — 넘친 채로 올리면 애플이 통째로 거부합니다"])
         }
 
-        // (a) 버전 문구 (설명·키워드·프로모션·URL·릴리즈노트는 여기 말고 ReleaseNotes 가 쓴다)
+        // App Store 페이지에 없는 언어 — 만들 수 있으면 먼저 만든다.
+        // (여태 "웹에서 언어를 추가하세요" 로 남겨 두던 자리다)
         var texts = try await ASCClient.storeTexts(versionId: version.id)
-        for (loc, entry) in meta.entries.sorted(by: { $0.key < $1.key }) {
-            let existing = texts.first { Locales.sameLanguage($0.locale, loc) }
-            var target = existing
-            if target == nil {
-                // App Store 페이지에 없는 언어 — 만들 수 있으면 만든다.
-                // (여태 "웹에서 언어를 추가하세요" 로 남겨 두던 자리다)
-                if options.dryRun {
-                    report.changed.append("\(Locales.displayName(loc)) 페이지 추가 (미리보기)")
-                    continue
-                }
-                do {
-                    let made = try await ASCClient.createVersionLocalization(versionId: version.id, locale: loc)
-                    report.changed.append("\(Locales.displayName(loc)) 스토어 페이지 추가")
-                    target = ASCClient.StoreText(id: made.id, locale: made.locale)
-                    texts.append(target!)
-                } catch {
-                    report.warnings.append("\(Locales.displayName(loc)) 추가 실패 — \(reason(error))")
-                    continue
-                }
+        let missing = meta.entries.keys.sorted().filter { loc in !texts.contains { Locales.sameLanguage($0.locale, loc) } }
+        if !missing.isEmpty {
+            if options.dryRun {
+                for loc in missing { report.changed.append("\(Locales.displayName(loc)) 페이지 추가 (미리보기)") }
+            } else {
+                let res = await addLanguages(appId: appId, versionId: version.id, want: missing, meta: meta)
+                for loc in res.added { report.changed.append("\(Locales.displayName(loc)) 스토어 페이지 추가") }
+                report.warnings += res.failed
+                if !res.added.isEmpty { texts = try await ASCClient.storeTexts(versionId: version.id) }
             }
-            guard let t = target else { continue }
+        }
+
+        // (a) 버전 문구 (설명·키워드·프로모션·URL·릴리즈노트는 여기 말고 ReleaseNotes 가 쓴다)
+        for (loc, entry) in meta.entries.sorted(by: { $0.key < $1.key }) {
+            guard let t = texts.first(where: { Locales.sameLanguage($0.locale, loc) }) else { continue }
             var fields: [String: String] = [:]
             func put(_ key: String, _ new: String?, _ old: String) {
                 guard let new, !new.isEmpty, new != old else { return }
@@ -226,7 +221,7 @@ enum StorePublish {
                     continue
                 }
                 do {
-                    let made = try await ASCClient.createInfoText(appInfoId: appInfo.id, locale: loc, name: name)
+                    let made = try await ASCClient.createInfoText(appInfoId: appInfo.id, locale: Locales.ascCode(loc), name: name)
                     report.changed.append("\(Locales.displayName(loc)) 앱 정보 추가 · 이름 '\(name)'")
                     target = made
                     infos.append(made)
@@ -390,6 +385,83 @@ enum StorePublish {
         }
     }
 
+    // ── 언어 추가 ───────────────────────────────────────────────────────
+    /// App Store 페이지에 없는 언어를 만든다. 배포 앞(릴리즈노트)과 문구 올리기가 같이 쓴다.
+    ///
+    /// 순서가 중요하다: **앱 정보(이름) → 버전 문구.** ASC 는 앱 정보에 없는 언어로
+    /// 버전 문구를 만들면 409 "The language specified is not listed for localization" 으로 거부한다.
+    /// 코드도 ASC 가 받는 것("en" 이 아니라 "en-US")으로 바꿔서 보낸다.
+    struct LanguageResult {
+        var added: [String] = []     // 만든 로케일 (요청한 그대로의 표기)
+        var failed: [String] = []    // 못 만든 이유 — 사람이 읽을 한 줄씩
+    }
+    static func addLanguages(appId: String, versionId: String, want: [String],
+                             meta: StoreMeta.Found?) async -> LanguageResult {
+        var out = LanguageResult()
+        guard !want.isEmpty else { return out }
+        do {
+            let texts = try await ASCClient.storeTexts(versionId: versionId)
+            guard let appInfo = try await ASCClient.appInfo(appId: appId) else {
+                out.failed = want.map { "\(Locales.displayName($0)) 추가 실패 — 앱 정보를 찾지 못했습니다" }
+                return out
+            }
+            var infos = try await ASCClient.infoTexts(appInfoId: appInfo.id)
+            // 이름을 안 적은 언어는 기본 언어(한국어가 있으면 한국어)의 앱 이름을 빌린다 — 이름은 필수 칸이다
+            let fallbackName = (infos.first { Locales.isKorean($0.locale) } ?? infos.first)?.name
+            for loc in want where !texts.contains(where: { Locales.sameLanguage($0.locale, loc) }) {
+                let code = Locales.ascCode(loc)
+                let label = Locales.displayName(loc)
+                do {
+                    if !infos.contains(where: { Locales.sameLanguage($0.locale, loc) }) {
+                        let written = meta?.entries.first { Locales.sameLanguage($0.key, loc) }?.value.name
+                        guard let name = written ?? fallbackName, !name.isEmpty else {
+                            out.failed.append("\(label) 추가 실패 — 앱 이름이 없습니다 · APPSTORE.md 의 이 언어 절에 `### 이름` 을 적으세요")
+                            continue
+                        }
+                        infos.append(try await ASCClient.createInfoText(appInfoId: appInfo.id, locale: code, name: name))
+                    }
+                    _ = try await ASCClient.createVersionLocalization(versionId: versionId, locale: code)
+                    out.added.append(loc)
+                } catch {
+                    out.failed.append("\(label)(\(code)) 추가 실패 — \(reason(error))")
+                }
+            }
+        } catch {
+            out.failed = want.map { "\(Locales.displayName($0)) 추가 실패 — \(reason(error))" }
+        }
+        return out
+    }
+
+    // ── 수출 규정 준수(암호화) ──────────────────────────────────────────
+    /// 답이 비었을 때 사람이 할 일. 배포 앞의 미리 확인과 제출 단계가 같은 말을 한다.
+    static let encryptionTodo = [
+        "HTTPS·iCloud 처럼 운영체제 암호화만 쓰면 면제 대상입니다 — 그렇다면 둘 중 하나를 하세요",
+        "deploy.env 에 ENCRYPTION_EXEMPT=yes 를 적으면 이번 빌드부터 DeployBar 가 '면제' 로 답합니다 → [심사 제출] 만 다시 누르면 됩니다",
+        "또는 Info.plist 에 ITSAppUsesNonExemptEncryption = NO 를 넣으면 다음 빌드부터 애플이 묻지 않습니다",
+        "자체 암호화를 쓴다면 App Store Connect ▸ TestFlight ▸ 빌드에서 '수출 규정 준수 정보' 에 직접 답하세요",
+    ]
+
+    /// 이 앱이 암호화 질문에 미리 답해 두었나 — 업로드 **전에** 알 수 있는 것.
+    /// Info.plist 나 빌드 설정에 키가 있거나, deploy.env 에 선언이 있으면 답이 준비된 것이다.
+    /// 예전엔 이걸 심사 제출 직전에야 봐서, 빌드·업로드·처리 대기 7분을 다 쓰고 막혔다.
+    static func encryptionAnswered(_ r: ResolvedApp) -> Bool {
+        if r.encryptionExempt != nil { return true }
+        let fm = FileManager.default
+        let key = "ITSAppUsesNonExemptEncryption"
+        guard let e = fm.enumerator(atPath: r.path) else { return false }
+        while let f = e.nextObject() as? String {
+            // build/·DerivedData·Pods 는 볼 필요가 없다 (산출물·남의 코드)
+            let name = (f as NSString).lastPathComponent
+            if ["build", "DerivedData", "Pods", ".git", "node_modules", "fastlane"].contains(name) {
+                e.skipDescendants(); continue
+            }
+            guard f.hasSuffix(".plist") || f.hasSuffix("project.pbxproj") || f.hasSuffix(".xcconfig") else { continue }
+            if let s = try? String(contentsOfFile: (r.path as NSString).appendingPathComponent(f), encoding: .utf8),
+               s.contains(key) { return true }
+        }
+        return false
+    }
+
     // ── 심사 제출 / 출시 ────────────────────────────────────────────────
     /// 심사 제출. **여기서부터 애플이 본다** — 부르는 쪽이 사람의 뜻을 확인하고 불러야 한다.
     static func submit(_ app: ManagedApp, onLog: @escaping (String) -> Void = { _ in }) async throws -> String {
@@ -408,12 +480,17 @@ enum StorePublish {
                       ["[빌드 연결] 을 먼저 누르세요 — 빌드 없는 버전은 제출되지 않습니다"])
         }
         // 수출 규정 준수 답이 비어 있으면 버전을 묶음에 넣는 단계에서 409 로 막힌다.
-        // 답은 법적 진술이라 대신 적지 않는다 — 어디서 적는지 알려 준다.
-        if try await ASCClient.buildEncryptionAnswer(versionId: v.id) == nil {
-            throw err(app, "심사 제출", "빌드의 수출 규정 준수(암호화) 답이 비어 있습니다", [
-                "HTTPS·iCloud 처럼 운영체제 암호화만 쓰면 면제 대상입니다 — Info.plist 에 ITSAppUsesNonExemptEncryption = NO 를 넣으면 다음 빌드부터 묻지 않습니다",
-                "이번 빌드는 App Store Connect ▸ TestFlight ▸ 빌드에서 '수출 규정 준수 정보' 에 답하세요",
-            ])
+        // 답은 법적 진술이라 **사람이 선언한 것만** 적는다 (deploy.env 의 ENCRYPTION_EXEMPT).
+        // 선언이 없으면 대신 적지 않고, 어디서 적는지 알려 준다.
+        let enc = try await ASCClient.buildEncryptionAnswer(versionId: v.id)
+        if enc.answer == nil {
+            if r.encryptionExempt == true, let buildId = enc.buildId {
+                try await ASCClient.setBuildEncryption(buildId: buildId, usesNonExempt: false)
+                onLog("🔐 수출 규정 준수: '면제 대상' 으로 답했습니다 (deploy.env 의 ENCRYPTION_EXEMPT=yes)")
+            } else {
+                throw err(app, "심사 제출", "빌드의 수출 규정 준수(암호화) 답이 비어 있습니다",
+                          StorePublish.encryptionTodo)
+            }
         }
         let submissionId: String
         if let open = try await ASCClient.openSubmission(appId: appId) {
@@ -828,6 +905,9 @@ extension StorePublish {
         var blockers: [String] = []
         /// 알림에 쓸 한 줄
         var summary = ""
+        /// 심사에 내지 **못한** 이유. nil 이면 제출했거나, AUTO_SUBMIT=off 로 일부러 안 낸 것.
+        /// 배포의 최종 판정(성공/미완)이 이 값 하나로 갈린다 — '업로드 성공' 과 '배포 성공' 은 다르다.
+        var unfinished: String?
     }
 
     /// 방금 올린 빌드를 심사 제출까지 민다. 칸은 onStage 로 보고한다.
@@ -842,6 +922,7 @@ extension StorePublish {
             onStage(.submit, .skipped, "빌드를 붙이지 못해 건너뜀")
             onLog("⚠️  빌드 연결 실패 — \(note)")
             out.summary = "업로드는 됐지만 빌드 연결에서 멈춤 — \(note)"
+            out.unfinished = "빌드 연결 실패 — \(note)"
             return out
         }
         onStage(.attach, .running, nil)
@@ -928,6 +1009,7 @@ extension StorePublish {
             for (i, b) in blockers.enumerated() { onLog("   \(i + 1)) \(b)") }
             onLog("   · 끝내고 다시 배포하거나 `DeployBar --submit \(app.name)` 으로 내면 됩니다")
             out.summary = "v\(version) 연결까지 — 사람 몫 \(blockers.count)가지가 남아 제출하지 않았습니다"
+            out.unfinished = "사람이 할 일 \(blockers.count)가지가 남아 심사에 내지 않음 — \(head)"
             return out
         }
         // 심사를 통과한 뒤 '출시 대기' 에서 또 사람을 기다리지 않게
@@ -950,6 +1032,7 @@ extension StorePublish {
             onLog("❌ 심사 제출 실패 — \(why)")
             for t in (error as? DeployError)?.todo ?? [] { onLog("   → \(t)") }
             out.summary = "v\(version) 연결까지 — 심사 제출 실패: \(why)"
+            out.unfinished = "심사 제출 실패 — \(why)"
         }
         return out
     }

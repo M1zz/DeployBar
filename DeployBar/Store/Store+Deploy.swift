@@ -133,6 +133,9 @@ extension Store {
             } else if !deferStore {
                 let fin = await finishOnStore(app, version: res.version, build: res.build, into: job)
                 storeNote = fin.summary
+                if let why = fin.unfinished {
+                    return .incomplete(version: res.version, build: res.build, reason: why)
+                }
             }
             return .success(version: res.version, build: res.build, store: storeNote)
         } catch {
@@ -189,6 +192,21 @@ extension Store {
         self.job = job
         Task {
             let outcome = await runOneDeploy(app, lane: lane, versionBump: versionBump, into: job)
+            // 로그 맨 끝에 한 줄로 판정한다 — 수백 줄을 거슬러 올라가지 않아도 되게.
+            // '업로드 완료' 와 '스토어에 냈다' 를 섞지 않는다.
+            switch outcome {
+            case .success(let v, let b, let store):
+                job.verdict = .success(store ?? (lane == .check ? "점검 통과 — 올리지는 않았습니다"
+                                                                 : "v\(v) (build \(b)) 업로드 완료"))
+            case .incomplete(let v, let b, let why):
+                job.verdict = .incomplete("v\(v) (build \(b)) 업로드는 됐지만 심사에 내지 못했습니다 · \(why)")
+            case .failure(let m):
+                job.verdict = .failed(m)
+            }
+            if let v = job.verdict {
+                job.lines.append("")
+                job.lines.append("🏁 결과: \(v.line)")
+            }
             job.running = false
             await refresh(fresh: true)
             // 앱 하나만 배포했을 때만 클립보드로 — 전체 배포에서 31번 덮어쓰면 아무 뜻도 없다
@@ -200,6 +218,10 @@ extension Store {
             case .success(let v, let b, let store):
                 announce([.init(title: "✅ \(app.name) 배포 완료",
                                 body: store ?? "v\(v) (build \(b)) 업로드 완료",
+                                important: true)])
+            case .incomplete(let v, let b, let why):
+                announce([.init(title: "⚠️ \(app.name) 배포 미완 — 심사에 내지 못함",
+                                body: "v\(v) (build \(b)) 업로드는 됐습니다 · \(why) (로그 끝에 할 일을 적어 뒀습니다)",
                                 important: true)])
             case .failure(let m):
                 announce([.init(title: "❌ \(app.name) 배포 실패", body: m, important: true)])
@@ -247,6 +269,7 @@ extension Store {
             job.lines.append("(순서는 대시보드 헤더의 ↑↓ 버튼에서 바꿉니다)")
             var ok = 0
             var fails: [String] = []
+            var unfinished: [String] = []   // 업로드는 됐지만 심사에 못 낸 앱
             // 업로드가 끝난 앱 — 끝에서 빌드 연결·심사 제출을 이어 한다. 그때 칸을 이어 그리려고 진행 상태도 들고 있는다.
             var uploaded: [(app: ManagedApp, version: String, build: Int, progress: DeployProgress?)] = []
             for (i, app) in targets.enumerated() {
@@ -258,6 +281,9 @@ extension Store {
                 case .success(let v, let b, _):
                     ok += 1
                     uploaded.append((app, v, b, job.progress))
+                case .incomplete(_, _, let why):   // deferStore 라 여기 오지 않지만, 오면 미완으로 센다
+                    ok += 1
+                    unfinished.append("\(app.name): \(why)")
                 case .failure(let m): fails.append("\(app.name): \(m)")
                 }
             }
@@ -273,15 +299,31 @@ extension Store {
                     job.batch = (i + 1, uploaded.count, u.app.name)
                     let fin = await finishOnStore(u.app, version: u.version, build: u.build, into: job)
                     storeLines.append("\(u.app.name): \(fin.summary)")
+                    if let why = fin.unfinished { unfinished.append("\(u.app.name): \(why)") }
                 }
             }
             job.lines.append("")
-            job.lines.append("══════ 전체 완료 — 성공 \(ok)/\(targets.count) ══════")
+            job.lines.append("══════ 전체 완료 — 업로드 \(ok)/\(targets.count) ══════")
             for l in storeLines { job.lines.append("   · \(l)") }
+            let done = ok - unfinished.count
+            if !fails.isEmpty {
+                job.verdict = .failed("실패 \(fails.count) · 미완 \(unfinished.count) · 완료 \(done) / \(targets.count)")
+            } else if !unfinished.isEmpty {
+                job.verdict = .incomplete("\(unfinished.count)개 앱이 심사에 못 나갔습니다 · 완료 \(done) / \(targets.count)")
+            } else {
+                job.verdict = .success("\(done)/\(targets.count)개 앱")
+            }
+            job.lines.append("")
+            job.lines.append("🏁 결과: \(job.verdict!.line)")
+            for f in fails { job.lines.append("   ❌ \(f)") }
+            for u in unfinished { job.lines.append("   ⚠️ \(u)") }
             job.running = false
             batchRunning = false
             await refresh(fresh: true)
-            if fails.isEmpty {
+            if fails.isEmpty && !unfinished.isEmpty {
+                announce([.init(title: "⚠️ 전체 배포 — 심사에 못 낸 앱 \(unfinished.count)개",
+                                body: unfinished.joined(separator: "\n"), important: true)])
+            } else if fails.isEmpty {
                 announce([.init(title: "✅ 전체 배포 완료",
                                 body: "\(ok)/\(targets.count) 성공" + (storeLines.isEmpty ? "" : "\n" + storeLines.joined(separator: "\n")),
                                 important: true)])

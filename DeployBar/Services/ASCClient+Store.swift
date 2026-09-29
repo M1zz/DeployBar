@@ -490,11 +490,22 @@ extension ASCClient {
                           body: try JSONSerialization.data(withJSONObject: payload))
     }
 
-    /// 버전에 붙은 빌드가 수출 규정 준수(암호화) 질문에 답했는지. nil 이면 답이 비어 있다.
-    static func buildEncryptionAnswer(versionId: String) async throws -> Bool? {
+    /// 버전에 붙은 빌드와, 그 빌드가 수출 규정 준수(암호화) 질문에 답했는지. answer 가 nil 이면 답이 비어 있다.
+    static func buildEncryptionAnswer(versionId: String) async throws -> (buildId: String?, answer: Bool?) {
         let j = try await api("GET", "/v1/appStoreVersions/\(versionId)/build?fields[builds]=usesNonExemptEncryption")
-        let a = (j["data"] as? [String: Any])?["attributes"] as? [String: Any]
-        return a?["usesNonExemptEncryption"] as? Bool
+        let d = j["data"] as? [String: Any]
+        let a = d?["attributes"] as? [String: Any]
+        return (d?["id"] as? String, a?["usesNonExemptEncryption"] as? Bool)
+    }
+
+    /// 빌드의 수출 규정 준수 답을 적는다. 사람이 deploy.env 에 선언한 값만 넣는다.
+    static func setBuildEncryption(buildId: String, usesNonExempt: Bool) async throws {
+        let payload: [String: Any] = ["data": [
+            "type": "builds", "id": buildId,
+            "attributes": ["usesNonExemptEncryption": usesNonExempt],
+        ]]
+        _ = try await api("PATCH", "/v1/builds/\(buildId)",
+                          body: try JSONSerialization.data(withJSONObject: payload))
     }
 
     static func inAppPurchaseIds(appId: String) async throws -> [String] {

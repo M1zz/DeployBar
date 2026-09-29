@@ -157,7 +157,22 @@ RELEASE_NOTES_GATE=strict
 AUTO_SUBMIT=on
 # 심사를 통과하면 곧바로 출시 (기본 on). off 면 '출시 대기' 에서 [출시] 를 기다린다.
 AUTO_RELEASE=on
+
+# 수출 규정 준수(암호화) — 심사에 내려면 빌드마다 답이 있어야 한다.
+# yes — HTTPS·iCloud 처럼 운영체제 암호화만 쓴다(면제). DeployBar 가 빌드마다 이 답을 넣는다.
+# no  — 자체 암호화를 쓴다. 답은 App Store Connect 에서 사람이 한다.
+# 적지 않았고 Info.plist 에 ITSAppUsesNonExemptEncryption 도 없으면, 빌드 전에 경고하고
+# 업로드 뒤 심사 제출에서 멈춘다 (결과: 미완).
+# ENCRYPTION_EXEMPT=yes
 ```
+
+배포가 끝나면 로그 맨 끝에 `🏁 결과:` 한 줄이 남는다. 로그 파일도 같은 말로 닫힌다 (`━━ 끝 …`).
+
+| 결과 | 뜻 |
+|---|---|
+| `✅ 성공` | 하려던 것을 끝까지 했다 (App Store 배포면 심사 제출까지, `AUTO_SUBMIT=off` 면 빌드 연결까지) |
+| `⚠️ 미완` | 업로드는 됐지만 심사에 내지 못했다 — 이유와 할 일이 바로 위에 있다 |
+| `❌ 실패` | 업로드 전에 멈췄다 |
 
 기존 앱의 `fastlane/.env` 도 그대로 읽는다(하위호환). 둘 다 있으면 `deploy.env` 가 이긴다.
 

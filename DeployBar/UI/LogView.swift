@@ -14,10 +14,18 @@ struct LogView: View {
                     ProgressView().controlSize(.small)
                     Text("진행 중").font(.caption).foregroundStyle(.secondary)
                 } else if let job = store.job {
+                    // 최종 판정이 있으면 그것을 따른다 — 업로드만 되고 심사에 못 낸 배포는 '완료' 가 아니다
                     let bad = job.error != nil || job.failure != nil
-                    Image(systemName: bad ? "xmark.circle.fill" : "checkmark.circle.fill")
-                        .foregroundStyle(bad ? .red : .green)
-                    Text(bad ? "실패" : "완료").font(.caption).foregroundStyle(.secondary)
+                    let (icon, color, label): (String, Color, String) = {
+                        switch job.verdict {
+                        case .failed?: return ("xmark.circle.fill", .red, "실패")
+                        case .incomplete?: return ("exclamationmark.triangle.fill", .orange, "미완")
+                        case .success?: return ("checkmark.circle.fill", .green, "성공")
+                        case nil: return bad ? ("xmark.circle.fill", .red, "실패") : ("checkmark.circle.fill", .green, "완료")
+                        }
+                    }()
+                    Image(systemName: icon).foregroundStyle(color)
+                    Text(label).font(.caption).foregroundStyle(.secondary)
                 }
                 // 이 창을 닫아도 남는다 — 그 자리를 여기서 알려 준다
                 if let file = store.job?.logFile {

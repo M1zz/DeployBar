@@ -13,6 +13,24 @@ final class Job: ObservableObject {
     /// 마지막 실패를 구조로 들고 있는다 — 로그 창이 '지금 할 일' 을 그릴 수 있도록.
     /// 문자열만 남기면 사람이 수백 줄 로그를 거슬러 올라가 원인을 찾아야 한다.
     @Published var failure: DeployError?
+    /// 이번 작업의 최종 판정. 로그 끝줄(━━ 끝 …)과 알림이 이것 하나를 본다.
+    ///
+    /// 예전엔 '던진 오류가 없으면 성공' 이었다. 그래서 업로드는 됐지만 심사 제출에서 멈춘 배포도
+    /// "━━ 끝 성공" 으로 닫혔다 — 로그 끝만 보고는 스토어에 나갔는지 알 수 없었다.
+    @Published var verdict: Verdict?
+    enum Verdict {
+        case success(String)      // 하려던 것을 끝까지 했다
+        case incomplete(String)   // 앞은 됐지만 뒤에서 멈췄다 (예: 업로드 O, 심사 제출 X)
+        case failed(String)       // 멈췄다
+
+        var line: String {
+            switch self {
+            case .success(let m): return "✅ 성공 — \(m)"
+            case .incomplete(let m): return "⚠️ 미완 — \(m)"
+            case .failed(let m): return "❌ 실패 — \(m)"
+            }
+        }
+    }
 
     /// 지금 어느 칸까지 왔나. 로그가 '무슨 일이 있었나' 를 말한다면 이쪽은 '얼마나 남았나' 를 말한다.
     /// 배포가 아닌 작업(점검 등)은 비어 있고, 그때는 진행 패널을 그리지 않는다.
@@ -51,7 +69,8 @@ final class Job: ObservableObject {
     }
     private func closeFile() {
         flushToFile()
-        log?.close("━━ 끝 \(error == nil && failure == nil ? "성공" : "실패")")
+        let end = verdict?.line ?? (error == nil && failure == nil ? "성공" : "실패")
+        log?.close("━━ 끝 \(end)")
     }
 
     init(title: String) {
@@ -332,5 +351,10 @@ final class Store: ObservableObject {
     @Published var batchRunning = false
 
     /// store: 업로드 뒤 빌드 연결·심사 제출이 어떻게 끝났나 (한 줄). 아직 안 했으면 nil.
-    enum DeployOutcome { case success(version: String, build: Int, store: String?); case failure(String) }
+    enum DeployOutcome {
+        case success(version: String, build: Int, store: String?)
+        /// 업로드는 됐지만 심사에 내지 못했다 — 사람이 이어서 해야 한다
+        case incomplete(version: String, build: Int, reason: String)
+        case failure(String)
+    }
 }
