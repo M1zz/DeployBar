@@ -321,8 +321,8 @@ enum CLI {
     }
     // 스크린샷·미리보기 영상 지시문: DeployBar --shots 앱이름 [--video]
     //
-    // 스크린샷은 DeployBar 가 만들지도 올리지도 않는다 — 대신 **무엇을 다시 찍어야 하는지**를
-    // 아는 것은 이쪽이므로, 그 사실을 지시문으로 만들어 준다. `| pbcopy` 로 바로 붙여넣기.
+    // 스크린샷은 DeployBar 가 찍지 않는다 (올리는 건 배포·`--publish` 가 docs/screenshots 에서 한다).
+    // 대신 **무엇을 다시 찍어야 하는지**를 아는 것은 이쪽이므로, 그 사실을 지시문으로 만들어 준다. `| pbcopy` 로 바로 붙여넣기.
     if let i = CommandLine.arguments.firstIndex(of: "--shots") {
         let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
         guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }),

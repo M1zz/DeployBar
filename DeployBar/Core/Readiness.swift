@@ -478,7 +478,7 @@ struct Readiness: Codable, Hashable {
                     title: "스크린샷이 화면 변화보다 오래됐습니다",
                     detail: "\(shots.rel) \(shots.shots)장 (\(day)) — 그 뒤 커밋 \(shots.commits)개에서 화면 파일이 바뀌었습니다: \(head)\(more)",
                     fix: .shotPrompt,
-                    todo: "[프롬프트 복사] 를 눌러 Claude Code 에 붙여넣으면 시뮬레이터로 다시 찍습니다 — 스토어에 올리는 건 사람이 웹에서 합니다"))
+                    todo: "[프롬프트 복사] 를 눌러 Claude Code 에 붙여넣으면 시뮬레이터로 다시 찍습니다 — 찍힌 그림은 다음 배포 때 DeployBar 가 스토어에 올립니다"))
             } else {
                 out.append(ReadyItem(
                     key: "shots", level: .ok, title: "스크린샷 최신",
