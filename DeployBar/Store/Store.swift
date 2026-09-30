@@ -79,6 +79,46 @@ final class Job: ObservableObject {
         self.log = log
         self.logFile = log?.url
     }
+
+    // ── 붙여넣기용 ──────────────────────────────────────────────────
+    /// 로그 창은 줄마다 따로 된 Text 라 드래그로 여러 줄을 한 번에 고를 수 없다.
+    /// 그래서 '로그 복사' 는 이 글을 통째로 클립보드에 넣는다.
+    var plainLog: String {
+        var s = "━━ \(title)\n"
+        s += lines.joined(separator: "\n")
+        if let verdict, !lines.contains(where: { $0.contains(verdict.line) }) { s += "\n\n🏁 결과: \(verdict.line)" }
+        return s
+    }
+
+    /// 실패·미완일 때 Claude Code 에 그대로 붙여넣을 지시문.
+    /// 구조화된 실패(DeployError)가 있으면 그 지시문에 로그를 덧붙이고,
+    /// 없으면(예: 업로드는 됐지만 심사 제출에서 멈춤) 판정과 로그만으로 만든다.
+    var claudePrompt: String {
+        // 로그가 수천 줄이면 붙여넣기가 무거워진다 — 원인은 대개 끝에 있으니 꼬리만 싣고,
+        // 전체는 파일 경로로 넘긴다 (Claude Code 는 그 파일을 직접 읽을 수 있다).
+        let tailCount = 300
+        let tail = lines.suffix(tailCount)
+        var s: String
+        if let failure {
+            s = failure.promptText
+        } else {
+            let result = verdict?.line ?? (error.map { "❌ 실패 — \($0)" } ?? "결과 판정 없음")
+            s = "DeployBar 로 '\(title)' 를 돌렸는데 끝까지 가지 못했어. 로그를 보고 원인을 찾아 고쳐줘.\n\n"
+            s += "## 결과\n\(result)\n"
+            s += """
+
+            ## 지켜야 할 것
+            - App Store 업로드는 하지 마 — 원인만 고쳐줘. 배포는 DeployBar 가 다시 돌린다.
+              (확인이 필요하면 빌드까지만.)
+            - 못 고치는 게 있으면 억지로 넘기지 말고 무엇이 왜 막혔는지 알려줘.
+            """
+        }
+        s += "\n\n## 배포 로그"
+        if lines.count > tailCount { s += " (마지막 \(tailCount)줄 / 전체 \(lines.count)줄)" }
+        s += "\n```\n\(tail.joined(separator: "\n"))\n```\n"
+        if let logFile { s += "\n전체 로그 파일: \(logFile.path)\n" }
+        return s
+    }
 }
 
 @MainActor

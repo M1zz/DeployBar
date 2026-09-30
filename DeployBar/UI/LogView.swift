@@ -4,6 +4,25 @@ import AppKit
 
 struct LogView: View {
     @EnvironmentObject var store: Store
+    @State private var copied: CopyKind?
+    private enum CopyKind { case log, prompt }
+
+    private func copy(_ text: String, as kind: CopyKind) {
+        Clipboard.copy(text)
+        copied = kind
+        Task { try? await Task.sleep(nanoseconds: 1_800_000_000); if copied == kind { copied = nil } }
+    }
+
+    /// 끝났는데 성공이 아니다 — 그런데 실패 패널(구조화된 실패)이 없어 거기서 프롬프트를 못 복사하는 경우.
+    /// 예: 업로드는 됐지만 심사 제출에서 멈춘 '미완'.
+    private var needsHelpButton: Bool {
+        guard let job = store.job, !job.running, job.failure == nil else { return false }
+        switch job.verdict {
+        case .success?: return false
+        case .failed?, .incomplete?: return true
+        case nil: return job.error != nil
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -26,6 +45,27 @@ struct LogView: View {
                     }()
                     Image(systemName: icon).foregroundStyle(color)
                     Text(label).font(.caption).foregroundStyle(.secondary)
+                }
+                if needsHelpButton, let job = store.job {
+                    Button {
+                        copy(job.claudePrompt, as: .prompt)
+                    } label: {
+                        Label(copied == .prompt ? "복사됨" : "해결 프롬프트",
+                              systemImage: copied == .prompt ? "checkmark" : "sparkles")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .help("결과와 로그를 지시문으로 만들어 복사합니다 — Claude Code 에 붙여넣으면 됩니다")
+                }
+                // 줄마다 따로 된 Text 라 드래그로는 여러 줄을 못 고른다 — 통째로 복사한다
+                if let job = store.job, !job.lines.isEmpty {
+                    Button {
+                        copy(job.plainLog, as: .log)
+                    } label: {
+                        Image(systemName: copied == .log ? "checkmark" : "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("로그 전체를 복사합니다")
                 }
                 // 이 창을 닫아도 남는다 — 그 자리를 여기서 알려 준다
                 if let file = store.job?.logFile {
@@ -116,7 +156,8 @@ private struct FailurePanel: View {
                         .buttonStyle(.borderedProminent).controlSize(.small)
                 }
                 Button {
-                    Clipboard.copy(failure.promptText)
+                    // 도구 출력 몇 줄만으로는 모자랄 때가 많다 — 로그 꼬리까지 함께 싣는다
+                    Clipboard.copy(store.job?.claudePrompt ?? failure.promptText)
                     copied = true
                     Task { try? await Task.sleep(nanoseconds: 1_800_000_000); copied = false }
                 } label: {
@@ -125,7 +166,7 @@ private struct FailurePanel: View {
                         .font(.caption)
                 }
                 .buttonStyle(.bordered).controlSize(.small)
-                .help("실패 내용과 도구 출력을 그대로 지시문으로 만들어 복사합니다 — Claude Code 등에 붙여넣으면 됩니다")
+                .help("실패 내용·도구 출력·배포 로그를 지시문으로 만들어 복사합니다 — Claude Code 등에 붙여넣으면 됩니다")
 
                 Button {
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: failure.path)
