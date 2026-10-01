@@ -132,7 +132,7 @@ enum StoreMeta {
     }
 
     /// `## 한국어` · `## ko` · `## App Store (English)` 를 다 알아본다.
-    private static func sectionLocale(_ title: String, among locales: [String]) -> String? {
+    static func sectionLocale(_ title: String, among locales: [String]) -> String? {
         let t = title.trimmingCharacters(in: .whitespaces)
         if Locales.looksLikeCode(t) { return t }
         if let m = Locales.match(heading: t, among: locales) { return m }
@@ -143,10 +143,10 @@ enum StoreMeta {
         return Locales.match(heading: t, among: common)
     }
 
-    private enum Field { case name, subtitle, description, keywords, promotionalText
+    enum Field { case name, subtitle, description, keywords, promotionalText
                          case supportUrl, marketingUrl, privacyPolicyUrl, unknown }
 
-    private static func normalizeField(_ raw: String) -> Field {
+    static func normalizeField(_ raw: String) -> Field {
         let k = Locales.normalizeName(raw)
         func has(_ words: [String]) -> Bool { words.contains { k.contains($0) } }
         // 긴 것부터 본다 — "개인정보처리방침url" 이 "url" 에 먼저 걸리면 안 된다

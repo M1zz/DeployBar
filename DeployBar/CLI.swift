@@ -41,6 +41,10 @@ enum CLI {
       --todo <앱>                제출까지 남은 일 — 도구가 할 것 / 사람만 할 수 있는 것
       --publish <앱> [--dry-run] 스토어 페이지 올리기 (문구·스크린샷·버전·빌드 연결)
                      [--overwrite]  스토어에 이미 있는 글까지 레포 글로 덮어쓴다
+                     [--replace-shots]  모든 언어 그림이 준비됐을 때만 기존 스크린샷을 지우고 올린다
+      --autowrite <앱> [--dry-run] [--no-commit]
+                                 빈 스토어 문구(이름·부제·키워드·프로모션·설명)와 이번 버전 릴리즈노트를
+                                 모든 언어로 AI 가 써서 APPSTORE.md · RELEASE_NOTES.md 에 채우고 커밋한다
       --attach <앱>              올라간 빌드를 App Store 버전에 연결
       --submit <앱>              심사 제출 (여기서부터 애플이 본다)
       --release <앱>             '출시 대기' 를 지금 출시
@@ -58,7 +62,7 @@ enum CLI {
         "--status", "--pull", "--audit", "--doctor", "--builds", "--prompt", "--template", "--write",
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
         "--selftest-changes", "--selftest-lock", "--selftest-version",
-        "--storemeta", "--publish", "--dry-run", "--overwrite", "--attach", "--submit", "--release",
+        "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
         "--shotplan", "--todo",
     ]
 
@@ -580,7 +584,39 @@ enum CLI {
             print("\n⚠️  올라가지 않는 파일 \(plan.skipped.count)개")
             for x in plan.skipped { print("   · \(x)") }
         }
+        // 카드 뱃지와 같은 판단 — 뱃지가 주황인데 왜인지 모를 때 여기서 본다
+        if let rep = StorePublish.shotReport(app.path, platform: platform, locales: r.locales) {
+            let devices = ["iPhone", "iPad", "Watch", "Mac"].compactMap { f in rep.devices[f].map { "\(f) \($0)장" } }
+            print("\n뱃지: \(rep.ready ? "✅ 준비됨" : "⚠️ 확인 필요") · \(devices.joined(separator: " · "))")
+            if !rep.hasPrimary { print("   · 아이폰 그림이 없어 심사 제출이 막힙니다") }
+            if !rep.missingLocales.isEmpty {
+                print("   · 그림 없는 언어: \(rep.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))")
+            }
+        }
         print("\n보이는 순서가 스토어 순서입니다. 실제로 올리려면 `--publish \(app.name)` 또는 배포하세요.")
+        exit(0)
+    }
+    // 스토어 문구 자동 작성: DeployBar --autowrite 앱이름 [--dry-run] [--no-commit]
+    //
+    // 빈 칸만 채운다. 레포·ASC 에 이미 있는 글은 건드리지 않는다. 올리는 건 배포·--publish 가 한다.
+    if let i = CommandLine.arguments.firstIndex(of: "--autowrite") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let dry = CommandLine.arguments.contains("--dry-run")
+        let commit = !CommandLine.arguments.contains("--no-commit")
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            do {
+                let res = try await StoreWriter.run(app, dryRun: dry, commit: commit) { print($0) }
+                print(Store.describe(res, dryRun: dry).joined(separator: "\n"))
+            } catch {
+                print("❌ \(error.localizedDescription)")
+            }
+            sem.signal()
+        }
+        sem.wait()
         exit(0)
     }
     // 스토어 페이지 올리기: DeployBar --publish 앱이름 [--dry-run] [--overwrite]
@@ -592,6 +628,8 @@ enum CLI {
         var o = StorePublish.Options()
         o.dryRun = CommandLine.arguments.contains("--dry-run")
         if CommandLine.arguments.contains("--overwrite") { o.overwriteText = true; o.replaceShots = true }
+        // 배포의 '이번 배포에서 스크린샷 교체' 와 같은 동작 — 모든 언어가 준비됐을 때만 전부 지우고 올린다
+        if CommandLine.arguments.contains("--replace-shots") { o.shotMode = .replaceAll }
         let sem = DispatchSemaphore(value: 0)
         Task.detached {
             do {

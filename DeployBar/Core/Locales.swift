@@ -26,6 +26,29 @@ enum Locales {
         return ko.localizedString(forIdentifier: language(locale)) ?? locale
     }
 
+    /// 로케일 → 국기 이모지 ("ko" → 🇰🇷, "pt-BR" → 🇧🇷, "zh-Hant" → 🇹🇼). 카드의 언어 뱃지가 쓴다.
+    /// 지역이 붙어 있으면 그 지역을, 없으면 그 언어를 대표하는 나라를 쓴다. 모르면 nil — 코드로 보여 준다.
+    static func flag(_ locale: String) -> String? {
+        let parts = locale.split(separator: "-").map(String.init)
+        var region: String?
+        if parts.count > 1, parts.last!.count == 2 { region = parts.last!.uppercased() }
+        if region == nil {
+            let main: [String: String] = [
+                "ko": "KR", "en": "US", "ja": "JP", "zh-Hans": "CN", "zh-Hant": "TW", "zh": "CN",
+                "de": "DE", "fr": "FR", "es": "ES", "pt": "PT", "it": "IT", "ru": "RU", "vi": "VN",
+                "th": "TH", "id": "ID", "ms": "MY", "tr": "TR", "ar": "SA", "he": "IL", "hi": "IN",
+                "nl": "NL", "sv": "SE", "da": "DK", "no": "NO", "nb": "NO", "fi": "FI", "pl": "PL",
+                "cs": "CZ", "sk": "SK", "hu": "HU", "ro": "RO", "el": "GR", "uk": "UA", "hr": "HR",
+                "ca": "ES", "bn": "BD", "ta": "IN", "te": "IN", "mr": "IN", "ur": "PK", "fa": "IR",
+            ]
+            region = main[language(locale)] ?? main[parts.first ?? ""]
+        }
+        guard let r = region, r.count == 2 else { return nil }
+        let scalars = r.unicodeScalars.compactMap { UnicodeScalar(0x1F1E6 + $0.value - 65) }
+        guard scalars.count == 2 else { return nil }
+        return String(String.UnicodeScalarView(scalars))
+    }
+
     // Apple Translation(온디바이스)이 지원하는 언어. 미지원 언어는 AI 번역으로만 채운다.
     // 출처: Apple Translate 지원 언어 (macOS 15+). 지역 변형은 언어 코드로 축약해 판단.
     private static let onDeviceLanguages: Set<String> = [

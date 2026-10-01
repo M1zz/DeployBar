@@ -26,6 +26,8 @@ enum Status {
         st.team = info.team
         st.localVersion = info.marketingVersion
         st.localBuild = info.buildNumber
+        st.shots = StorePublish.shotReport(app.path, platform: info.platform, locales: r.locales)
+        st.locales = r.locales
         st.dirty = GitInfo.isRepo(app.path) ? GitInfo.isDirty(app.path) : false
         st.branch = GitInfo.isRepo(app.path) ? GitInfo.branch(app.path) : nil
         if GitInfo.isRepo(app.path), let ab = GitInfo.aheadBehind(app.path) {

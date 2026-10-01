@@ -322,6 +322,9 @@ final class Store: ObservableObject {
     /// 단일 배포면 곧바로 클립보드로 가고, 전체 배포면 여기 남아 있다가
     /// 카드의 ⋯ ▸ 앱스토어 그림 프롬프트로 꺼내진다.
     @Published var shotPromptReady: [String: String] = [:]
+    /// '이번 배포에서 스크린샷 교체' 를 체크한 앱(경로). 교체에 성공하면 그 앱만 빠진다 —
+    /// 스크린샷은 매번 바꾸는 게 아니라서, 다음 배포까지 켜진 채 남으면 사고가 된다.
+    @Published var shotRefresh: Set<String> = []
     /// 첫 출시 배포가 알아낸 '사람만 할 수 있는 일' (앱 경로 → 목록)
     @Published var humanTodoReady: [String: [String]] = [:]
     @Published var fixResult: [String: String] = [:]

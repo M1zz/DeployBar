@@ -113,6 +113,7 @@ struct AppCard: View {
             }
 
             versionRow
+            if status.state != .loading && status.state != .error && !supportedLocales.isEmpty { localeRow }
 
             HStack(alignment: .center, spacing: 8) {
                 if status.state != .loading && !readiness.items.isEmpty { summaryLine }
@@ -175,9 +176,121 @@ struct AppCard: View {
                             weight: .semibold, color: .primary)
                 }
                 Spacer(minLength: 0)
+                if let shots = status.shots { shotBadge(shots) }
             }
         }
     }
+    /// 지원 언어 — deploy.env 의 LOCALES, 없으면 App Store 페이지에 있는 언어.
+    private var supportedLocales: [String] {
+        if let l = status.locales, !l.isEmpty { return Locales.sorted(l) }
+        return Locales.sorted(status.notesFilled + status.notesMissing)
+    }
+
+    /// 그 언어에 빠진 것 — 국기를 흐리게 하고 이유를 말한다. 비어 있으면 다 갖춘 언어다.
+    private func localeGaps(_ loc: String) -> [String] {
+        var gaps: [String] = []
+        if status.shots?.missingLocales.contains(where: { Locales.sameLanguage($0, loc) }) == true {
+            gaps.append("스크린샷 없음")
+        }
+        if status.notesMissing.contains(where: { Locales.sameLanguage($0, loc) }) {
+            gaps.append("릴리즈노트 비어 있음")
+        }
+        if status.notesUnlistedLocales.contains(where: { Locales.sameLanguage($0, loc) }) {
+            gaps.append("App Store 페이지에 이 언어가 없음")
+        }
+        return gaps
+    }
+
+    /// 지원 언어를 국기로. 빠진 게 있는 언어는 흐리게 — 마우스를 올리면 무엇이 빠졌는지.
+    private var localeRow: some View {
+        HStack(spacing: 3) {
+            ForEach(supportedLocales, id: \.self) { loc in
+                let gaps = localeGaps(loc)
+                let name = "\(Locales.displayName(loc)) (\(loc))"
+                Group {
+                    if let flag = Locales.flag(loc) {
+                        Text(flag).font(.system(size: 13))
+                    } else {
+                        Text(loc).font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 3)
+                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.secondary.opacity(0.15)))
+                    }
+                }
+                .opacity(gaps.isEmpty ? 1 : 0.35)
+                .help(gaps.isEmpty ? name : "\(name) — \(gaps.joined(separator: " · "))")
+            }
+            Text("\(supportedLocales.count)개 언어")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .padding(.leading, 3)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// '이번 배포에서 스크린샷 교체' 체크. 뱃지와 배포 메뉴가 같은 값을 쓴다.
+    private var replaceShots: Binding<Bool> {
+        Binding(get: { store.shotRefresh.contains(status.path) },
+                set: { on in
+                    if on { store.shotRefresh.insert(status.path) } else { store.shotRefresh.remove(status.path) }
+                })
+    }
+
+    /// 스토어에 올릴 그림이 준비됐나. 기기마다 장수를 적고, 문제가 있으면 주황.
+    /// 낡음(화면이 바뀐 뒤로 안 찍음)은 체크리스트가 이미 판단한 것을 그대로 쓴다.
+    /// **누르면 '이번 배포에서 교체' 가 켜진다** — 켜진 채 배포하면 기존 그림을 지우고 이걸로 올린다.
+    private func shotBadge(_ shots: ShotReport) -> some View {
+        let stale = readiness.items.contains { $0.key == "shots" && $0.level != .ok }
+        let ok = shots.ready && !stale
+        let replacing = replaceShots.wrappedValue
+        let color: Color = replacing ? (shots.ready ? .blue : .red) : (ok ? .green : .orange)
+        let order = ["iPhone", "iPad", "Watch", "Mac"]
+        let icons = ["iPhone": "iphone", "iPad": "ipad", "Watch": "applewatch", "Mac": "desktopcomputer"]
+        var help: [String] = [ok ? "스크린샷 준비됨 — 배포할 때 이대로 올라갑니다" : "스크린샷 확인 필요"]
+        for f in order { if let n = shots.devices[f] { help.append("\(f) \(n)장") } }
+        if shots.devices.isEmpty { help.append("규격에 맞는 그림이 없습니다") }
+        else if !shots.hasPrimary { help.append("아이폰 그림이 없어 심사 제출이 막힙니다") }
+        if !shots.missingLocales.isEmpty {
+            help.append("그림 없는 언어: " + shots.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))
+        }
+        if !shots.skipped.isEmpty { help.append("올라가지 않는 파일 \(shots.skipped.count)개 — \(shots.skipped.first!)") }
+        if stale { help.append("화면이 바뀐 뒤로 다시 찍지 않았습니다") }
+        help.append("")
+        if replacing {
+            help.append(shots.ready
+                ? "이번 배포에서 교체 — 기존 스크린샷을 모두 지우고 이 그림으로 올립니다"
+                : "이번 배포에서 교체 — 하지만 준비가 덜 돼 배포가 교체하지 않고 심사 제출도 멈춥니다")
+            help.append("눌러서 끄기")
+        } else {
+            help.append("배포는 비어 있는 칸만 채웁니다 (기존 그림 유지)")
+            help.append("눌러서 '이번 배포에서 스크린샷 교체' 켜기")
+        }
+
+        return Button { replaceShots.wrappedValue.toggle() } label: { HStack(spacing: 6) {
+            if replacing {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                Text("교체")
+            } else {
+                Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+            }
+            if shots.devices.isEmpty {
+                Text("스크린샷 없음")
+            }
+            ForEach(order.filter { shots.devices[$0] != nil }, id: \.self) { f in
+                HStack(spacing: 2) {
+                    Image(systemName: icons[f] ?? "photo")
+                    Text("\(shots.devices[f] ?? 0)").monospacedDigit()
+                }
+            }
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(replacing ? .white : color)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(replacing ? color : color.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .disabled(store.job?.running == true)
+        .help(help.joined(separator: "\n"))
+    }
+
     private func labeled(_ label: String, _ value: String,
                          weight: Font.Weight, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -272,7 +385,7 @@ struct AppCard: View {
                     Button {
                         openLog(); store.startDeploy(app, lane: .appstore, versionBump: nil)
                     } label: {
-                        Text("배포").frame(minWidth: 30)
+                        Text(replaceShots.wrappedValue ? "배포 + 그림" : "배포").frame(minWidth: 30)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
@@ -291,6 +404,10 @@ struct AppCard: View {
                         }
                         Button("메이저 올려 배포  →  v\(Deployer.bumpVersion(cur, .major))") {
                             openLog(); store.startDeploy(app, lane: .appstore, versionBump: .major)
+                        }
+                        if status.shots != nil {
+                            Divider()
+                            Toggle("이번 배포에서 스크린샷 교체", isOn: replaceShots)
                         }
                     } label: { EmptyView() }
                     .menuStyle(.borderlessButton)
@@ -379,6 +496,12 @@ struct AppCard: View {
             // 스토어 페이지 쪽 — 업로드가 끝난 뒤의 일들. 여태 웹에서 하던 것들이다.
             if let app = store.app(named: status.path) {
                 Menu("스토어 페이지") {
+                    Button("스토어 문구 자동 작성  ·  모든 언어") {
+                        openLog(); store.autoWriteStore(app)
+                    }
+                    .disabled(!AIWriter.available || store.job?.running == true)
+                    .help("빈 이름·부제·키워드·프로모션 텍스트·설명과 이번 버전 릴리즈노트를 AI 가 언어마다 써서 APPSTORE.md · RELEASE_NOTES.md 에 채우고 커밋합니다. 이미 있는 글은 건드리지 않습니다.")
+                    Divider()
                     Button("스토어에 올리기  ·  문구 + 스크린샷") {
                         openLog(); store.publishStore(app)
                     }

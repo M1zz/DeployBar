@@ -71,6 +71,20 @@ enum DeployState: String, Codable {
     }
 }
 
+/// 스토어에 올릴 그림이 제대로 준비됐나 — 카드 뱃지가 쓴다.
+/// 업로드(`StorePublish.group`)와 같은 판별을 쓰므로, 여기서 잡힌 장수가 곧 올라갈 장수다.
+struct ShotReport: Codable, Equatable {
+    /// 기기 묶음(iPhone·iPad·Watch·Mac) → 한 언어에 올라가는 장수(언어 중 가장 많은 쪽)
+    var devices: [String: Int] = [:]
+    /// deploy.env 의 LOCALES 중 그림이 한 장도 없는 언어
+    var missingLocales: [String] = []
+    /// 규격이 아니거나 읽지 못해 빠지는 파일
+    var skipped: [String] = []
+    /// 아이폰(또는 Mac) 그림이 있나 — 없으면 애플이 심사 제출을 받지 않는다
+    var hasPrimary: Bool = false
+    var ready: Bool { hasPrimary && missingLocales.isEmpty && skipped.isEmpty }
+}
+
 struct AppStatus: Identifiable, Codable {
     var name: String
     var path: String
@@ -142,6 +156,12 @@ struct AppStatus: Identifiable, Codable {
     /// 이번 조회가 받아오기까지 시도했는가. 자동 조회는 fetch 만 하므로 false —
     /// "못 받았다" 와 "아직 안 받아 봤다" 를 섞으면 사람에게 없는 문제를 만들어 준다.
     var pullAttempted: Bool = false
+
+    /// 이 앱이 지원하는 App Store 언어 (deploy.env 의 LOCALES). 카드의 국기 뱃지가 쓴다.
+    /// 옵셔널 — 옛 status-cache.json 에 이 키가 없어도 읽혀야 한다.
+    var locales: [String]?
+    /// docs/screenshots/ 에서 읽은 그림 준비 상태 (네트워크 없이). nil = 그림 폴더가 없는 앱.
+    var shots: ShotReport?
 
     // "지금 배포하려면 뭐가 필요한가" — 카드에서 바로 보여 주는 체크리스트
     var readiness: Readiness = Readiness()

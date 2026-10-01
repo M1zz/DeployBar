@@ -88,7 +88,9 @@ extension Store {
                 job.report(.notesPrefill, .skipped, "check 모드")
             }
 
+            let replaceShots = lane == .appstore && shotRefresh.contains(app.path)
             let res = try await Deployer.deploy(app, lane: lane, versionBump: versionBump,
+                                                replaceShots: replaceShots,
                                                 onLog: onLog, onStage: onStage)
             c.finish(); await consumer.value
             sc.finish(); await stageConsumer.value
@@ -122,6 +124,15 @@ extension Store {
             } else {
                 job.report(.notesApply, .skipped, "check 모드 — 배포 없음")
             }
+            // '스크린샷 교체' 를 체크했는데 준비가 덜 됐으면 심사에 내지 않는다.
+            // 옛 그림으로 심사가 시작되면 되돌리는 데 심사가 한 번 더 든다. 체크는 남겨 둔다 —
+            // 그림을 채우고 다시 누르면 그때 교체된다.
+            if let why = res.shotsRefused {
+                job.report(.attach, .skipped, "스크린샷 준비 미완")
+                job.report(.submit, .skipped, why)
+                return .incomplete(version: res.version, build: res.build, reason: why)
+            }
+            if replaceShots { shotRefresh.remove(app.path) }   // '이번 배포' 한 번만
             // 빌드 연결 → 심사 제출. 애플 처리를 기다리느라 길게는 수십 분 걸린다.
             // 전체 배포는 앱마다 여기서 기다리면 줄 전체가 멈추므로, 업로드를 다 끝낸 뒤 한꺼번에 한다
             // (그사이 앞 앱들의 처리가 끝나 있어서 대개 기다릴 게 없다).

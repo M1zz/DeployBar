@@ -27,13 +27,23 @@ enum StorePublish {
         var overwriteText = false
         /// 이미 올라간 그림을 지우고 다시 올릴지 (파일이 달라졌으면 어차피 다시 올린다)
         var replaceShots = false
+        /// 그림을 얼마나 손댈지. 배포는 사람이 '이번에 스크린샷 교체' 를 체크했을 때만 지운다.
+        var shotMode: ShotMode = .sync
         /// 우리가 못 하는 것(인앱결제·개인정보 라벨)까지 확인해서 알려 줄지.
         /// 배포 중에는 끈다 — 매 배포마다 같은 줄이 반복되면 로그가 무뎌진다.
         var manualCheck = true
         var dryRun = false
     }
 
+    /// - sync: 레포와 다르면 그 기기 칸을 다시 올린다 (`--publish`)
+    /// - fillEmpty: 비어 있는 칸만 채운다. 이미 있는 그림은 안 건드린다 (체크 안 한 배포)
+    /// - replaceAll: 모든 언어가 준비됐을 때만, 기존 그림을 **기기 가리지 않고 전부** 지우고 올린다
+    enum ShotMode { case sync, fillEmpty, replaceAll }
+
     struct Report {
+        /// replaceAll 인데 준비가 덜 돼서 아무것도 안 건드렸다면 그 이유.
+        /// 배포는 이걸 보고 심사 제출을 멈춘다 — 사람은 새 그림으로 내려고 체크했다.
+        var shotsRefused: String?
         var version: String = ""
         var versionId: String = ""
         var changed: [String] = []    // 실제로 바꾼 것
@@ -279,7 +289,14 @@ enum StorePublish {
     private static func pushShots(_ app: ManagedApp, version: ASCClient.Version,
                                   platform: Platform, options: Options,
                                   report: inout Report, onLog: (String) -> Void) async throws {
-        guard let dir = shotDir(app.path) else { return }   // 이 워크플로를 안 쓰는 앱엔 말하지 않는다
+        guard let dir = shotDir(app.path) else {
+            // 이 워크플로를 안 쓰는 앱엔 말하지 않는다 — 다만 교체를 체크했다면 못 한 이유를 남긴다
+            if options.shotMode == .replaceAll {
+                report.shotsRefused = "\(canonicalShotDir)/ 가 없어 스크린샷을 교체하지 않았습니다"
+                report.warnings.append(report.shotsRefused!)
+            }
+            return
+        }
         let texts = try await ASCClient.storeTexts(versionId: version.id)
         guard !texts.isEmpty else {
             report.warnings.append("스토어 페이지 언어가 하나도 없어 스크린샷을 올릴 자리가 없습니다")
@@ -289,11 +306,39 @@ enum StorePublish {
         let resolved = resolveShots(dir, locales: texts.map(\.locale))
         let shared = resolved[""] ?? []
         if resolved.isEmpty {
+            if options.shotMode == .replaceAll {
+                report.shotsRefused = "\(rel(dir, app.path)) 에 그림이 없어 스크린샷을 교체하지 않았습니다"
+            }
             report.manual.append("\(rel(dir, app.path)) 에 그림이 없습니다 — `--shots \(app.name)` 지시문으로 찍으세요")
             return
         }
         if !shared.isEmpty && texts.count > 1 {
             onLog("🖼  언어별 폴더가 없어 같은 \(shared.count)장을 \(texts.count)개 언어에 올립니다")
+        }
+
+        // 전부 지우기 전에 **모든 언어가 준비됐는지부터** 본다.
+        // 반쯤 지우고 멈추면 스토어에 그림 없는 언어가 생기고, 그 상태로는 심사 제출이 안 된다.
+        if options.shotMode == .replaceAll {
+            var problems: [String] = []
+            for t in texts {
+                let lang = Locales.displayName(t.locale)
+                let files = resolved.first { !$0.key.isEmpty && Locales.sameLanguage($0.key, t.locale) }?.value ?? shared
+                if files.isEmpty { problems.append("\(lang) 그림 없음"); continue }
+                let g = group(files, platform: platform)
+                if !g.skipped.isEmpty { problems.append("\(lang) — \(g.skipped.first!)") }
+                if !g.byType.keys.contains(where: { deviceFamily($0) == "iPhone" || deviceFamily($0) == "Mac" }) {
+                    problems.append("\(lang) \(platform == .macOS ? "Mac" : "아이폰") 그림 없음")
+                }
+            }
+            if !problems.isEmpty {
+                let why = "스크린샷 준비가 덜 돼 교체하지 않았습니다 — " + problems.prefix(4).joined(separator: " · ")
+                    + (problems.count > 4 ? " 외 \(problems.count - 4)건" : "")
+                report.shotsRefused = why
+                report.warnings.append(why)
+                onLog("⛔️ \(why)")
+                return
+            }
+            onLog("🖼  \(texts.count)개 언어 모두 준비됨 — 기존 스크린샷을 지우고 새로 올립니다")
         }
 
         for t in texts {
@@ -306,7 +351,18 @@ enum StorePublish {
             let grouped = group(files, platform: platform)
             let byType = grouped.byType
             report.warnings += grouped.skipped
-            let sets = try await ASCClient.shotSets(localizationId: t.id)
+            var sets = try await ASCClient.shotSets(localizationId: t.id)
+            // 교체: 이번에 안 올리는 기기 칸(예전 6.7" 벌 같은 것)까지 비운다 — "다 지우고 내가 준비한 걸로"
+            if options.shotMode == .replaceAll {
+                let old = sets.reduce(0) { $0 + $1.shots.count }
+                if options.dryRun {
+                    if old > 0 { report.changed.append("\(Locales.displayName(t.locale)) 기존 \(old)장 지우기 (미리보기)") }
+                } else if old > 0 {
+                    for set in sets { for s in set.shots { try? await ASCClient.deleteShot(id: s.id) } }
+                    report.changed.append("\(Locales.displayName(t.locale)) 기존 \(old)장 삭제")
+                    sets = sets.map { var x = $0; x.shots = []; return x }
+                }
+            }
             for (type, list) in byType.sorted(by: { $0.key < $1.key }) {
                 let sorted = list.sorted { $0.lastPathComponent < $1.lastPathComponent }
                 let existing = sets.first { $0.displayType == type }
@@ -317,8 +373,13 @@ enum StorePublish {
                     zip(set.shots, sorted).allSatisfy { $0.fileName == $1.lastPathComponent
                         && $0.fileSize == fileSize($1) }
                 } ?? false
-                if same && !options.replaceShots {
+                if same && !options.replaceShots && options.shotMode == .sync {
                     report.kept.append("\(Locales.displayName(t.locale)) \(typeLabel(type)) \(sorted.count)장은 이미 같습니다")
+                    continue
+                }
+                // 체크 안 한 배포: 이미 그림이 있는 칸은 그대로 둔다 (스크린샷은 매번 바꾸는 게 아니다)
+                if options.shotMode == .fillEmpty, let e = existing, !e.shots.isEmpty {
+                    report.kept.append("\(Locales.displayName(t.locale)) \(typeLabel(type)) 기존 \(e.shots.count)장 유지")
                     continue
                 }
                 if options.dryRun {
@@ -329,6 +390,13 @@ enum StorePublish {
                 if let e = existing {
                     for s in e.shots { try? await ASCClient.deleteShot(id: s.id) }
                     setId = e.id
+                } else if type.hasPrefix("APP_WATCH") {
+                    // 빌드에 워치 앱이 없으면 애플이 워치 칸을 거부한다 — 아이폰 그림까지 멈추게 하지 않는다
+                    do { setId = try await ASCClient.createShotSet(localizationId: t.id, displayType: type) }
+                    catch {
+                        report.warnings.append("\(Locales.displayName(t.locale)) \(typeLabel(type)) 칸을 만들지 못했습니다 — \(reason(error))")
+                        continue
+                    }
                 } else {
                     setId = try await ASCClient.createShotSet(localizationId: t.id, displayType: type)
                 }
@@ -486,7 +554,7 @@ enum StorePublish {
         if enc.answer == nil {
             if r.encryptionExempt == true, let buildId = enc.buildId {
                 try await ASCClient.setBuildEncryption(buildId: buildId, usesNonExempt: false)
-                onLog("🔐 수출 규정 준수: '면제 대상' 으로 답했습니다 (deploy.env 의 ENCRYPTION_EXEMPT=yes)")
+                onLog("🔐 수출 규정 준수: '면제 대상' 으로 답했습니다 (ENCRYPTION_EXEMPT=yes)")
             } else {
                 throw err(app, "심사 제출", "빌드의 수출 규정 준수(암호화) 답이 비어 있습니다",
                           StorePublish.encryptionTodo)
@@ -705,8 +773,45 @@ enum StorePublish {
     /// 규격만 보고 고르면 둘 다 규격이라 원본이 올라가는 사고가 난다.
     ///
     /// 반환: 로케일 → 파일들. 키가 `""` 면 "모든 언어에 같은 벌".
+    ///
+    /// **워치 폴더(`watch/`)는 따로 읽어 합친다.** 아이폰 쪽에 제출본 폴더가 있으면 그것만 보는
+    /// 규칙 때문에, 같이 두면 워치 그림이 통째로 빠진다. 안쪽 모양(`watch/ko/`, `watch/marketing/`)은
+    /// 아이폰과 같은 규칙으로 읽고, 어느 기기 자리에 갈지는 나중에 픽셀이 가른다.
     static func resolveShots(_ dir: URL, locales: [String]) -> [String: [URL]] {
-        let subs = subdirectories(dir)
+        let watchDirs = subdirectories(dir).filter { isWatchName($0.lastPathComponent) }
+        var out = resolveDeviceShots(dir, locales: locales, excluding: watchDirs)
+        for w in watchDirs {
+            out = mergeShots(out, resolveDeviceShots(w, locales: locales, excluding: []))
+        }
+        return out
+    }
+
+    /// 두 벌을 언어별로 합친다. 한쪽에만 언어 폴더가 있으면 다른 쪽의 "모든 언어" 벌을 그 언어에 붙인다 —
+    /// 그러지 않으면 `watch/ko/` 가 생기는 순간 한국어 칸이 아이폰 공용 벌을 잃는다.
+    static func mergeShots(_ a: [String: [URL]], _ b: [String: [URL]]) -> [String: [URL]] {
+        func pick(_ m: [String: [URL]], _ loc: String) -> [URL] {
+            m.first { !$0.key.isEmpty && Locales.sameLanguage($0.key, loc) }?.value ?? m[""] ?? []
+        }
+        var keys: [String] = []
+        for k in a.keys.sorted() + b.keys.sorted() where !k.isEmpty
+            && !keys.contains(where: { Locales.sameLanguage($0, k) }) { keys.append(k) }
+        var out: [String: [URL]] = [:]
+        let shared = (a[""] ?? []) + (b[""] ?? [])
+        if !shared.isEmpty { out[""] = shared }
+        for k in keys {
+            let files = pick(a, k) + pick(b, k)
+            if !files.isEmpty { out[k] = files }
+        }
+        return out
+    }
+
+    private static func isWatchName(_ name: String) -> Bool {
+        let n = Locales.normalizeName(name)
+        return n.contains("watch") || n.contains("워치")
+    }
+
+    private static func resolveDeviceShots(_ dir: URL, locales: [String], excluding: [URL]) -> [String: [URL]] {
+        let subs = subdirectories(dir).filter { !excluding.contains($0) }
 
         // 1) 제출본 폴더가 있으면 그것만 본다
         let submission = subs.filter { isSubmissionName($0.lastPathComponent) }
@@ -813,6 +918,34 @@ enum StorePublish {
         return (rows, skipped, dir)
     }
 
+    /// 카드 뱃지용 요약. `shotPlan` 을 그대로 줄인 것이라 업로드와 판단이 갈라지지 않는다.
+    static func shotReport(_ root: String, platform: Platform, locales: [String]) -> ShotReport? {
+        let plan = shotPlan(root, platform: platform, locales: locales)
+        guard plan.dir != nil else { return nil }
+        var rep = ShotReport()
+        rep.skipped = plan.skipped
+        for row in plan.rows {
+            let family = deviceFamily(row.type)
+            rep.devices[family] = max(rep.devices[family] ?? 0, row.files.count)
+            if family == "iPhone" || family == "Mac" { rep.hasPrimary = true }
+        }
+        let shared = plan.rows.contains { $0.locale == "모든 언어" }
+        if !shared {
+            rep.missingLocales = locales.filter { want in
+                !plan.rows.contains { Locales.sameLanguage($0.locale, want) }
+            }
+        }
+        return rep
+    }
+
+    /// `APP_IPHONE_65` → `iPhone`. 뱃지는 기기 묶음으로만 말한다 — 인치까지 적으면 카드가 넘친다.
+    static func deviceFamily(_ type: String) -> String {
+        if type.hasPrefix("APP_WATCH") { return "Watch" }
+        if type.hasPrefix("APP_IPAD") { return "iPad" }
+        if type == "APP_DESKTOP" { return "Mac" }
+        return "iPhone"
+    }
+
     private static func pixelSize(_ url: URL) -> (w: Int, h: Int)? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
@@ -845,6 +978,12 @@ enum StorePublish {
         case (2064, 2752), (2048, 2732):                return "APP_IPAD_PRO_3GEN_129"
         case (1668, 2420), (1668, 2388):                return "APP_IPAD_PRO_3GEN_11"
         case (1640, 2360), (1620, 2160):                return "APP_IPAD_109"
+        // Apple Watch — 같은 iOS 버전 페이지의 워치 칸에 들어간다
+        case (410, 502):                                return "APP_WATCH_ULTRA"
+        case (416, 496), (374, 446):                    return "APP_WATCH_SERIES_10"
+        case (396, 484), (352, 430):                    return "APP_WATCH_SERIES_7"
+        case (368, 448), (324, 394):                    return "APP_WATCH_SERIES_4"
+        case (312, 390), (272, 340):                    return "APP_WATCH_SERIES_3"
         default: return nil
         }
     }
@@ -860,6 +999,11 @@ enum StorePublish {
         case "APP_IPAD_PRO_3GEN_129": return "iPad 13\""
         case "APP_IPAD_PRO_3GEN_11": return "iPad 11\""
         case "APP_IPAD_109": return "iPad 10.9\""
+        case "APP_WATCH_ULTRA": return "Apple Watch Ultra"
+        case "APP_WATCH_SERIES_10": return "Apple Watch 46mm"
+        case "APP_WATCH_SERIES_7": return "Apple Watch 45mm"
+        case "APP_WATCH_SERIES_4": return "Apple Watch 44mm"
+        case "APP_WATCH_SERIES_3": return "Apple Watch 42mm"
         case "APP_DESKTOP": return "Mac"
         default: return t
         }

@@ -93,6 +93,9 @@ enum Deployer {
         /// 찍는 것은 이 글을 받은 세션(Claude Code)이 한다 — Deployer 는 글만 만든다.
         var shotPrompt: String? = nil
         var shotReason: String? = nil
+        /// '스크린샷 교체' 를 체크했는데 준비가 덜 돼 교체하지 않았다면 그 이유.
+        /// 부르는 쪽은 이걸 보고 심사 제출을 멈춘다 — 옛 그림으로 심사에 내면 사람이 원한 게 아니다.
+        var shotsRefused: String? = nil
         /// 첫 출시에서 **사람만** 할 수 있는 남은 일. 배포가 끝나는 자리에서 알려 준다 —
         /// 여기서 안 말하면 사람은 웹에 가 보고서야 제출 버튼이 회색인 걸 알게 된다.
         var humanTodo: [String] = []
@@ -104,6 +107,7 @@ enum Deployer {
     typealias StageReport = @Sendable (DeployStage, StageState, String?) -> Void
 
     static func deploy(_ app: ManagedApp, lane: Lane, versionBump: VersionBump? = nil,
+                       replaceShots: Bool = false,
                        onLog: @escaping @Sendable (String) -> Void,
                        onStage: @escaping StageReport = { _, _, _ in }) async throws -> Result {
         func begin(_ s: DeployStage) { onStage(s, .running, nil) }
@@ -288,9 +292,11 @@ enum Deployer {
             onStage(.version, .skipped, "check 모드 — 여기까지만 합니다")
             // 스크린샷 판단은 읽기만 하므로 check 에서도 돌린다 —
             // "배포하면 어떻게 되나" 를 미리 보는 자리에서 이것도 미리 알수록 좋다.
-            let shot = await shotStage(app, info: info, lane: lane, onLog: onLog, onStage: onStage)
+            let shot = await shotStage(app, info: info, lane: lane, replaceShots: replaceShots,
+                                   onLog: onLog, onStage: onStage)
             return Result(version: info.marketingVersion, build: Int(info.buildNumber) ?? 0,
-                          shotPrompt: shot?.text, shotReason: shot?.reason)
+                          shotPrompt: shot?.text, shotReason: shot?.reason,
+                          shotsRefused: shot?.refused)
         }
 
         // 1.5) 버전 처리 — 배포 전에 결정한다. 올릴지(버전), 유지할지(빌드만) 여기서 갈린다.
@@ -482,7 +488,8 @@ enum Deployer {
         //    이 판단에 필요한 것(무엇이 바뀐 커밋인지, 이번 버전이 뭘 자랑하는지)은
         //    배포하는 이 자리에 다 모여 있다. 사람이 나중에 체크리스트를 펼쳐 보기를
         //    기다리는 대신, 끝나는 김에 붙여넣을 글까지 만들어 둔다.
-        let shot = await shotStage(app, info: info, lane: lane, onLog: onLog, onStage: onStage)
+        let shot = await shotStage(app, info: info, lane: lane, replaceShots: replaceShots,
+                                   onLog: onLog, onStage: onStage)
 
         // 7) 첫 출시라면 — **사람만 할 수 있는 일**을 여기서 안내한다.
         //
@@ -506,6 +513,7 @@ enum Deployer {
         // 버전은 사용자가 '버전 올리기'를 고를 때만 바뀐다 — 배포 후 자동 증가 없음
         return Result(version: marketingVersion, build: newBuild,
                       shotPrompt: shot?.text, shotReason: shot?.reason,
+                      shotsRefused: shot?.refused,
                       humanTodo: humanTodo)
     }
 
@@ -515,9 +523,14 @@ enum Deployer {
     /// **찍지는 않는다.** 시뮬레이터를 몰고 다니며 화면을 넘기는 건 사람이나 Claude Code 의 일이고,
     /// DeployBar 가 아는 것은 *언제 찍어야 하는지와 무엇을 찍어야 하는지* 다. 그 둘을 글로 넘긴다.
     /// 읽기만 하므로 배포를 실패시키지 않는다 — 여기서 나는 오류로 업로드가 무효가 되면 안 된다.
-    private static func shotStage(_ app: ManagedApp, info: BuildInfo, lane: Lane,
+    ///
+    /// replaceShots: 사람이 '이번 배포에서 스크린샷 교체' 를 체크했나.
+    ///   false → 비어 있는 칸만 채운다 (스크린샷은 매번 바꾸는 게 아니다)
+    ///   true  → 모든 언어가 준비됐을 때만 기존 그림을 전부 지우고 올린다. 덜 됐으면 아무것도 안 지운다.
+    private static func shotStage(_ app: ManagedApp, info: BuildInfo, lane: Lane, replaceShots: Bool,
                                   onLog: @escaping @Sendable (String) -> Void,
-                                  onStage: @escaping StageReport) async -> (reason: String, text: String)? {
+                                  onStage: @escaping StageReport)
+        async -> (reason: String?, text: String?, refused: String?)? {
         onStage(.shots, .running, nil)
 
         // (1) 레포에 그림이 있으면 **그걸로 스토어를 맞춘다.**
@@ -525,12 +538,18 @@ enum Deployer {
         //     폴더에 있는 것이 이번 버전의 그림이라는 뜻이므로, 배포가 그대로 올린다.
         //     (이미 같은 파일이 올라가 있으면 건너뛴다 — 한 장에 수 MB 라 느리다)
         var uploadedNote: String?
-        if lane == .appstore, StorePublish.hasShots(app.path) {
+        var refused: String?
+        if lane == .check && replaceShots {
+            onLog("ℹ️  스크린샷 교체는 check 모드에선 하지 않습니다 — 미리 보려면 `--publish \(app.name) --dry-run`")
+        }
+        if lane == .appstore, StorePublish.hasShots(app.path) || replaceShots {
             var o = StorePublish.Options()
             o.text = false; o.ageRating = false; o.attachBuild = false
             o.manualCheck = false; o.createVersion = true
+            o.shotMode = replaceShots ? .replaceAll : .fillEmpty
             do {
                 let rep = try await StorePublish.run(app, options: o, onLog: onLog)
+                refused = rep.shotsRefused
                 let shots = rep.changed.filter { $0.contains("장") }
                 if !shots.isEmpty {
                     onLog("🖼  스토어 스크린샷을 레포의 그림으로 맞췄습니다")
@@ -543,6 +562,7 @@ enum Deployer {
             } catch {
                 // 그림 반영이 실패해도 **업로드된 빌드는 그대로다.** 배포를 깨지 않는다.
                 let msg = (error as? DeployError)?.title ?? error.localizedDescription
+                if replaceShots { refused = "스크린샷 교체 실패 — \(msg)" }
                 onLog("⚠️  스크린샷 반영 실패 — \(msg) (⋯ ▸ 스토어 페이지 ▸ [스토어에 올리기] 로 다시 시도할 수 있습니다)")
                 uploadedNote = "반영 실패 — \(msg)"
             }
@@ -560,7 +580,17 @@ enum Deployer {
         st.localVersion = info.marketingVersion
         st.localBuild = info.buildNumber
         st.liveVersion = state?.storeVersion
-        guard let shot = ShotPrompt.forDeploy(app, status: st, storeShots: state?.count) else {
+        let shot = ShotPrompt.forDeploy(app, status: st, storeShots: state?.count)
+        // 교체를 체크했는데 못 했으면 그 칸은 '멈춤' 이다 — 지나간 게 아니라 사람이 원한 일을 못 한 것
+        if let refused {
+            if let shot {
+                onLog("📸 \(shot.reason)")
+                for line in shot.text.components(separatedBy: "\n") { onLog("   │ \(line)") }
+            }
+            onStage(.shots, .failed, refused)
+            return (shot?.reason, shot?.text, refused)
+        }
+        guard let shot else {
             if let uploadedNote {
                 onStage(.shots, .done, uploadedNote)
             } else {
@@ -576,7 +606,7 @@ enum Deployer {
         onLog("")
         for line in shot.text.components(separatedBy: "\n") { onLog("   │ \(line)") }
         onStage(.shots, .done, [uploadedNote, shot.reason].compactMap { $0 }.joined(separator: " · "))
-        return shot
+        return (shot.reason, shot.text, nil)
     }
 
     // ── 업로드 실패의 원문 찾기 ──────────────────────────────────────
