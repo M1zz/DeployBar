@@ -57,6 +57,20 @@ enum StoreMeta {
 
     static let candidates = ["APPSTORE.md", "docs/APPSTORE.md", "STORE.md", "docs/STORE.md"]
 
+    /// 스토어 언어 하나(`es-MX`)에 쓸 레포 글. 고르는 순서:
+    ///   1. 지역까지 같은 글 (`pt-PT` 절 → pt-PT 페이지, `es` 는 ASC 기본값 es-ES 와 같다고 본다)
+    ///   2. 지역 없는 글 — 같은 언어의 남은 페이지 **모두에** (`es` 절 → es-ES·es-MX)
+    ///   3. 같은 언어의 아무 글 (`pt-BR` 절뿐이면 pt-PT 페이지에도)
+    static func entry(for ascLocale: String, in entries: [String: Entry]) -> (key: String, entry: Entry)? {
+        func eq(_ a: String, _ b: String) -> Bool { a.caseInsensitiveCompare(b) == .orderedSame }
+        if let hit = entries.first(where: { eq($0.key, ascLocale) || eq(Locales.ascCode($0.key), ascLocale) }) {
+            return (hit.key, hit.value)
+        }
+        let same = entries.filter { Locales.sameLanguage($0.key, ascLocale) }.sorted { $0.key < $1.key }
+        if let bare = same.first(where: { Locales.language($0.key) == $0.key }) { return (bare.key, bare.value) }
+        return same.first.map { ($0.key, $0.value) }
+    }
+
     // ── 읽기 ────────────────────────────────────────────────────────────
     /// - locales: 이 앱이 쓰는 로케일. 절 제목이 언어 이름일 때 여기 대고 맞춘다.
     ///   비어 있어도 `## ko` 처럼 코드로 적힌 절은 읽는다 (첫 출시 앱은 목록을 모른다).

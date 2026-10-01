@@ -195,8 +195,11 @@ enum StorePublish {
         defer { saveBackup(app, backup, dryRun: options.dryRun, onLog: onLog) }
 
         // (a) 버전 문구 (설명·키워드·프로모션·URL·릴리즈노트는 여기 말고 ReleaseNotes 가 쓴다)
-        for (loc, entry) in meta.entries.sorted(by: { $0.key < $1.key }) {
-            guard let t = texts.first(where: { Locales.sameLanguage($0.locale, loc) }) else { continue }
+        // 스토어 언어마다 맞는 레포 글을 고른다 — 레포 글마다 스토어 언어를 고르면(예전 방식)
+        // `es` 가 스페인·멕시코 중 하나에만 들어가고, `pt-BR`·`pt-PT` 가 엇갈려 들어갈 수 있다.
+        for t in texts.sorted(by: { $0.locale < $1.locale }) {
+            guard let (_, entry) = StoreMeta.entry(for: t.locale, in: meta.entries) else { continue }
+            let loc = t.locale
             var fields: [String: String] = [:]
             func put(_ key: String, _ new: String?, _ old: String) {
                 guard let new, !new.isEmpty, new != old else { return }
@@ -226,29 +229,30 @@ enum StorePublish {
         // (b) 앱 정보 (이름·부제·개인정보처리방침 URL) — 버전이 아니라 앱에 붙는 값
         guard let appInfo = try await ASCClient.appInfo(appId: appId) else { return }
         var infos = try await ASCClient.infoTexts(appInfoId: appInfo.id)
+        // 먼저 앱 정보가 아예 없는 언어를 만든다 (이름이 필수 칸이라 이름을 적은 언어만)
         for (loc, entry) in meta.entries.sorted(by: { $0.key < $1.key }) {
             guard entry.name != nil || entry.subtitle != nil || entry.privacyPolicyUrl != nil else { continue }
-            var target = infos.first { Locales.sameLanguage($0.locale, loc) }
-            if target == nil {
-                guard let name = entry.name else {
-                    report.warnings.append("\(Locales.displayName(loc)) 앱 정보가 없어 부제·URL 을 넣을 곳이 없습니다 — APPSTORE.md 에 `### 이름` 을 적으면 만들어 줍니다")
-                    continue
-                }
-                if options.dryRun {
-                    report.changed.append("\(Locales.displayName(loc)) 앱 이름 '\(name)' (미리보기)")
-                    continue
-                }
-                do {
-                    let made = try await ASCClient.createInfoText(appInfoId: appInfo.id, locale: Locales.ascCode(loc), name: name)
-                    report.changed.append("\(Locales.displayName(loc)) 앱 정보 추가 · 이름 '\(name)'")
-                    target = made
-                    infos.append(made)
-                } catch {
-                    report.warnings.append("\(Locales.displayName(loc)) 앱 정보 추가 실패 — \(reason(error))")
-                    continue
-                }
+            if infos.contains(where: { Locales.sameLanguage($0.locale, loc) }) { continue }
+            guard let name = entry.name else {
+                report.warnings.append("\(Locales.displayName(loc)) 앱 정보가 없어 부제·URL 을 넣을 곳이 없습니다 — APPSTORE.md 에 `### 이름` 을 적으면 만들어 줍니다")
+                continue
             }
-            guard let t = target else { continue }
+            if options.dryRun {
+                report.changed.append("\(Locales.displayName(loc)) 앱 이름 '\(name)' (미리보기)")
+                continue
+            }
+            do {
+                let made = try await ASCClient.createInfoText(appInfoId: appInfo.id, locale: Locales.ascCode(loc), name: name)
+                report.changed.append("\(Locales.displayName(loc)) 앱 정보 추가 · 이름 '\(name)'")
+                infos.append(made)
+            } catch {
+                report.warnings.append("\(Locales.displayName(loc)) 앱 정보 추가 실패 — \(reason(error))")
+            }
+        }
+        // 그다음 스토어의 앱 정보마다 맞는 레포 글로 맞춘다 (버전 문구와 같은 규칙)
+        for t in infos.sorted(by: { $0.locale < $1.locale }) {
+            guard let (_, entry) = StoreMeta.entry(for: t.locale, in: meta.entries) else { continue }
+            let loc = t.locale
             var fields: [String: String] = [:]
             func put(_ key: String, _ new: String?, _ old: String) {
                 guard let new, !new.isEmpty, new != old else { return }

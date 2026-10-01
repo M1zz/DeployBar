@@ -41,7 +41,10 @@ enum ReleaseNotes {
         var repoNote: String?
         var repoBase = ""
         if let v = localVersion, let found = RepoNotes.read(app.path, version: v, locales: targets) {
-            for (lang, text) in found.texts {
+            // 지역까지 같은 절을 먼저 — 그다음 같은 언어로 남은 칸을 채운다.
+            // 한 번에 하면 사전 순서에 따라 pt-PT 절이 pt-BR 칸에 들어갈 수 있다.
+            for (lang, text) in found.texts where texts[lang] != nil { texts[lang] = text }
+            for (lang, text) in found.texts.sorted(by: { $0.key < $1.key }) {
                 for t in targets where Locales.sameLanguage(t, lang) && texts[t]!.isEmpty {
                     texts[t] = text
                 }
