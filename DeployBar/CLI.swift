@@ -42,6 +42,7 @@ enum CLI {
       --publish <앱> [--dry-run] 스토어 페이지 올리기 (문구·스크린샷·버전·빌드 연결)
                      [--overwrite]  스토어에 이미 있는 글까지 레포 글로 덮어쓴다
                      [--replace-shots]  모든 언어 그림이 준비됐을 때만 기존 스크린샷을 지우고 올린다
+      --prepare <앱>              자동 배포 완비 기준 검사 + Claude Code 에 붙여넣을 배포 준비 지시문
       --autowrite <앱> [--dry-run] [--no-commit]
                                  빈 스토어 문구(이름·부제·키워드·프로모션·설명)와 이번 버전 릴리즈노트를
                                  모든 언어로 AI 가 써서 APPSTORE.md · RELEASE_NOTES.md 에 채우고 커밋한다
@@ -63,7 +64,7 @@ enum CLI {
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
         "--selftest-changes", "--selftest-lock", "--selftest-version",
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
-        "--shotplan", "--todo",
+        "--shotplan", "--todo", "--prepare",
     ]
 
     static func runIfRequested() {
@@ -594,6 +595,31 @@ enum CLI {
             }
         }
         print("\n보이는 순서가 스토어 순서입니다. 실제로 올리려면 `--publish \(app.name)` 또는 배포하세요.")
+        exit(0)
+    }
+    // 배포 준비: DeployBar --prepare 앱이름
+    //
+    // 완비 기준에서 빠진 것을 찾아 지시문으로 낸다. 끝에 판정 한 줄 — Claude Code 가 "다 됐나" 를 이걸로 확인한다.
+    if let i = CommandLine.arguments.firstIndex(of: "--prepare") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            let audit = await DeployPrep.audit(app)
+            print(DeployPrep.prompt(app, audit))
+            let mine = audit.gaps.filter { !$0.human }
+            let human = audit.gaps.filter(\.human)
+            print("")
+            if mine.isEmpty {
+                print("✅ 자동 배포 완비" + (human.isEmpty ? "" : " — 사람 몫 \(human.count)개만 남음"))
+            } else {
+                print("❌ 미완 — 빠진 것 \(mine.count)개" + (human.isEmpty ? "" : " · 사람 몫 \(human.count)개"))
+            }
+            sem.signal()
+        }
+        sem.wait()
         exit(0)
     }
     // 스토어 문구 자동 작성: DeployBar --autowrite 앱이름 [--dry-run] [--no-commit]

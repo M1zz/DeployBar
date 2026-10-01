@@ -31,6 +31,17 @@ extension Store {
         }
     }
 
+    /// ⋯ › [배포 준비 지시문 복사] — 완비 기준 + 이 앱에서 빠진 것을 클립보드로.
+    func copyPrepPrompt(_ app: ManagedApp) async {
+        fixResult[app.path] = "배포 준비 상태를 살피는 중…"
+        let audit = await DeployPrep.audit(app)
+        Clipboard.copy(DeployPrep.prompt(app, audit))
+        let mine = audit.gaps.filter { !$0.human }.count
+        fixResult[app.path] = mine == 0
+            ? "📋 배포 준비 지시문을 복사했습니다 — 빠진 곳은 없지만 글 품질 점검을 맡기세요"
+            : "📋 배포 준비 지시문을 복사했습니다 — 빠진 것 \(mine)개 · Claude Code 에 붙여넣으세요"
+    }
+
     /// 결과를 사람이 읽을 줄로. CLI(`--autowrite`)와 창이 같은 글을 쓴다.
     nonisolated static func describe(_ res: StoreWriter.Result, dryRun: Bool) -> [String] {
         var out = ["", "── v\(res.version) \(dryRun ? "(미리보기 — 파일에 쓰지 않았습니다)" : "")"]

@@ -21,10 +21,13 @@ enum StorePublish {
         var text = true               // 이름·부제·설명·키워드·URL
         var screenshots = true        // docs/screenshots/ 를 올린다
         var ageRating = true          // APPSTORE.md 가 "해당 없음" 이라고 적었을 때만
-        /// 스토어에 이미 글이 있어도 레포 글로 덮어쓸지.
-        /// 기본이 false 인 이유는 릴리즈노트와 같다 — 웹에서 급히 고친 문구를
-        /// 도구가 말없이 되돌리면 그게 더 큰 사고다.
-        var overwriteText = false
+        /// 스토어에 이미 글이 있어도 레포 글로 덮어쓸지. **기본은 덮어쓴다 — 레포가 원본이다.**
+        ///
+        /// 예전 기본은 false 였다(웹에서 고친 문구를 말없이 되돌리지 않으려고). 그런데 그 탓에
+        /// 언어를 추가할 때 임시로 들어간 값(한국어 이름 등)이 영원히 남아, APPSTORE.md 에
+        /// 독일어를 다 써 둬도 독일어 페이지가 한국어로 나갔다 — 그것도 로그에 아무 말 없이.
+        /// 이제는 덮어쓰되 **말없이 하지 않는다**: 바꾸기 전 값을 로그와 백업 파일에 남긴다.
+        var overwriteText = true
         /// 이미 올라간 그림을 지우고 다시 올릴지 (파일이 달라졌으면 어차피 다시 올린다)
         var replaceShots = false
         /// 그림을 얼마나 손댈지. 배포는 사람이 '이번에 스크린샷 교체' 를 체크했을 때만 지운다.
@@ -187,6 +190,10 @@ enum StorePublish {
             }
         }
 
+        // 덮어쓴 칸의 옛 값 — 끝에서 파일로 남긴다. 웹에서 고친 글을 되살릴 길을 남겨 둔다.
+        var backup: [[String: String]] = []
+        defer { saveBackup(app, backup, dryRun: options.dryRun, onLog: onLog) }
+
         // (a) 버전 문구 (설명·키워드·프로모션·URL·릴리즈노트는 여기 말고 ReleaseNotes 가 쓴다)
         for (loc, entry) in meta.entries.sorted(by: { $0.key < $1.key }) {
             guard let t = texts.first(where: { Locales.sameLanguage($0.locale, loc) }) else { continue }
@@ -197,6 +204,7 @@ enum StorePublish {
                     report.kept.append("\(Locales.displayName(loc)) \(fieldLabel(key)): 스토어 쪽 글을 그대로 뒀습니다")
                     return
                 }
+                if !old.isEmpty { backup.append(["locale": t.locale, "field": key, "old": old, "new": new]) }
                 fields[key] = new
             }
             put("description", entry.description, t.description)
@@ -248,6 +256,7 @@ enum StorePublish {
                     report.kept.append("\(Locales.displayName(loc)) \(fieldLabel(key)): 스토어 쪽 값을 그대로 뒀습니다")
                     return
                 }
+                if !old.isEmpty { backup.append(["locale": t.locale, "field": key, "old": old, "new": new]) }
                 fields[key] = new
             }
             put("name", entry.name, t.name)
@@ -411,6 +420,28 @@ enum StorePublish {
                 try? await ASCClient.orderShots(setId: setId, ids: ids)
                 report.changed.append("\(Locales.displayName(t.locale)) \(typeLabel(type)) \(ids.count)장 업로드")
             }
+        }
+    }
+
+    /// 덮어쓴 스토어 값을 `~/Library/Application Support/DeployBar/store-backup/` 에 남긴다.
+    private static func saveBackup(_ app: ManagedApp, _ items: [[String: String]], dryRun: Bool,
+                                   onLog: (String) -> Void) {
+        guard !items.isEmpty else { return }
+        if dryRun {
+            onLog("ℹ️  스토어에 있던 글 \(items.count)칸을 레포 글로 바꿉니다 (미리보기)")
+            return
+        }
+        let dir = Config.supportDir.appendingPathComponent("store-backup")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
+        let url = dir.appendingPathComponent("\(app.name)-\(f.string(from: Date())).json")
+        if let data = try? JSONSerialization.data(withJSONObject: items, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: url)
+        }
+        onLog("🗂  스토어에 있던 글 \(items.count)칸을 레포 글로 바꿨습니다 — 바꾸기 전 값: \(url.path)")
+        for i in items.prefix(12) {
+            let old = (i["old"] ?? "").replacingOccurrences(of: "\n", with: " ")
+            onLog("   · \(Locales.displayName(i["locale"] ?? "")) \(fieldLabel(i["field"] ?? "")): '\(old.prefix(40))\(old.count > 40 ? "…" : "")' → 레포 글")
         }
     }
 

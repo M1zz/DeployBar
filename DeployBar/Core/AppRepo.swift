@@ -290,7 +290,8 @@ enum AppRepo {
             marketingVersion: bs["MARKETING_VERSION"] as? String ?? "?",
             buildNumber: bs["CURRENT_PROJECT_VERSION"] as? String ?? "?",
             team: bs["DEVELOPMENT_TEAM"] as? String,
-            platform: isMac ? .macOS : .iOS
+            platform: isMac ? .macOS : .iOS,
+            deviceFamily: bs["TARGETED_DEVICE_FAMILY"] as? String
         )
         cache.set(r.path, info)
         return info

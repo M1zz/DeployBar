@@ -547,6 +547,10 @@ struct AppCard: View {
                     Label("해결 프롬프트 복사", systemImage: "doc.on.doc")
                 }
                 .disabled(readiness.passedCount == readiness.total)
+                Button { Task { await store.copyPrepPrompt(app) } } label: {
+                    Label("배포 준비 지시문 복사  ·  완비 기준", systemImage: "checklist")
+                }
+                .help("스토어 문구·릴리즈노트·스크린샷을 모든 언어로 갖추게 하는 지시문을 복사합니다. 이 앱에서 지금 빠진 것도 함께 담습니다.")
                 Menu {
                     Button("스크린샷 다시 찍기") { copyShotPrompt(.shots) }
                     Button("미리보기 영상 만들기") { copyShotPrompt(.video) }

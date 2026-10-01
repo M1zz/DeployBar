@@ -274,6 +274,11 @@ enum ReleaseNotes {
         case fillEmptyOnly
         /// 사람이 [릴리즈노트] 창에서 직접 눌렀다 — 그 뜻대로 덮어쓴다.
         case overwrite
+        /// 배포 중 기본값. **레포(RELEASE_NOTES.md)에 사람이 써 둔 언어는 레포가 이긴다** —
+        /// 스토어 쪽 글과 다르면 레포 글로 바꾼다. 나머지(AI·커밋 초안)는 빈 언어만 채운다.
+        /// fillEmptyOnly 만 있던 시절엔 한 번 채워진 칸(예전 커밋 제목 초안 등)이 영원히 남아,
+        /// 레포를 고쳐도 스토어에 반영되지 않았다.
+        case repoWins(Set<String>)
     }
 
     /// 언어별 문구를 App Store 에 반영한다. texts 에 없거나 빈 언어는 건드리지 않는다.
@@ -287,9 +292,20 @@ enum ReleaseNotes {
         var kept: [String] = []
         for loc in target.locales {
             // 이미 글이 있는데 자동 반영이라면 그대로 둔다 — 덮어쓸 권한이 없다
-            if mode == .fillEmptyOnly && !loc.isEmpty { kept.append(loc.locale); continue }
             // 정확히 일치하는 로케일 우선, 없으면 같은 언어의 문구를 재사용 ("en" 문구를 "en-GB" 에)
             let text = texts[loc.locale] ?? texts.first { Locales.sameLanguage($0.key, loc.locale) && !$0.value.isEmpty }?.value
+            switch mode {
+            case .overwrite: break
+            case .fillEmptyOnly:
+                if !loc.isEmpty { kept.append(loc.locale); continue }
+            case .repoWins(let repo):
+                let fromRepo = repo.contains { Locales.sameLanguage($0, loc.locale) }
+                if !loc.isEmpty {
+                    let same = text.map { $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                        == loc.whatsNew.trimmingCharacters(in: .whitespacesAndNewlines) } ?? true
+                    if !fromRepo || same { kept.append(loc.locale); continue }
+                }
+            }
             guard let whatsNew = text, !whatsNew.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 skipped.append(loc.locale); continue
             }

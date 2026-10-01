@@ -125,11 +125,14 @@ extension Store {
                 job.lines.append("   ✓ \(note)")
             }
             let (texts, failed) = await fillMissing(draft.texts, base: draft.base) { job.lines.append($0) }
-            // 자동 반영은 **빈 언어만** 채운다. 사람이 써 둔 글을 커밋 제목으로 덮어쓰면
-            // 그건 되돌릴 수 없는 손실이다 (심사에 그대로 나간다).
-            let result = try await ReleaseNotes.upload(app, texts: texts, mode: .fillEmptyOnly)
+            // 자동 반영은 커밋·AI 초안으로는 **빈 언어만** 채운다. 사람이 써 둔 글을 커밋 제목으로
+            // 덮어쓰면 되돌릴 수 없는 손실이다. 다만 **레포(RELEASE_NOTES.md)에 쓴 언어는 레포가 원본**이라
+            // 스토어 글과 다르면 레포 글로 바꾼다 — 그래야 레포를 고친 게 스토어에 닿는다.
+            let repoLocales = Set(RepoNotes.read(app.path, version: target.versionString, locales: codes)?.texts.keys
+                                  .map { String($0) } ?? [])
+            let result = try await ReleaseNotes.upload(app, texts: texts, mode: .repoWins(repoLocales))
             if !result.kept.isEmpty {
-                job.lines.append("   ✓ 이미 써 둔 문구가 있어 그대로 둔 언어 \(result.kept.count)개: \(result.kept.joined(separator: ", "))")
+                job.lines.append("   ✓ 이미 같은 문구거나 레포에 글이 없어 그대로 둔 언어 \(result.kept.count)개: \(result.kept.joined(separator: ", "))")
             }
             // 새로 채운 게 없으면(전부 이미 써 둔 글) '0/1' 로 실패처럼 읽히는 줄은 찍지 않는다
             if !result.locales.isEmpty {
