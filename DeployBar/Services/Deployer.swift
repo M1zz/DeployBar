@@ -478,6 +478,10 @@ enum Deployer {
         }
         if GitInfo.isRepo(r.path) {
             begin(.tag)
+            // 올린 빌드 번호(와 버전)를 **커밋하고 나서** 태그를 단다.
+            // 예전엔 번호만 바꿔 두고 커밋하지 않아서, 배포가 끝나면 레포가 늘 더러웠고
+            // 다음 배포가 '개발 중' 으로 잠겼다. 태그도 번호를 올리기 전 커밋을 가리켰다.
+            commitVersionBump(r, version: marketingVersion, build: newBuild, onLog: onLog)
             let tag = "deploy-\(r.scheme)-\(marketingVersion)-\(newBuild)"
             if GitInfo.tag(r.path, name: tag, message: "deploy-bar: \(marketingVersion) (\(newBuild))") {
                 onLog("🏷  태그: \(tag)")
@@ -520,6 +524,27 @@ enum Deployer {
                       shotPrompt: shot?.text, shotReason: shot?.reason,
                       shotsRefused: shot?.refused,
                       humanTodo: humanTodo)
+    }
+
+    /// 배포가 바꾼 번호 파일(VERSION_XCCONFIG · project.pbxproj)만 커밋한다. 사람이 하던 다른 변경은 섞지 않는다.
+    private static func commitVersionBump(_ r: ResolvedApp, version: String, build: Int,
+                                          onLog: @escaping @Sendable (String) -> Void) {
+        let dir = URL(fileURLWithPath: r.path)
+        var candidates: [String] = []
+        if let x = r.versionXcconfig { candidates.append(x) }
+        if let proj = ((try? FileManager.default.contentsOfDirectory(atPath: r.path)) ?? []).first(where: { $0.hasSuffix(".xcodeproj") }) {
+            candidates.append("\(proj)/project.pbxproj")
+        }
+        let dirty = Set(GitInfo.dirtyFiles(r.path))
+        let files = candidates.filter { dirty.contains($0) }
+        guard !files.isEmpty else { return }
+        do {
+            _ = try Shell.capture("/usr/bin/git", ["add", "--"] + files, cwd: dir)
+            _ = try Shell.capture("/usr/bin/git", ["commit", "-m", "chore: \(version) 빌드 \(build) — DeployBar 배포분", "--"] + files, cwd: dir)
+            onLog("📌 빌드 번호 변경을 커밋했습니다 (\(files.joined(separator: ", ")))")
+        } catch {
+            onLog("⚠️  빌드 번호 변경을 커밋하지 못했습니다 — \(error.localizedDescription) · 직접 커밋해야 다음 배포가 잠기지 않습니다")
+        }
     }
 
     // ── 스크린샷 칸 ──────────────────────────────────────────────────

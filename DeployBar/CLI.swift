@@ -43,6 +43,7 @@ enum CLI {
                      [--overwrite]  스토어에 이미 있는 글까지 레포 글로 덮어쓴다
                      [--replace-shots]  모든 언어 그림이 준비됐을 때만 기존 스크린샷을 지우고 올린다
       --prepare <앱>              자동 배포 완비 기준 검사 + Claude Code 에 붙여넣을 배포 준비 지시문
+      --storetext <앱>            App Store Connect 에 지금 올라가 있는 문구를 언어별로 (읽기만)
       --autowrite <앱> [--dry-run] [--no-commit]
                                  빈 스토어 문구(이름·부제·키워드·프로모션·설명)와 이번 버전 릴리즈노트를
                                  모든 언어로 AI 가 써서 APPSTORE.md · RELEASE_NOTES.md 에 채우고 커밋한다
@@ -64,7 +65,7 @@ enum CLI {
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
         "--selftest-changes", "--selftest-lock", "--selftest-version",
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
-        "--shotplan", "--todo", "--prepare",
+        "--shotplan", "--todo", "--prepare", "--storetext",
     ]
 
     static func runIfRequested() {
@@ -595,6 +596,43 @@ enum CLI {
             }
         }
         print("\n보이는 순서가 스토어 순서입니다. 실제로 올리려면 `--publish \(app.name)` 또는 배포하세요.")
+        exit(0)
+    }
+    // 스토어 문구 보기: DeployBar --storetext 앱이름 — 지금 ASC 에 실제로 무엇이 있나 (읽기만)
+    if let i = CommandLine.arguments.firstIndex(of: "--storetext") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            do {
+                let info = try AppRepo.buildSettings(AppRepo.resolve(app))
+                guard let appId = try await ASCClient.appId(bundleId: info.bundleId) else { print("ASC 에 앱이 없습니다"); sem.signal(); return }
+                let vers = try await ASCClient.appStoreVersions(appId: appId)
+                guard let v = vers.first(where: { ReleaseNotes.editableStates.contains($0.state) }) ?? vers.first else {
+                    print("버전이 없습니다"); sem.signal(); return
+                }
+                print("App Store v\(v.versionString) · \(v.state)")
+                let texts = try await ASCClient.storeTexts(versionId: v.id)
+                let infos = (try? await ASCClient.appInfo(appId: appId)).flatMap { $0 }
+                let names = infos == nil ? [] : ((try? await ASCClient.infoTexts(appInfoId: infos!.id)) ?? [])
+                func show(_ label: String, _ v: String) {
+                    let one = v.replacingOccurrences(of: "\n", with: " ⏎ ")
+                    print("   \(label.padding(toLength: 10, withPad: " ", startingAt: 0)) \(v.isEmpty ? "(비어 있음)" : String(one.prefix(110)) + (one.count > 110 ? "… (\(v.count)자)" : ""))")
+                }
+                for loc in Locales.sorted(Array(Set(texts.map(\.locale) + names.map(\.locale)))) {
+                    print("\n── \(loc) (\(Locales.displayName(loc)))")
+                    let n = names.first { $0.locale == loc }
+                    let t = texts.first { $0.locale == loc }
+                    show("이름", n?.name ?? ""); show("부제", n?.subtitle ?? "")
+                    show("키워드", t?.keywords ?? ""); show("프로모션", t?.promotionalText ?? "")
+                    show("설명", t?.description ?? ""); show("릴리즈노트", t?.whatsNew ?? "")
+                }
+            } catch { print("❌ \(error.localizedDescription)") }
+            sem.signal()
+        }
+        sem.wait()
         exit(0)
     }
     // 배포 준비: DeployBar --prepare 앱이름

@@ -56,8 +56,6 @@ struct BuildInfo {
     var buildNumber: String
     var team: String?
     var platform: Platform = .iOS
-    /// 앱 본체의 TARGETED_DEVICE_FAMILY ("1" 아이폰 · "2" 아이패드 · "1,2"). 아이패드 그림이 필요한지 가른다.
-    var deviceFamily: String?
 }
 
 enum DeployState: String, Codable {

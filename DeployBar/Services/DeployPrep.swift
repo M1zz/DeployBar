@@ -22,6 +22,8 @@ enum DeployPrep {
         var version: String = ""
         var locales: [String] = []
         var gaps: [Gap] = []
+        /// 빈 곳은 아니지만 알아 둘 것 (예: 다음 버전에 들어갈 변경이 아직 없음)
+        var notes: [String] = []
         var hasWatch = false
         var hasPad = false
         var ready: Bool { gaps.isEmpty }
@@ -38,9 +40,9 @@ enum DeployPrep {
         let info = try? AppRepo.buildSettings(r)
         let pbx = projectText(app.path)
         a.hasWatch = pbx.contains("SDKROOT = watchos")
-        // 본체 타깃만 본다 — 위젯·확장의 설정까지 보면 아이폰 전용 앱도 아이패드로 잡힌다
-        a.hasPad = info?.platform != .macOS
-            && (info?.deviceFamily ?? "").split(separator: ",").contains { $0.trimmingCharacters(in: .whitespaces) == "2" }
+        // 본체 타깃을 **iOS SDK 로** 본다. 그냥 읽으면 Catalyst 앱은 Mac 쪽 조건부 값("2,6")이 나와
+        // 아이폰 전용 앱도 아이패드 지원으로 잡힌다 (두번알림이 그랬다).
+        a.hasPad = info?.platform != .macOS && iosFamily(r, bundleId: info?.bundleId).contains("2")
 
         // 1) 설정
         let envPath = (app.path as NSString).appendingPathComponent("deploy.env")
@@ -98,7 +100,12 @@ enum DeployPrep {
         a.version = store.version
         let notes = RepoNotes.read(app.path, version: a.version, locales: a.locales)?.texts ?? [:]
         let noNotes = a.locales.filter { l in !notes.keys.contains { Locales.sameLanguage($0, l) } }
-        if !noNotes.isEmpty {
+        // 직전 배포 이후 커밋이 하나도 없으면 다음 버전에 쓸 내용이 없다 — 지금 쓰면 지어낸 글이다.
+        let lastDeploy = GitInfo.isRepo(app.path) ? GitInfo.lastDeployTag(app.path) : nil
+        let nothingNew = lastDeploy != nil && GitInfo.commitsSince(app.path, tag: lastDeploy).isEmpty
+        if !noNotes.isEmpty && nothingNew {
+            a.notes.append("v\(a.version) 릴리즈노트는 아직 쓸 내용이 없습니다 — 직전 배포(\(lastDeploy!)) 이후 커밋이 없습니다. 변경을 만든 뒤 쓰세요")
+        } else if !noNotes.isEmpty {
             gap("릴리즈노트", "RELEASE_NOTES.md 의 `## \(a.version)` 에 \(noNotes.map { Locales.displayName($0) }.joined(separator: ", ")) 이(가) 없습니다")
         }
 
@@ -151,6 +158,19 @@ enum DeployPrep {
             gap("저장소", "커밋 안 된 변경 \(GitInfo.dirtyFiles(app.path).count)개 — 배포가 '개발 중' 으로 잠깁니다")
         }
         return a
+    }
+
+    /// iOS SDK 기준 본체의 TARGETED_DEVICE_FAMILY 숫자들 ("1,2" → ["1","2"]).
+    private static func iosFamily(_ r: ResolvedApp, bundleId: String?) -> [String] {
+        guard let out = try? Shell.capture("/usr/bin/xcodebuild", [
+            "-showBuildSettings", "-json", r.projFlag, r.projContainer,
+            "-scheme", r.scheme, "-configuration", "Release", "-sdk", "iphoneos",
+        ], cwd: URL(fileURLWithPath: r.path), timeout: 90),
+              let arr = try? JSONSerialization.jsonObject(with: Data(out.utf8)) as? [[String: Any]] else { return [] }
+        let settings = arr.compactMap { $0["buildSettings"] as? [String: Any] }
+        let main = settings.first { $0["PRODUCT_BUNDLE_IDENTIFIER"] as? String == bundleId } ?? settings.first
+        return ((main?["TARGETED_DEVICE_FAMILY"] as? String) ?? "")
+            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     private static func projectText(_ root: String) -> String {
@@ -239,6 +259,9 @@ enum DeployPrep {
 
         let mine = a.gaps.filter { !$0.human }
         let human = a.gaps.filter(\.human)
+        if !a.notes.isEmpty {
+            s += "## 참고\n" + a.notes.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+        }
         if mine.isEmpty && human.isEmpty {
             s += "## 지금 빠진 것\nDeployBar 가 찾은 빈 곳은 없다. 그래도 위 기준을 하나씩 열어 **글의 품질**(원어민 문체·키워드 선정·그림 속 언어)을 직접 확인해라.\n\n"
         } else {

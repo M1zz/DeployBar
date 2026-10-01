@@ -115,14 +115,18 @@ enum StoreWriter {
         /// 스토어에 있지만 **그 언어 글이 아닌** 값 — 언어를 추가할 때 임시로 들어간 한국어 이름,
         /// 다른 언어 칸에서 복사된 설명 같은 것. 채워진 칸으로 치면 독일어 페이지가 한국어로 남는다.
         func misplaced(_ v: String, locale: String, field: Field) -> Bool {
-            if !Locales.isKorean(locale), v.unicodeScalars.contains(where: { (0xAC00...0xD7A3).contains($0.value) }) {
-                return true
-            }
-            // 다른 언어 칸과 글자 하나 다르지 않으면 복사본이다 (브랜드 이름·URL 은 같을 수 있으니 뺀다)
+            let hangul = v.unicodeScalars.contains { (0xAC00...0xD7A3).contains($0.value) }
+            if !Locales.isKorean(locale), hangul { return true }
+            // 같은 글이 여러 언어 칸에 있으면 **그 글의 언어인 칸만** 원본이다.
+            // (언어를 추가하면 ASC 가 기본 언어 글을 복사해 둔다 — 독일어 칸의 한국어, 일본어 칸의 영어)
+            // 원본까지 복사본으로 치면 멀쩡한 한국어 페이지를 다시 쓰게 된다. 브랜드 이름·URL 은 같을 수 있으니 뺀다.
             guard field != .name, !urlFields.contains(field) else { return false }
-            return asc.values.contains { other in
-                !Locales.sameLanguage(other.key, locale) && other.value[field] == v
-            }
+            let same = asc.values.filter { $0.value[field] == v }.map(\.key)
+            guard same.count > 1 else { return false }
+            let owner = (hangul ? same.first(where: Locales.isKorean) : nil)
+                ?? same.first { Locales.language($0) == "en" }
+                ?? same.sorted().first
+            return !(owner.map { Locales.sameLanguage($0, locale) } ?? false)
         }
 
         // 이번 버전 릴리즈노트 — 레포에 이미 쓴 언어는 둔다
