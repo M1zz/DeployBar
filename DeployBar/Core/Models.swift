@@ -166,6 +166,10 @@ struct AppStatus: Identifiable, Codable {
     /// 스토어 문구·스크린샷이 통째로 없는 앱도 "배포 가능 · 권장 2건" 으로 다 된 것처럼 보인다.
     /// nil = 확인하지 않음(옛 status-cache.json).
     var prepGaps: [DeployPrep.Gap]?
+    /// 배포가 실제로 쓸 마케팅 버전 — 스토어에 준비된 버전·이미 나간 번호를 보고 정한다(Deployer.planVersion).
+    /// 릴리즈노트 원고의 `## <버전>` 절은 이 번호로 찾는다. 로컬 번호로 찾으면 스토어에 v1.0.9 가 준비돼 있고
+    /// 로컬이 1.0.8 일 때 "`## 1.0.8` 을 쓰라" 와 "`## 1.0.9` 에 없다" 가 한 카드에 같이 뜬다.
+    var nextVersion: String?
 
     // "지금 배포하려면 뭐가 필요한가" — 카드에서 바로 보여 주는 체크리스트
     var readiness: Readiness = Readiness()
@@ -203,6 +207,11 @@ enum ASCState {
     static func isSubmitted(_ state: String) -> Bool {
         ["WAITING_FOR_REVIEW", "IN_REVIEW", "PROCESSING_FOR_APP_STORE",
          "PENDING_DEVELOPER_RELEASE", "PENDING_APPLE_RELEASE"].contains(state)
+    }
+
+    /// 애플이 돌려보낸 상태 — 고쳐서 다시 내야 한다 (개발자가 스스로 거둔 것도 같은 처지)
+    static func isRejected(_ state: String) -> Bool {
+        ["REJECTED", "METADATA_REJECTED", "DEVELOPER_REJECTED", "INVALID_BINARY"].contains(state)
     }
 
     // 진행 중(파이프라인) 상태인지

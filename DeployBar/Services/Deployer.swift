@@ -572,6 +572,30 @@ enum Deployer {
         if lane == .check && replaceShots {
             onLog("ℹ️  스크린샷 교체는 check 모드에선 하지 않습니다 — 미리 보려면 `--publish \(app.name) --dry-run`")
         }
+        // (0) 문구 — APPSTORE.md 를 스토어에 맞춘다. 그림보다 먼저, 따로.
+        //     문구는 원래 애플이 빌드를 처리한 뒤(빌드 연결 단계)에야 올라갔다. 그 사이 최대 한 시간 동안
+        //     배포가 새로 만든 언어 페이지(예: 중국어 번체)는 설명·키워드·URL 이 빈 채로 보였고,
+        //     처리를 기다리다 멈추면 그대로 남았다. 업로드 직후에 올려 두면 페이지가 먼저 완성된다.
+        //     (빌드 연결 단계의 문구 올리기는 그대로 둔다 — 그땐 바뀐 게 없으면 아무 일도 안 한다)
+        //     따로 돌리는 이유: 문구 한도 초과 같은 실패가 그림 올리기까지 막으면 안 된다.
+        if lane == .appstore, StoreMeta.read(app.path, locales: AppRepo.resolve(app).locales) != nil {
+            var o = StorePublish.Options()
+            o.screenshots = false; o.ageRating = false; o.attachBuild = false
+            o.manualCheck = false; o.createVersion = true
+            do {
+                let rep = try await StorePublish.run(app, options: o, onLog: onLog)
+                if !rep.changed.isEmpty {
+                    onLog("✏️  스토어 문구를 APPSTORE.md 로 맞췄습니다")
+                    for c in rep.changed { onLog("   · \(c)") }
+                }
+                for w in rep.warnings { onLog("   ⚠️  \(w)") }
+            } catch {
+                let msg = (error as? DeployError)?.title ?? error.localizedDescription
+                let todo = (error as? DeployError)?.todo ?? []
+                onLog("⚠️  스토어 문구 반영 실패 — \(msg) (빌드는 그대로입니다. 고친 뒤 ⋯ ▸ 스토어 페이지 ▸ [스토어에 올리기])")
+                for t in todo { onLog("   → \(t)") }
+            }
+        }
         if lane == .appstore, StorePublish.hasShots(app.path) || replaceShots {
             var o = StorePublish.Options()
             o.text = false; o.ageRating = false; o.attachBuild = false

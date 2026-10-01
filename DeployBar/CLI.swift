@@ -39,7 +39,7 @@ enum CLI {
       --storemeta <앱> [--write] APPSTORE.md 를 어떻게 읽는지 (--write 면 뼈대 생성)
       --shotplan <앱>            docs/screenshots 의 그림이 어느 기기 자리에 올라갈지 (네트워크 없음)
       --todo <앱>                제출까지 남은 일 — 도구가 할 것 / 사람만 할 수 있는 것
-      --publish <앱> [--dry-run] 스토어 페이지 올리기 (문구·스크린샷·버전·빌드 연결)
+      --publish <앱> [--dry-run] [--text-only] 스토어 페이지 올리기 (문구·스크린샷·버전·빌드 연결 · --text-only 면 문구만)
                      [--overwrite]  스토어에 이미 있는 글까지 레포 글로 덮어쓴다
                      [--replace-shots]  모든 언어 그림이 준비됐을 때만 기존 스크린샷을 지우고 올린다
       --prepare <앱>              자동 배포 완비 기준 검사 + Claude Code 에 붙여넣을 배포 준비 지시문
@@ -65,7 +65,7 @@ enum CLI {
         "--status", "--pull", "--audit", "--doctor", "--builds", "--prompt", "--template", "--write",
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
         "--selftest-changes", "--selftest-lock", "--selftest-version",
-        "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
+        "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--text-only", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
         "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
     ]
 
@@ -709,6 +709,10 @@ enum CLI {
         if CommandLine.arguments.contains("--overwrite") { o.overwriteText = true; o.replaceShots = true }
         // 배포의 '이번 배포에서 스크린샷 교체' 와 같은 동작 — 모든 언어가 준비됐을 때만 전부 지우고 올린다
         if CommandLine.arguments.contains("--replace-shots") { o.shotMode = .replaceAll }
+        // 문구만 — 배포가 도는 중에 빈 언어 칸만 채울 때. 버전·빌드·그림·연령 등급은 건드리지 않는다
+        if CommandLine.arguments.contains("--text-only") {
+            o.screenshots = false; o.attachBuild = false; o.ageRating = false; o.createVersion = false; o.manualCheck = false
+        }
         let sem = DispatchSemaphore(value: 0)
         Task.detached {
             do {

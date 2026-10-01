@@ -380,7 +380,7 @@ struct Readiness: Codable, Hashable {
         // App Store 가 실제로 요구하는 언어가 1순위고, 아직 못 물어봤으면 deploy.env 를 쓴다.
         let notesLocales = (status.notesFilled + status.notesMissing).isEmpty
             ? r.locales : (status.notesFilled + status.notesMissing)
-        let repoNotes = status.localVersion.flatMap {
+        let repoNotes = (status.nextVersion ?? status.localVersion).flatMap {
             RepoNotes.read(app.path, version: $0, locales: notesLocales)
         }
         let notesGate = Localization.Mode(r.releaseNotesGate)
@@ -394,7 +394,7 @@ struct Readiness: Codable, Hashable {
             // 버전을 만드는 코드가 없다. 그래서 업로드 뒤 다시 도는 채우기도
             // "편집 가능한 버전 없음" 으로 또 보류된다 — 기다리면 된다고 믿게 두면
             // 빈 '이 버전의 새로운 기능' 으로 심사에 나간다. 누가 무엇을 해야 하는지 말한다.
-            let v = status.localVersion ?? "다음 버전"
+            let v = status.nextVersion ?? status.localVersion ?? "다음 버전"
             out.append(ReadyItem(
                 key: "notes", level: .need, title: "App Store 버전 없음 — 릴리즈노트 확인 불가",
                 detail: "편집 가능한 버전이 없어 '이 버전의 새로운 기능' 을 확인할 수 없습니다"
@@ -455,7 +455,7 @@ struct Readiness: Codable, Hashable {
                     title: "릴리즈노트 비어 있음 — \(status.notesMissing.count)개 언어",
                     detail: "v\(status.notesVersion ?? "?") 의 '이 버전의 새로운 기능' 이 \(head)"
                         + (status.notesMissing.count > 4 ? " 외" : "") + " 에서 비어 있습니다"
-                        + (repoNotes == nil ? " · 레포에도 v\(status.localVersion ?? "?") 원고가 없습니다" : ""),
+                        + (repoNotes == nil ? " · 레포에도 v\(status.nextVersion ?? status.localVersion ?? "?") 원고가 없습니다" : ""),
                     fix: .openNotes,
                     todo: baseMissing
                         ? "RELEASE_NOTES.md 에 `## \(v)` ▸ `### 앱스토어` 절로 한국어 문구를 써 두거나 [릴리즈노트] 창에서 한국어 칸을 직접 채우세요 — 나머지 언어는 [빈 언어 채우기] 가 그 글에서 옮깁니다"
@@ -576,7 +576,7 @@ struct Readiness: Codable, Hashable {
             out.append(ReadyItem(
                 key: "notesrc", level: .need, title: "릴리즈노트 원고 없음",
                 detail: "커밋 제목에서 초안을 만듭니다 — 사용자용 문구가 아닐 수 있습니다",
-                todo: "RELEASE_NOTES.md 에 `## \(status.localVersion ?? "버전")` 절을 만들고 그 아래 "
+                todo: "RELEASE_NOTES.md 에 `## \(status.nextVersion ?? status.localVersion ?? "버전")` 절을 만들고 그 아래 "
                     + "`### 앱스토어` 절에 스토어용 문구를 써 두면 배포가 그걸 그대로 씁니다"))
         }
 
@@ -620,8 +620,14 @@ struct Readiness: Codable, Hashable {
                     key: "review", level: .ok, title: "제출함 · \(label)",
                     detail: "v\(v) 를 이미 제출했고 애플이 보고 있습니다 — 지금 새로 올리면 이 심사가 취소되고 처음부터 다시 시작합니다",
                     todo: "결과를 기다리세요. 급히 고쳐야 하면 ⋯ 의 [심사 취소하고 다시 배포] 를 쓰세요"))
+            } else if let state = status.reviewState, ASCState.isRejected(state) {
+                // 돌려받은 것 — 고쳐서 배포하면 새 빌드 번호로 올리고 같은 버전으로 다시 낸다
+                out.append(ReadyItem(
+                    key: "review", level: .ok, title: "App Store \(label) — 다시 낼 수 있음",
+                    detail: "v\(v) 가 심사에서 돌아왔습니다 — 거부 사유를 고친 뒤 배포하면 새 빌드로 올려 v\(v) 로 다시 제출합니다",
+                    todo: "거부 사유는 App Store Connect ▸ 앱 심사(Resolution Center)에 있습니다"))
             } else {
-                // 제출 준비·거부됨 — 아직 안 낸 것이므로 배포해도 잃을 심사가 없다
+                // 제출 준비 — 아직 안 낸 것이므로 배포해도 잃을 심사가 없다
                 out.append(ReadyItem(
                     key: "review", level: .ok, title: "App Store \(label)",
                     detail: "v\(v) 는 아직 제출 전입니다 — 배포해도 잃을 심사가 없습니다",
@@ -652,8 +658,8 @@ extension ReadyItem {
     func agentHint(for status: AppStatus) -> String? {
         // 같은 key 라도 상황이 다르면 할 일이 다르다 (원고가 아예 없는 것과 한 언어만 빈 것)
         if let agent { return agent }
-        // 노트를 써 넣을 절 제목에 쓴다 — 스토어에 올라갈 버전은 로컬 쪽이다
-        let version = status.localVersion ?? status.notesVersion ?? "버전"
+        // 노트를 써 넣을 절 제목에 쓴다 — 배포가 실제로 쓸 번호(스토어를 보고 정한 것)
+        let version = status.nextVersion ?? status.localVersion ?? status.notesVersion ?? "버전"
         switch key {
         case "git":
             return "바뀐 내용을 확인하고 의미 단위로 나눠 커밋해줘. 커밋 메시지는 한국어로, 무엇을 왜 바꿨는지 한 줄로."

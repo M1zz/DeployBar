@@ -113,11 +113,15 @@ enum Status {
         // 스토어에 새 버전을 만들어 두고(부제·키워드를 고치려고 등) 빌드를 기다리는 중이면,
         // 코드가 그대로여도 올릴 게 있는 것이다 — 배포가 번호를 그 버전에 맞춰 올린다.
         let storeWaiting = st.editableHasBuild == false
+        // 심사에서 거부된 버전 — 고친 빌드를 다시 올리는 게 다음 일이다. 첫 출시 앱은 판매 중인 버전이 없어
+        // 거부된 그 버전을 '스토어 버전' 으로 읽으므로, 이게 없으면 "로컬 v1.0 이 이미 스토어에 있음" 으로 잠겼다.
+        let rejected = st.reviewState.map(ASCState.isRejected) ?? false
         if st.dirty { st.state = .dev }
-        else if verAhead || buildAhead || commitsAhead || storeWaiting { st.state = .ready }
+        else if verAhead || buildAhead || commitsAhead || storeWaiting || rejected { st.state = .ready }
         else { st.state = .deployed }
 
         st.prepGaps = await DeployPrep.audit(app, known: known).gaps
+        st.nextVersion = known.version
 
         // 상태가 정해진 뒤에 준비 체크리스트를 만든다 (판정 결과를 그대로 쓴다)
         st.readiness = Readiness.evaluate(app, status: st)
