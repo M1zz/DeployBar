@@ -181,9 +181,12 @@ struct AppCard: View {
         }
     }
     /// 지원 언어 — deploy.env 의 LOCALES, 없으면 App Store 페이지에 있는 언어.
+    /// 앱은 번역했는데 LOCALES 에 아직 안 넣은 언어도 끝에 붙인다 — 새 언어가 생긴 순간부터 국기로 보이게.
     private var supportedLocales: [String] {
-        if let l = status.locales, !l.isEmpty { return Locales.sorted(l) }
-        return Locales.sorted(status.notesFilled + status.notesMissing)
+        let declared = (status.locales?.isEmpty == false) ? status.locales! : status.notesFilled + status.notesMissing
+        let undeclared = (status.prepGaps ?? []).filter { $0.area == "설정" }.flatMap { $0.locales ?? [] }
+            .filter { l in !declared.contains { Locales.sameLanguage($0, l) } }
+        return Locales.sorted(declared) + Locales.sorted(Array(Set(undeclared)))
     }
 
     /// 그 언어에 빠진 것 — 국기를 흐리게 하고 이유를 말한다. 비어 있으면 다 갖춘 언어다.
@@ -195,8 +198,22 @@ struct AppCard: View {
         if status.notesMissing.contains(where: { Locales.sameLanguage($0, loc) }) {
             gaps.append("릴리즈노트 비어 있음")
         }
-        if status.notesUnlistedLocales.contains(where: { Locales.sameLanguage($0, loc) }) {
-            gaps.append("App Store 페이지에 이 언어가 없음")
+        // 자동 배포 완비 기준에서 이 언어에 걸린 것 — 새 언어를 늘리면 여기가 할 일 목록이 된다
+        for g in status.prepGaps ?? [] where !g.human && g.locales?.contains(where: { Locales.sameLanguage($0, loc) }) == true {
+            let label: String
+            switch g.area {
+            case "설정": label = "deploy.env 의 LOCALES 에 없음"
+            case "다국어": label = "앱 번역 구멍"
+            case "스토어 문구": label = "스토어 문구 빈 칸"
+            case "릴리즈노트": label = "릴리즈노트 원고 없음"
+            case "스크린샷": label = g.text.contains("아이패드") ? "아이패드 그림 없음" : g.text.contains("워치") ? "워치 그림 없음" : "스크린샷 없음"
+            default: label = g.area
+            }
+            if !gaps.contains(label) { gaps.append(label) }
+        }
+        // 빈 곳이 있을 때만 덧붙인다 — 페이지 자체는 배포가 만들어 주므로 이것만으로 흐리게 하지 않는다
+        if !gaps.isEmpty, status.notesUnlistedLocales.contains(where: { Locales.sameLanguage($0, loc) }) {
+            gaps.append("App Store 페이지는 배포 때 만듭니다")
         }
         return gaps
     }
@@ -217,7 +234,12 @@ struct AppCard: View {
                     }
                 }
                 .opacity(gaps.isEmpty ? 1 : 0.35)
-                .help(gaps.isEmpty ? name : "\(name) — \(gaps.joined(separator: " · "))")
+                .help(gaps.isEmpty ? name : "\(name) — \(gaps.joined(separator: " · "))\n누르면 이 언어만 채우는 지시문을 복사합니다")
+                // 흐린 국기 = 그 언어에 남은 일. 누르면 그 언어 하나만 다루는 지시문 (`--prepare 앱 --lang`)
+                .onTapGesture {
+                    guard !gaps.isEmpty, let app = store.app(named: status.path) else { return }
+                    Task { await store.copyPrepPrompt(app, lang: loc) }
+                }
             }
             Text("\(supportedLocales.count)개 언어")
                 .font(.caption2).foregroundStyle(.tertiary)

@@ -162,6 +162,10 @@ struct AppStatus: Identifiable, Codable {
     var locales: [String]?
     /// docs/screenshots/ 에서 읽은 그림 준비 상태 (네트워크 없이). nil = 그림 폴더가 없는 앱.
     var shots: ShotReport?
+    /// 자동 배포 완비 기준(`--prepare`)에서 빠진 것. 배포를 막지는 않지만, 이걸 카드가 안 보여 주면
+    /// 스토어 문구·스크린샷이 통째로 없는 앱도 "배포 가능 · 권장 2건" 으로 다 된 것처럼 보인다.
+    /// nil = 확인하지 않음(옛 status-cache.json).
+    var prepGaps: [DeployPrep.Gap]?
 
     // "지금 배포하려면 뭐가 필요한가" — 카드에서 바로 보여 주는 체크리스트
     var readiness: Readiness = Readiness()

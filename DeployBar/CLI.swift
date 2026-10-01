@@ -43,6 +43,7 @@ enum CLI {
                      [--overwrite]  스토어에 이미 있는 글까지 레포 글로 덮어쓴다
                      [--replace-shots]  모든 언어 그림이 준비됐을 때만 기존 스크린샷을 지우고 올린다
       --prepare <앱>              자동 배포 완비 기준 검사 + Claude Code 에 붙여넣을 배포 준비 지시문
+      --prepare <앱> --lang <로케일>  새 언어 하나만 — 그 언어를 다른 언어 수준으로 채우는 지시문 (예: --lang fr-FR)
       --storetext <앱>            App Store Connect 에 지금 올라가 있는 문구를 언어별로 (읽기만)
       --autowrite <앱> [--dry-run] [--no-commit]
                                  빈 스토어 문구(이름·부제·키워드·프로모션·설명)와 이번 버전 릴리즈노트를
@@ -65,7 +66,7 @@ enum CLI {
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
         "--selftest-changes", "--selftest-lock", "--selftest-version",
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
-        "--shotplan", "--todo", "--prepare", "--storetext",
+        "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
     ]
 
     static func runIfRequested() {
@@ -643,13 +644,27 @@ enum CLI {
         guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
             print("앱을 찾지 못했습니다: \(name)"); exit(1)
         }
+        let lang = CommandLine.arguments.firstIndex(of: "--lang").flatMap {
+            CommandLine.arguments.count > $0 + 1 ? CommandLine.arguments[$0 + 1] : nil
+        }
         let sem = DispatchSemaphore(value: 0)
         Task.detached {
             let audit = await DeployPrep.audit(app)
-            print(DeployPrep.prompt(app, audit))
+            print(DeployPrep.prompt(app, audit, lang: lang))
+            print("")
+            if let lang {
+                // 새 언어 하나의 판정 — LOCALES 에 없으면 아직 검사 대상도 아니므로 완비일 수 없다
+                let name = Locales.displayName(lang)
+                let declared = audit.locales.contains { Locales.sameLanguage($0, lang) }
+                let left = audit.gaps.filter { g in !g.human && (g.locales?.contains { Locales.sameLanguage($0, lang) } ?? false) }
+                if !declared { print("❌ \(name) 미완 — deploy.env 의 LOCALES 에 아직 없습니다") }
+                else if left.isEmpty { print("✅ \(name) 완비") }
+                else { print("❌ \(name) 미완 — 빠진 것 \(left.count)개") }
+                sem.signal()
+                return
+            }
             let mine = audit.gaps.filter { !$0.human }
             let human = audit.gaps.filter(\.human)
-            print("")
             if mine.isEmpty {
                 print("✅ 자동 배포 완비" + (human.isEmpty ? "" : " — 사람 몫 \(human.count)개만 남음"))
             } else {

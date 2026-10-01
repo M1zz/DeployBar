@@ -54,8 +54,28 @@ enum AppRepo {
             if hasProject && !isEmptyShell(dir) {
                 apps.append(ManagedApp(name: name, path: dir, key: projectKey(dir)))
             }
+            // 앱 폴더 안에 따로 배포하는 앱 (맥 앱 레포 안의 아이폰 리모컨 같은 것)
+            for sub in nestedAppDirs(dir) {
+                let path = "\(dir)/\(sub)"
+                if !isEmptyShell(path) { apps.append(ManagedApp(name: sub, path: path, key: projectKey(path))) }
+            }
         }
         return apps
+    }
+
+    /// 앱 폴더 바로 아래에서 **따로 배포하는 앱** 폴더 이름들.
+    /// 자기 .xcodeproj 와 deploy.env 가 둘 다 있어야 한다 — deploy.env 가 "이건 별개 앱이다" 라는 선언이다.
+    /// (도구·예제·테스트용 하위 프로젝트까지 앱으로 잡지 않게, 프로젝트만으로는 고르지 않는다)
+    static func nestedAppDirs(_ dir: String) -> [String] {
+        let fm = FileManager.default
+        return ((try? fm.contentsOfDirectory(atPath: dir)) ?? []).sorted().filter { name in
+            if name.hasPrefix(".") || name == "build" { return false }
+            let sub = "\(dir)/\(name)"
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: sub, isDirectory: &isDir), isDir.boolValue else { return false }
+            let files = (try? fm.contentsOfDirectory(atPath: sub)) ?? []
+            return files.contains("deploy.env") && files.contains { $0.hasSuffix(".xcodeproj") || $0.hasSuffix(".xcworkspace") }
+        }
     }
 
     /// 루트 아래에 있는데 관리 대상이 **안 된** 폴더와 그 이유.

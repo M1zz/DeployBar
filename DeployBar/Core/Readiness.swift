@@ -18,6 +18,7 @@ enum Fix: String, Codable {
     case shotPrompt  // 스크린샷 다시 찍을 지시문을 클립보드에 (찍는 건 붙여넣은 세션이 한다)
     case attachBuild // 올라간 빌드를 App Store 버전에 고른다 (ASC API)
     case publishStore // APPSTORE.md 문구 + docs/screenshots 그림을 스토어에 올린다 (ASC API)
+    case prepPrompt  // 배포 준비 지시문(완비 기준 + 빠진 것)을 클립보드에 (채우는 건 붙여넣은 세션이 한다)
 
     var label: String {
         switch self {
@@ -29,6 +30,7 @@ enum Fix: String, Codable {
         case .shotPrompt: return "프롬프트 복사"
         case .attachBuild: return "빌드 연결"
         case .publishStore: return "스토어 올리기"
+        case .prepPrompt: return "지시문 복사"
         }
     }
 }
@@ -486,15 +488,15 @@ struct Readiness: Codable, Hashable {
             }
         }
 
-        // 10.4) deploy.env 에 적었지만 App Store 페이지에 없는 언어.
-        //       이 언어의 노트는 만들어도 올릴 자리가 없어 조용히 버려진다.
-        //       "영어 노트를 분명히 썼는데 왜 스토어엔 한국어뿐이지" 의 답이 여기 있다.
+        // 10.4) deploy.env 에 적었지만 App Store 페이지에 아직 없는 언어 — 새로 늘린 언어.
+        //       예전엔 "웹에서 언어를 추가하세요" 라고 사람에게 넘겼지만, 이제 배포가 시작될 때
+        //       (applyReleaseNotes → StorePublish.addLanguages) 앱 정보·버전 페이지를 스스로 만든다.
+        //       그래서 사람이 할 일은 없다. 그 언어의 글·그림이 레포에 있는지는 10.7 이 따로 말한다.
         if !status.notesUnlistedLocales.isEmpty {
             let names = status.notesUnlistedLocales.map { Locales.displayName($0) }.joined(separator: ", ")
             out.append(ReadyItem(
-                key: "asclocale", level: .need, title: "App Store 에 없는 언어 — \(status.notesUnlistedLocales.count)개",
-                detail: "deploy.env 의 \(names) 는 App Store 페이지에 없어 릴리즈노트가 올라가지 않습니다",
-                todo: "App Store Connect ▸ 앱 정보 ▸ 현지화에서 언어를 추가하거나, deploy.env 의 LOCALES 에서 빼세요"))
+                key: "asclocale", level: .ok, title: "새 언어 \(status.notesUnlistedLocales.count)개 — 배포 때 스토어에 추가",
+                detail: "\(names) 는 아직 App Store 페이지에 없습니다 — 배포가 시작될 때 DeployBar 가 그 언어 페이지를 만들고 레포의 문구·릴리즈노트를 올립니다"))
         }
 
         // 10.45) 첫 출시라면 — 스토어 페이지가 차 있어야 제출 버튼이 눌린다.
@@ -578,6 +580,38 @@ struct Readiness: Codable, Hashable {
                     + "`### 앱스토어` 절에 스토어용 문구를 써 두면 배포가 그걸 그대로 씁니다"))
         }
 
+        // 10.7) 자동 배포 완비 — 언어마다 스토어 문구·릴리즈노트·스크린샷이 레포에 다 있나.
+        //       배포를 막지 않는다. 그런데 이걸 안 보여 주면 APPSTORE.md 도 스크린샷도 없는 앱이
+        //       "배포 가능 · 권장 2건" 으로 다 된 것처럼 보이고, 빈 곳은 `--prepare` 를 돌려 본 사람만 안다.
+        //       기준은 DeployPrep 한 곳에 있고 여기선 갈래별로 묶어 보여 주기만 한다.
+        //       다른 항목이 이미 말하는 것(번역 구멍 = i18n, 커밋 = git)과 사람 몫은 빼서 같은 말을 두 번 하지 않는다.
+        if let gaps = status.prepGaps {
+            let mine = gaps.filter { !$0.human && $0.area != "다국어" && $0.area != "저장소" }
+            let areas = ["설정", "스토어 문구", "릴리즈노트", "스크린샷"]
+            for area in areas + Set(mine.map(\.area)).subtracting(areas).sorted() {
+                let list = mine.filter { $0.area == area }
+                guard !list.isEmpty else { continue }
+                // 지시문용 명령 안내(" — `DeployBar --…`")는 카드에선 소음이다 — 할 일은 버튼이 말한다
+                let head = list.prefix(3).map { $0.text.components(separatedBy: " — `").first ?? $0.text }
+                    .joined(separator: " · ")
+                let more = list.count > 3 ? " 외 \(list.count - 3)건" : ""
+                out.append(ReadyItem(
+                    key: "prep-\(area)", level: .need,
+                    title: "\(area) — 빠진 것 \(list.count)건",
+                    detail: head + more,
+                    fix: area == "스크린샷" ? .shotPrompt : .prepPrompt,
+                    todo: area == "스크린샷"
+                        ? "[프롬프트 복사] 를 눌러 Claude Code 에 붙여넣으면 언어마다 시뮬레이터로 찍습니다"
+                        : "[지시문 복사] 를 눌러 Claude Code 에 붙여넣으면 완비 기준대로 언어마다 채웁니다",
+                    agent: "`\(DeployPrep.cli) --prepare \(status.name)` 를 실행해 그 지시를 따라 이 갈래(\(area))의 빈 곳을 모든 언어에 채워줘. 끝에 `✅ 자동 배포 완비` 가 나와야 한다."))
+            }
+            if mine.isEmpty {
+                out.append(ReadyItem(
+                    key: "prep", level: .ok, title: "자동 배포 완비",
+                    detail: "언어마다 스토어 문구·릴리즈노트·스크린샷이 레포에 있습니다"))
+            }
+        }
+
         // 11) 심사 진행 중 — 배포는 되지만 알고 눌러야 한다
         if let label = status.reviewLabel, let v = status.reviewVersion {
             if status.inReview {
@@ -649,7 +683,7 @@ extension ReadyItem {
                 + "내부 리팩터링·빌드 설정·의존성 얘기는 빼고 사용자가 무엇이 좋아졌는지만 쓴다. 영어는 한국어를 기계번역하지 말고 그 언어권에서 자연스럽게 다시 쓰되 항목 수와 순서는 맞춰줘. "
                 + "무엇을 냈는지는 직전 릴리즈 태그 이후의 커밋을 읽어서 판단해."
         case "asclocale":
-            return "deploy.env 의 LOCALES 를 확인해줘. 스토어 페이지에 없는 언어를 지금 추가할 생각이 없다면 그 언어를 LOCALES 에서 빼고(주석과 키 순서는 그대로), 스토어에 언어를 추가할 생각이면 빼지 말고 그렇다고 알려줘 — 언어 추가는 App Store Connect 에서 사람이 한다."
+            return "스토어 페이지에 아직 없는 언어다. 페이지는 배포할 때 DeployBar 가 만든다 — App Store Connect 는 건드리지 마. 대신 `\(DeployPrep.cli) --prepare \(status.name) --lang <로케일>` 로 그 언어의 글·그림이 레포에 다 있는지 확인하고 빈 곳을 채워줘."
         case "asbuild":
             return "이건 네가 할 수 있는 일이 아니다. App Store Connect 웹에서 사람이 빌드를 고르는 절차라 코드에 고칠 게 없어. 손대지 말고 남겨 둔 채로 알려줘."
         default:
@@ -663,7 +697,7 @@ extension Readiness {
     func promptText(for status: AppStatus, only: ReadyItem? = nil) -> String {
         // 스크린샷은 [프롬프트 복사] 로 **자기 지시문**을 따로 받는다.
         // 한 프롬프트에 배포 잠김 해결과 시뮬레이터 촬영을 섞으면 둘 다 어설프게 끝난다.
-        let targets = only.map { [$0] } ?? items.filter { $0.level != .ok && $0.key != "shots" }
+        let targets = only.map { [$0] } ?? items.filter { $0.level != .ok && $0.key != "shots" && $0.key != "prep-스크린샷" }
         let blocked = targets.filter { $0.level == .blocked }
         let advised = targets.filter { $0.level == .need }
 

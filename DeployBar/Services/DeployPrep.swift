@@ -11,11 +11,14 @@ import Foundation
 // "배포 준비" 규칙이 `DeployBar --prepare <앱>` 를 부르므로, 기준을 바꿀 곳은 여기 하나다.
 enum DeployPrep {
 
-    struct Gap {
-        let area: String     // 설정 · 다국어 · 스토어 문구 · 릴리즈노트 · 스크린샷 · 심사 · 저장소
-        let text: String
+    struct Gap: Codable, Hashable {
+        var area: String     // 설정 · 다국어 · 스토어 문구 · 릴리즈노트 · 스크린샷 · 심사 · 저장소
+        var text: String
         /// 사람만 할 수 있는 일(애플에 하는 신고·웹에서만 되는 설정) — Claude 는 하지 말고 알려야 한다
         var human = false
+        /// 이 빈 곳이 걸린 언어. 카드의 국기가 언어마다 무엇이 남았는지 말하고,
+        /// 새 언어 하나만 채우는 지시문(`--prepare 앱 --lang fr`)이 이 값으로 고른다. nil = 언어와 무관.
+        var locales: [String]? = nil
     }
 
     struct Audit {
@@ -31,11 +34,21 @@ enum DeployPrep {
 
     static let cli = "/Applications/DeployBar.app/Contents/MacOS/DeployBar"
 
+    /// 새로고침이 이미 아는 것. 이걸 주면 audit 가 스토어를 다시 묻지 않고, URL 을 열어 보지도 않는다.
+    /// 앱 서른 개를 돌 때마다 요청이 수십 개씩 늘면 새로고침이 느려지기 때문이다.
+    /// (URL 이 열리는지는 `--prepare` 와 [배포 준비 지시문 복사] 가 본다.)
+    struct Known {
+        var version: String
+        var released: Bool
+    }
+
     // ── 검사 ────────────────────────────────────────────────────────────
-    static func audit(_ app: ManagedApp) async -> Audit {
+    static func audit(_ app: ManagedApp, known: Known? = nil) async -> Audit {
         var a = Audit()
         let r = AppRepo.resolve(app)
-        func gap(_ area: String, _ text: String, human: Bool = false) { a.gaps.append(Gap(area: area, text: text, human: human)) }
+        func gap(_ area: String, _ text: String, human: Bool = false, _ locales: [String]? = nil) {
+            a.gaps.append(Gap(area: area, text: text, human: human, locales: locales))
+        }
         guard r.exists else { gap("설정", "Xcode 프로젝트를 찾지 못했습니다"); return a }
         let info = try? AppRepo.buildSettings(r)
         let pbx = projectText(app.path)
@@ -59,17 +72,18 @@ enum DeployPrep {
         a.locales = Locales.sorted(r.locales.isEmpty ? appLangs : r.locales)
         let undeclared = appLangs.filter { l in !r.locales.contains { Locales.sameLanguage($0, l) } }
         if !r.locales.isEmpty, !undeclared.isEmpty {
-            gap("설정", "앱은 \(undeclared.joined(separator: ", ")) 로도 번역돼 있는데 deploy.env 의 LOCALES 에 없습니다 — 스토어 페이지도 그 언어로 내야 합니다")
+            gap("설정", "앱은 \(undeclared.joined(separator: ", ")) 로도 번역돼 있는데 deploy.env 의 LOCALES 에 없습니다 — 스토어 페이지도 그 언어로 내야 합니다", undeclared)
         }
 
         // 2) 앱 안의 번역
         if !scan.issues.isEmpty {
-            gap("다국어", "앱 문자열 번역 구멍 \(scan.issues.count)개 (예: \(scan.issues.first!.line)) — `\(cli) --doctor \(app.name)` 로 전체를 보세요")
+            gap("다국어", "앱 문자열 번역 구멍 \(scan.issues.count)개 (예: \(scan.issues.first!.line)) — `\(cli) --doctor \(app.name)` 로 전체를 보세요",
+                Array(Set(scan.issues.map(\.locale))).sorted())
         }
 
         // 3) 스토어 문구 — 언어마다 모든 칸, 그 언어로, 한도 안에서
         let meta = StoreMeta.read(app.path, locales: a.locales)
-        if meta == nil { gap("스토어 문구", "APPSTORE.md 가 없습니다 — `\(cli) --storemeta \(app.name) --write` 로 뼈대를 만드세요") }
+        if meta == nil { gap("스토어 문구", "APPSTORE.md 가 없습니다 — `\(cli) --storemeta \(app.name) --write` 로 뼈대를 만드세요", a.locales) }
         for loc in a.locales {
             let e = meta?.entries.first { Locales.sameLanguage($0.key, loc) }?.value
             let name = Locales.displayName(loc)
@@ -77,26 +91,28 @@ enum DeployPrep {
                                                 ("프로모션 텍스트", e?.promotionalText), ("설명", e?.description),
                                                 ("지원 URL", e?.supportUrl), ("개인정보처리방침 URL", e?.privacyPolicyUrl)]
             let missing = fields.filter { ($0.1 ?? "").isEmpty }.map(\.0)
-            if !missing.isEmpty { gap("스토어 문구", "\(name) — \(missing.joined(separator: "·")) 없음") }
+            if !missing.isEmpty { gap("스토어 문구", "\(name) — \(missing.joined(separator: "·")) 없음", [loc]) }
             if let e {
-                for p in StoreMeta.problems(loc, e) { gap("스토어 문구", p) }
+                for p in StoreMeta.problems(loc, e) { gap("스토어 문구", p, [loc]) }
                 if !Locales.isKorean(loc) {
                     let text = [e.name, e.subtitle, e.keywords, e.promotionalText, e.description].compactMap { $0 }.joined()
                     if text.unicodeScalars.contains(where: { (0xAC00...0xD7A3).contains($0.value) }) {
-                        gap("스토어 문구", "\(name) 문구에 한글이 섞여 있습니다 — 그 언어로 다시 써야 합니다")
+                        gap("스토어 문구", "\(name) 문구에 한글이 섞여 있습니다 — 그 언어로 다시 써야 합니다", [loc])
                     }
                 }
                 if let k = e.keywords, let n = e.name {
                     let nameWords = Set(n.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { $0.count > 2 })
                     let dup = k.lowercased().split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
                         .filter { nameWords.contains($0) }
-                    if !dup.isEmpty { gap("스토어 문구", "\(name) 키워드가 이름의 단어를 반복합니다(\(dup.joined(separator: ", "))) — 애플은 이름을 이미 검색에 넣으니 자리 낭비입니다") }
+                    if !dup.isEmpty { gap("스토어 문구", "\(name) 키워드가 이름의 단어를 반복합니다(\(dup.joined(separator: ", "))) — 애플은 이름을 이미 검색에 넣으니 자리 낭비입니다", [loc]) }
                 }
             }
         }
 
         // 4) 릴리즈노트 — 배포가 쓸 번호의 절에, 모든 언어
-        let store = await storeState(bundleId: info?.bundleId, local: info?.marketingVersion ?? "?")
+        let store: (version: String, released: Bool)
+        if let known { store = (known.version, known.released) }
+        else { store = await storeState(bundleId: info?.bundleId, local: info?.marketingVersion ?? "?") }
         a.version = store.version
         let notes = RepoNotes.read(app.path, version: a.version, locales: a.locales)?.texts ?? [:]
         let noNotes = a.locales.filter { l in !notes.keys.contains { Locales.sameLanguage($0, l) } }
@@ -106,14 +122,14 @@ enum DeployPrep {
         if !noNotes.isEmpty && nothingNew {
             a.notes.append("v\(a.version) 릴리즈노트는 아직 쓸 내용이 없습니다 — 직전 배포(\(lastDeploy!)) 이후 커밋이 없습니다. 변경을 만든 뒤 쓰세요")
         } else if !noNotes.isEmpty {
-            gap("릴리즈노트", "RELEASE_NOTES.md 의 `## \(a.version)` 에 \(noNotes.map { Locales.displayName($0) }.joined(separator: ", ")) 이(가) 없습니다")
+            gap("릴리즈노트", "RELEASE_NOTES.md 의 `## \(a.version)` 에 \(noNotes.map { Locales.displayName($0) }.joined(separator: ", ")) 이(가) 없습니다", noNotes)
         }
 
         // 5) 스크린샷 — 언어마다, 기기마다, 규격대로
         if let rep = StorePublish.shotReport(app.path, platform: info?.platform ?? .iOS, locales: a.locales) {
             if !rep.hasPrimary { gap("스크린샷", "\(info?.platform == .macOS ? "Mac" : "아이폰") 제출 규격 그림이 없습니다") }
             if !rep.missingLocales.isEmpty {
-                gap("스크린샷", "그림 없는 언어: \(rep.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))")
+                gap("스크린샷", "그림 없는 언어: \(rep.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))", rep.missingLocales)
             }
             for s in rep.skipped.prefix(3) { gap("스크린샷", s) }
             let plan = StorePublish.shotPlan(app.path, platform: info?.platform ?? .iOS, locales: a.locales)
@@ -124,16 +140,16 @@ enum DeployPrep {
                 }
             }
             if a.hasWatch, !covered("Watch").isEmpty {
-                gap("스크린샷", "워치 앱이 있는데 워치 그림이 없는 언어: \(covered("Watch").map { Locales.displayName($0) }.joined(separator: ", ")) (416×496)")
+                gap("스크린샷", "워치 앱이 있는데 워치 그림이 없는 언어: \(covered("Watch").map { Locales.displayName($0) }.joined(separator: ", ")) (416×496)", covered("Watch"))
             }
             if a.hasPad, !covered("iPad").isEmpty {
-                gap("스크린샷", "아이패드를 지원하는데 아이패드 그림이 없는 언어: \(covered("iPad").map { Locales.displayName($0) }.joined(separator: ", ")) (2064×2752)")
+                gap("스크린샷", "아이패드를 지원하는데 아이패드 그림이 없는 언어: \(covered("iPad").map { Locales.displayName($0) }.joined(separator: ", ")) (2064×2752)", covered("iPad"))
             }
             if a.locales.count > 1, plan.rows.allSatisfy({ $0.locale == "모든 언어" }) {
                 gap("스크린샷", "모든 언어에 같은 그림 한 벌을 씁니다 — 언어마다 그 언어 화면으로 찍어야 합니다 (marketing/<언어>/)")
             }
         } else {
-            gap("스크린샷", "docs/screenshots/ 가 없습니다")
+            gap("스크린샷", "docs/screenshots/ 가 없습니다", a.locales)
         }
 
         // 6) 심사 — 사람의 신고가 필요한 것
@@ -151,7 +167,10 @@ enum DeployPrep {
             if let u = e.supportUrl { urls.insert(u) }
             if let u = e.privacyPolicyUrl { urls.insert(u) }
         }
-        for u in urls.sorted() where !(await reachable(u)) { gap("스토어 문구", "열리지 않는 URL: \(u)") }
+        for u in urls.sorted() where known == nil {
+            guard !(await reachable(u)) else { continue }
+            gap("스토어 문구", "열리지 않는 URL: \(u)")
+        }
 
         // 8) 저장소
         if GitInfo.isRepo(app.path), GitInfo.isDirty(app.path) {
@@ -160,8 +179,32 @@ enum DeployPrep {
         return a
     }
 
+    /// xcodebuild 한 번이 몇 초라 새로고침마다 부르면 안 된다. 프로젝트 파일이 그대로면 답도 그대로다.
+    private static let familyCache = FamilyCache()
+    private final class FamilyCache: @unchecked Sendable {
+        private var map: [String: (Date, [String])] = [:]
+        private let lock = NSLock()
+        func get(_ k: String, _ d: Date) -> [String]? { lock.lock(); defer { lock.unlock() }; return map[k].flatMap { $0.0 == d ? $0.1 : nil } }
+        func set(_ k: String, _ d: Date, _ v: [String]) { lock.lock(); defer { lock.unlock() }; map[k] = (d, v) }
+    }
+
     /// iOS SDK 기준 본체의 TARGETED_DEVICE_FAMILY 숫자들 ("1,2" → ["1","2"]).
     private static func iosFamily(_ r: ResolvedApp, bundleId: String?) -> [String] {
+        let stamp = projectStamp(r.path)
+        if let stamp, let hit = familyCache.get(r.path, stamp) { return hit }
+        let family = readFamily(r, bundleId: bundleId)
+        if let stamp, !family.isEmpty { familyCache.set(r.path, stamp, family) }
+        return family
+    }
+
+    private static func projectStamp(_ root: String) -> Date? {
+        guard let proj = ((try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [])
+            .first(where: { $0.hasSuffix(".xcodeproj") }) else { return nil }
+        let p = (root as NSString).appendingPathComponent("\(proj)/project.pbxproj")
+        return (try? FileManager.default.attributesOfItem(atPath: p))?[.modificationDate] as? Date
+    }
+
+    private static func readFamily(_ r: ResolvedApp, bundleId: String?) -> [String] {
         guard let out = try? Shell.capture("/usr/bin/xcodebuild", [
             "-showBuildSettings", "-json", r.projFlag, r.projContainer,
             "-scheme", r.scheme, "-configuration", "Release", "-sdk", "iphoneos",
@@ -185,11 +228,17 @@ enum DeployPrep {
     private static func storeState(bundleId: String?, local: String) async -> (version: String, released: Bool) {
         guard let bundleId, let appId = try? await ASCClient.appId(bundleId: bundleId),
               let vers = try? await ASCClient.appStoreVersions(appId: appId) else { return (local, true) }
+        let k = known(versions: vers, local: local)
+        return (k.version, k.released)
+    }
+
+    /// 버전 목록을 이미 받아 둔 쪽(새로고침)이 같은 규칙으로 번호를 정하게 한다.
+    static func known(versions vers: [ASCClient.Version], local: String) -> Known {
         let editable = vers.first { ReleaseNotes.editableStates.contains($0.state) }?.versionString
         let closed = vers.filter { !ReleaseNotes.editableStates.contains($0.state) }
             .map(\.versionString).max { Status.cmpVer($0, $1) < 0 }
         let released = vers.contains { $0.state == "READY_FOR_SALE" || $0.state == "REPLACED_WITH_NEW_VERSION" }
-        return (Deployer.planVersion(local: local, bump: nil, editable: editable, closed: closed).version, released)
+        return Known(version: Deployer.planVersion(local: local, bump: nil, editable: editable, closed: closed).version, released: released)
     }
 
     private static func reachable(_ url: String) async -> Bool {
@@ -249,7 +298,10 @@ enum DeployPrep {
     }
 
     // ── 지시문 ──────────────────────────────────────────────────────────
-    static func prompt(_ app: ManagedApp, _ a: Audit) -> String {
+    /// `lang` 을 주면 **그 언어 하나**를 다른 언어와 같은 수준으로 올리는 지시문이 된다 — 새 언어를 늘릴 때.
+    /// 앱 전체 지시문에 열 언어 치 빈 곳이 섞여 있으면 새 언어 하나 하려다 다른 언어까지 건드린다.
+    static func prompt(_ app: ManagedApp, _ a: Audit, lang: String? = nil) -> String {
+        if let lang { return langPrompt(app, a, lang) }
         var s = "\(app.path) 를 App Store 자동 배포에 **완비된 상태**로 만들어줘. 서비스로 내는 앱이다 — 품질을 낮추는 타협은 하지 마.\n\n"
         s += "## 앱\n- \(app.name) · 배포할 버전 v\(a.version)\n- 대상 언어 \(a.locales.count)개: \(a.locales.joined(separator: ", "))\n"
         if a.hasWatch { s += "- 워치 앱 있음\n" }
@@ -296,6 +348,47 @@ enum DeployPrep {
         - App Store Connect 를 직접 고치지 마. 레포의 APPSTORE.md · RELEASE_NOTES.md · docs/screenshots 가 원본이고, 배포가 그대로 올린다.
         - 앱에 없는 기능을 문구에 쓰지 마. 모르면 소스를 읽고 확인해라.
         - 기계번역 같은 문장, 다른 언어가 섞인 문장, 한도를 넘는 문장은 실패로 친다.
+        - 못 끝낸 게 있으면 "됐다" 고 하지 말고 무엇이 왜 남았는지 알려줘.
+        """
+        return s
+    }
+
+    /// 새 언어 하나만. 기준(standard)은 같고, 빈 곳과 할 일을 그 언어로 좁힌다.
+    private static func langPrompt(_ app: ManagedApp, _ a: Audit, _ lang: String) -> String {
+        let name = Locales.displayName(lang)
+        let declared = a.locales.contains { Locales.sameLanguage($0, lang) }
+        let base = a.locales.first(where: Locales.isKorean) ?? a.locales.first ?? "ko"
+        func mine(_ g: Gap) -> Bool { g.locales?.contains { Locales.sameLanguage($0, lang) } ?? false }
+        let gaps = a.gaps.filter { !$0.human && mine($0) }
+
+        var s = "\(app.path) 에 **\(name)(\(lang))** 을(를) 새로 지원하려 한다. 이 언어를 이미 있는 언어들과 같은 수준으로 맞춰줘. "
+        s += "서비스로 내는 앱이다 — 품질을 낮추는 타협은 하지 마. **다른 언어의 글·그림은 건드리지 마.**\n\n"
+        s += "## 앱\n- \(app.name) · 배포할 버전 v\(a.version)\n- 이미 있는 언어: \(a.locales.filter { !Locales.sameLanguage($0, lang) }.joined(separator: ", "))\n"
+        if a.hasWatch { s += "- 워치 앱 있음\n" }
+        if a.hasPad { s += "- 아이패드 지원\n" }
+        s += "\n## \(name) 에 할 일 — 순서대로\n"
+        var n = 0
+        func step(_ t: String) { n += 1; s += "\(n). \(t)\n" }
+        if !declared {
+            step("`deploy.env` 의 LOCALES 에 `\(lang)` 을 넣는다(주석과 키 순서는 그대로). 넣어야 DeployBar 가 이 언어를 검사하고, 배포할 때 App Store 페이지에 이 언어를 **스스로 만든다** — 웹에서 언어를 추가할 필요 없다.")
+        }
+        step("앱 번역 — .xcstrings 의 `\(lang)` 값을 전부 채운다(복수형·기기별 variations 안까지). 한국어 원문 기준, 직역 금지. `\(cli) --doctor \(app.name)` 에 이 언어 구멍이 없어야 한다. InfoPlist.xcstrings(권한 문구·앱 이름)도 잊지 마.")
+        step("스토어 문구 — `APPSTORE.md` 에 `## \(lang)` 절을 만들고 이름·부제·키워드·프로모션 텍스트·설명·지원 URL·개인정보처리방침 URL 을 **전부** 쓴다. `\(base)` 절을 출발점으로 삼되 그 나라 앱스토어 문체로 새로 쓰고, 키워드는 그 나라 사람이 검색창에 칠 말로 다시 고른다.")
+        step("릴리즈노트 — `RELEASE_NOTES.md` 의 `## \(a.version)` 에 `### 앱스토어 (\(lang))` 절(제목의 로케일 코드로 언어를 알아본다). 다른 언어와 항목 수·순서를 맞춘다.")
+        step("스크린샷 — `docs/screenshots/marketing/\(lang)/` 에 이 언어 화면으로 찍는다(시뮬레이터 언어를 `\(lang)` 로). `\(cli) --shots \(app.name)` 의 지시와 appstore-assets 스킬을 따르되 **이 언어만** 찍는다." + (a.hasPad ? " 아이패드 2064×2752 도." : "") + (a.hasWatch ? " 워치 416×496 도." : ""))
+        step("확인 — `\(cli) --prepare \(app.name) --lang \(lang)` 의 끝이 `✅ \(name) 완비` 여야 한다. 그다음 커밋한다(메시지에 \(name) 추가라고 적는다).")
+
+        s += "\n"
+        s += standard(app.name, locales: a.locales, hasWatch: a.hasWatch, hasPad: a.hasPad)
+        s += !declared
+            ? "## \(name) 에서 지금 빠진 것\nLOCALES 에 없어 아직 검사 대상이 아니다 — 위 할 일 전부가 남았다. 1번을 한 뒤 이 명령을 다시 돌리면 빈 곳이 나온다.\n\n"
+            : gaps.isEmpty
+            ? "## \(name) 에서 지금 빠진 것\nDeployBar 가 찾은 빈 곳은 없다. 그래도 글과 그림의 품질(원어민 문체·키워드·그림 속 언어)을 직접 확인해라.\n\n"
+            : "## \(name) 에서 지금 빠진 것 — DeployBar 가 찾은 것\n" + gaps.map { "- [\($0.area)] \($0.text)" }.joined(separator: "\n") + "\n\n"
+        s += """
+        ## 지켜야 할 것
+        - 빌드·아카이브·업로드·심사 제출은 하지 마. App Store Connect 도 직접 고치지 마 — 이 언어 페이지는 배포가 만든다.
+        - 앱에 없는 기능을 문구에 쓰지 마. 기계번역 같은 문장, 한글이 섞인 문장, 한도를 넘는 문장은 실패로 친다.
         - 못 끝낸 게 있으면 "됐다" 고 하지 말고 무엇이 왜 남았는지 알려줘.
         """
         return s

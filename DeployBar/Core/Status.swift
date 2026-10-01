@@ -38,10 +38,13 @@ enum Status {
         st.pulledCommits = sync?.pulled ?? 0
         st.pullSkipped = sync?.skipped
         st.pullAttempted = sync?.attemptedPull ?? false
+        // 배포 준비 검사가 쓸 번호 — 스토어 버전 목록을 받으면 그 규칙으로, 못 받으면 로컬 번호로
+        var known = DeployPrep.Known(version: info.marketingVersion, released: true)
 
         do {
             if let id = try await ASCClient.appId(bundleId: info.bundleId) {
                 let vers = try await ASCClient.appStoreVersions(appId: id)
+                known = DeployPrep.known(versions: vers, local: info.marketingVersion)
                 let ready = vers.first { $0.state == "READY_FOR_SALE" }
                 st.liveVersion = (ready ?? vers.first)?.versionString
                 st.liveState = (ready ?? vers.first)?.state
@@ -113,6 +116,8 @@ enum Status {
         if st.dirty { st.state = .dev }
         else if verAhead || buildAhead || commitsAhead || storeWaiting { st.state = .ready }
         else { st.state = .deployed }
+
+        st.prepGaps = await DeployPrep.audit(app, known: known).gaps
 
         // 상태가 정해진 뒤에 준비 체크리스트를 만든다 (판정 결과를 그대로 쓴다)
         st.readiness = Readiness.evaluate(app, status: st)

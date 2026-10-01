@@ -32,10 +32,16 @@ extension Store {
     }
 
     /// ⋯ › [배포 준비 지시문 복사] — 완비 기준 + 이 앱에서 빠진 것을 클립보드로.
-    func copyPrepPrompt(_ app: ManagedApp) async {
+    /// `lang` 을 주면(흐린 국기를 눌렀을 때) 그 언어 하나만 채우는 지시문이다.
+    func copyPrepPrompt(_ app: ManagedApp, lang: String? = nil) async {
         fixResult[app.path] = "배포 준비 상태를 살피는 중…"
         let audit = await DeployPrep.audit(app)
-        Clipboard.copy(DeployPrep.prompt(app, audit))
+        Clipboard.copy(DeployPrep.prompt(app, audit, lang: lang))
+        if let lang {
+            let left = audit.gaps.filter { g in !g.human && (g.locales?.contains { Locales.sameLanguage($0, lang) } ?? false) }.count
+            fixResult[app.path] = "📋 \(Locales.displayName(lang)) 지시문을 복사했습니다 — 빠진 것 \(left)개 · Claude Code 에 붙여넣으세요"
+            return
+        }
         let mine = audit.gaps.filter { !$0.human }.count
         fixResult[app.path] = mine == 0
             ? "📋 배포 준비 지시문을 복사했습니다 — 빠진 곳은 없지만 글 품질 점검을 맡기세요"

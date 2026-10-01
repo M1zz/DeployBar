@@ -525,6 +525,11 @@ enum StorePublish {
                     }
                     _ = try await ASCClient.createVersionLocalization(versionId: versionId, locale: code)
                     out.added.append(loc)
+                } catch let e as ASCClient.APIError where e.status == 409 && e.body.contains("already exists") {
+                    // 409 "Entity with locale: zh-Hant already exists" — 우리가 본 목록이 낡았을 뿐 언어는 있다.
+                    // 실패로 치면 부르는 쪽이 목록을 다시 읽지 않아, 있는 언어의 릴리즈노트를 버리고
+                    // 게이트에서 '비어 있음' 으로 배포가 멈춘다 (욕망의 무지개 1.1.9, 2026-10-02).
+                    out.added.append(loc)
                 } catch {
                     out.failed.append("\(label)(\(code)) 추가 실패 — \(reason(error))")
                 }
