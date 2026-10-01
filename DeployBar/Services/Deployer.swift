@@ -346,6 +346,11 @@ enum Deployer {
         // 3) archive 전에 — 심사 제출에서 막힐 것을 **지금** 말한다.
         //    수출 규정 준수(암호화) 답이 없으면 빌드·업로드·처리 대기를 다 거친 뒤 제출에서 멈춘다.
         //    배포를 막지는 않는다 (업로드는 의미가 있다) — 끝이 '미완' 이 된다는 걸 미리 알린다.
+        // 사람이 면제라고 선언했으면(deploy.env 또는 전체 설정) **빌드에 그 답을 심는다.**
+        // Info.plist 에 ITSAppUsesNonExemptEncryption=NO 가 있으면 애플이 빌드마다 묻지 않아서,
+        // 심사 제출 때 API 로 답하는 것(StorePublish.submit)이 실패하거나 옛 DeployBar 로 배포해도 멈추지 않는다.
+        // 레포 39개의 Info.plist 를 고치는 대신 archive 의 빌드 설정으로 넘긴다 (Info.plist 를 생성하는 타깃에 들어간다).
+        let encryptionSetting = r.encryptionExempt == true ? ["INFOPLIST_KEY_ITSAppUsesNonExemptEncryption=NO"] : []
         if lane == .appstore, r.autoSubmit, !StorePublish.encryptionAnswered(r) {
             onLog("⚠️  수출 규정 준수(암호화) 답이 준비돼 있지 않습니다 — 이대로면 업로드는 되지만 심사 제출에서 멈춥니다")
             for t in StorePublish.encryptionTodo { onLog("   → \(t)") }
@@ -361,7 +366,7 @@ enum Deployer {
             "-destination", info.platform.destination,
             "-archivePath", archivePath,
             "-allowProvisioningUpdates", "-quiet",
-        ], cwd: cwd,
+        ] + encryptionSetting, cwd: cwd,
            title: "xcodebuild archive 가 실패했습니다",
            todo: ["로그에서 **첫 번째** `error:` 줄이 원인입니다 (뒤쪽 줄은 그 여파인 경우가 많습니다)",
                   "Xcode 에서 같은 scheme 을 Product ▸ Archive 로 한 번 돌려 보면 같은 오류가 더 잘 보입니다",
