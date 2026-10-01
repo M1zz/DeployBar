@@ -385,14 +385,17 @@ extension ASCClient {
     static func openSubmission(appId: String) async throws -> Submission? {
         // ⚠️ `sort` 를 붙이면 안 된다 — reviewSubmissions 는 정렬을 받지 않고 HTTP 400 을 낸다
         //    ("The parameter 'sort' can not be used with this request"). 상태로만 거르면 충분하다.
+        // ⚠️ `submitted` 라는 필드는 없다 — 넣으면 HTTP 400 ("'submitted' is not a valid field name").
+        //    냈는지는 submittedDate 가 있거나 상태가 심사 대기·심사 중인지로 본다.
         let j = try await api("GET", "/v1/reviewSubmissions?filter[app]=\(appId)&limit=10"
-            + "&fields[reviewSubmissions]=state,submitted")
+            + "&fields[reviewSubmissions]=state,submittedDate")
         let data = j["data"] as? [[String: Any]] ?? []
         let open = data.compactMap { item -> Submission? in
             guard let id = item["id"] as? String else { return nil }
             let a = item["attributes"] as? [String: Any] ?? [:]
-            return Submission(id: id, state: a["state"] as? String ?? "",
-                              submitted: a["submitted"] as? Bool ?? false)
+            let state = a["state"] as? String ?? ""
+            let submitted = a["submittedDate"] is String || ["WAITING_FOR_REVIEW", "IN_REVIEW"].contains(state)
+            return Submission(id: id, state: state, submitted: submitted)
         }
         // 이미 끝난 것(COMPLETE·CANCELING)은 재사용하면 안 된다
         return open.first { ["READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "IN_REVIEW", "UNRESOLVED_ISSUES"].contains($0.state) }

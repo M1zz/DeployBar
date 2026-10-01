@@ -3,7 +3,24 @@ import CryptoKit
 
 // App Store Connect API 클라이언트 (CryptoKit ES256 JWT + URLSession, 의존성 0)
 enum ASCClient {
-    struct APIError: Error { let status: Int; let body: String }
+    struct APIError: Error, LocalizedError {
+        let status: Int
+        let body: String
+        /// 애플 오류 본문의 detail 을 꺼내 한 줄로. 이게 없으면 화면에는
+        /// "DeployBar.ASCClient.APIError error 1." 만 남아 무엇이 왜 거부됐는지 알 수 없다.
+        var errorDescription: String? {
+            if let d = body.data(using: .utf8),
+               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let errs = j["errors"] as? [[String: Any]], !errs.isEmpty {
+                let lines = errs.prefix(3).map { e -> String in
+                    let detail = e["detail"] as? String ?? ""
+                    return detail.isEmpty ? (e["title"] as? String ?? "") : detail
+                }
+                return "App Store Connect HTTP \(status) — " + lines.joined(separator: " / ")
+            }
+            return body.isEmpty ? "App Store Connect HTTP \(status)" : "App Store Connect HTTP \(status) — \(body.prefix(300))"
+        }
+    }
 
     static func base64url(_ d: Data) -> String {
         d.base64EncodedString()

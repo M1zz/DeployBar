@@ -116,9 +116,13 @@ extension Store {
                 job.lines.append("   → [릴리즈노트] 창에서 직접 입력하면 이 버전에 반영됩니다")
                 return "만들지 못했습니다 — [릴리즈노트] 창에서 직접 입력하세요"
             }
-            if Config.anthropicKey == nil {
+            // 레포(RELEASE_NOTES.md)에서 가져왔으면 커밋 제목을 쓴 게 아니다 — 그때 이 말을 하면
+            // "개발자용 문장이 스토어에 올라갔나" 하고 멀쩡한 노트를 의심하게 만든다.
+            if Config.anthropicKey == nil, !draft.commits.isEmpty {
                 job.lines.append("   ℹ️ ANTHROPIC_API_KEY 가 없어 커밋 제목을 그대로 씁니다 (사용자용 문구가 아닐 수 있음)")
-                job.lines.append("     ~/Library/Application Support/DeployBar/config.env 에 키를 넣으면 언어별로 다듬어 만듭니다")
+                job.lines.append("     RELEASE_NOTES.md 에 써 두거나 ⋯ › 스토어 페이지 › [스토어 문구 자동 작성] 으로 채우면 그 글을 씁니다")
+            } else if draft.commits.isEmpty, let note = draft.note {
+                job.lines.append("   ✓ \(note)")
             }
             let (texts, failed) = await fillMissing(draft.texts, base: draft.base) { job.lines.append($0) }
             // 자동 반영은 **빈 언어만** 채운다. 사람이 써 둔 글을 커밋 제목으로 덮어쓰면

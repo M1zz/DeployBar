@@ -232,7 +232,10 @@ enum AppRepo {
             platformOverride: pick("PLATFORM"),
             autoSubmit: isOn(pick("AUTO_SUBMIT")),
             autoRelease: isOn(pick("AUTO_RELEASE")),
-            encryptionExempt: pick("ENCRYPTION_EXEMPT").flatMap { v in
+            // 앱의 deploy.env 가 먼저, 없으면 DeployBar 전체 설정(config.env)의 값.
+            // "내 앱은 전부 운영체제 암호화만 쓴다" 는 사람 단위의 선언이라 한 곳에 적으면 모든 앱에 간다 —
+            // 레포 39개에 같은 줄을 심으면 새 앱을 추가할 때마다 빠뜨린다.
+            encryptionExempt: (pick("ENCRYPTION_EXEMPT") ?? Config.loadEnv(Config.configEnv)["ENCRYPTION_EXEMPT"]).flatMap { v in
                 let v = v.trimmingCharacters(in: .whitespaces).lowercased()
                 if ["yes", "true", "1", "on"].contains(v) { return true }
                 if ["no", "false", "0", "off"].contains(v) { return false }
