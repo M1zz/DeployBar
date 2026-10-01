@@ -16,7 +16,7 @@ extension Store {
                 }
                 for l in Store.describe(res, dryRun: false) { job.lines.append(l) }
                 job.verdict = .success(res.didWrite
-                    ? "\(Set(Array(res.store.keys) + Array(res.notes.keys)).count)개 언어 작성\(res.committed ? " · 커밋함" : "")"
+                    ? "\(Set(Array(res.store.keys) + Array(res.notes.keys) + Array(res.imported.keys)).count)개 언어 작성\(res.committed ? " · 커밋함" : "")"
                     : "쓸 것이 없었습니다")
                 fixResult[app.path] = res.didWrite
                     ? "✍️ 스토어 문구를 채웠습니다 — 다음 배포(또는 [스토어 올리기])가 올립니다"
@@ -57,6 +57,10 @@ extension Store {
                 out.append("   릴리즈노트:")
                 for line in n.components(separatedBy: "\n") { out.append("      \(line)") }
             }
+        }
+        if res.importedCount > 0 {
+            out.append("")
+            out.append("📥 스토어에만 있던 글을 레포로 가져온 칸: \(res.importedCount)개 (\(Locales.sorted(Array(res.imported.keys)).joined(separator: ", ")))")
         }
         if res.kept > 0 { out.append(""); out.append("이미 있어서 그대로 둔 칸: \(res.kept)개") }
         if !res.files.isEmpty {

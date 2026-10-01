@@ -17,8 +17,14 @@ enum StoreWriter {
     typealias Field = StoreMeta.Field
     static let fields: [Field] = [.name, .subtitle, .keywords, .promotionalText, .description]
 
+    /// 레포에 있어야 하지만 AI 가 지어내지 않는 칸 — 스토어에 있으면 가져오기만 한다.
+    static let urlFields: [Field] = [.supportUrl, .privacyPolicyUrl]
+
     static func label(_ f: Field) -> String {
         switch f {
+        case .supportUrl: return "지원 URL"
+        case .privacyPolicyUrl: return "개인정보처리방침 URL"
+        case .marketingUrl: return "마케팅 URL"
         case .name: return "이름"
         case .subtitle: return "부제"
         case .keywords: return "키워드"
@@ -47,8 +53,10 @@ enum StoreWriter {
 
     struct Result {
         var version = ""
-        /// 로케일 → 채운 칸
+        /// 로케일 → 채운 칸 (AI 가 쓴 것)
         var store: [String: [Field: String]] = [:]
+        /// 로케일 → 스토어에서 레포로 가져온 칸 (이미 그 언어로 맞게 쓰여 있던 것)
+        var imported: [String: [Field: String]] = [:]
         /// 로케일 → 채운 릴리즈노트
         var notes: [String: String] = [:]
         /// 이미 있어서 그대로 둔 칸 수 (레포 + ASC)
@@ -57,6 +65,7 @@ enum StoreWriter {
         var files: [String] = []
         var committed = false
         var didWrite: Bool { !files.isEmpty }
+        var importedCount: Int { imported.values.reduce(0) { $0 + $1.count } }
     }
 
     // ── 본체 ────────────────────────────────────────────────────────────
@@ -81,30 +90,36 @@ enum StoreWriter {
         locales = Locales.sorted(locales)
         let repo = StoreMeta.read(app.path, locales: locales)?.entries ?? [:]
 
-        func value(_ loc: String, _ f: Field) -> String? {
+        func repoValue(_ loc: String, _ f: Field) -> String? {
             let e = repo.first { Locales.sameLanguage($0.key, loc) }?.value
-            let fromRepo: String? = {
+            let v: String? = {
                 switch f {
                 case .name: return e?.name
                 case .subtitle: return e?.subtitle
                 case .keywords: return e?.keywords
                 case .promotionalText: return e?.promotionalText
+                case .supportUrl: return e?.supportUrl
+                case .privacyPolicyUrl: return e?.privacyPolicyUrl
+                case .marketingUrl: return e?.marketingUrl
                 default: return e?.description
                 }
             }()
-            if let v = fromRepo, !v.isEmpty { return v }
-            if let v = asc.values.first(where: { Locales.sameLanguage($0.key, loc) })?.value[f], !v.isEmpty,
-               !misplaced(v, locale: loc, field: f) { return v }
-            return nil
+            return (v ?? "").isEmpty ? nil : v
         }
+        func ascValue(_ loc: String, _ f: Field) -> String? {
+            guard let v = asc.values.first(where: { Locales.sameLanguage($0.key, loc) })?.value[f], !v.isEmpty,
+                  !misplaced(v, locale: loc, field: f) else { return nil }
+            return v
+        }
+        func value(_ loc: String, _ f: Field) -> String? { repoValue(loc, f) ?? ascValue(loc, f) }
         /// 스토어에 있지만 **그 언어 글이 아닌** 값 — 언어를 추가할 때 임시로 들어간 한국어 이름,
         /// 다른 언어 칸에서 복사된 설명 같은 것. 채워진 칸으로 치면 독일어 페이지가 한국어로 남는다.
         func misplaced(_ v: String, locale: String, field: Field) -> Bool {
             if !Locales.isKorean(locale), v.unicodeScalars.contains(where: { (0xAC00...0xD7A3).contains($0.value) }) {
                 return true
             }
-            // 다른 언어 칸과 글자 하나 다르지 않으면 복사본이다 (브랜드 이름은 같을 수 있으니 이름은 뺀다)
-            guard field != .name else { return false }
+            // 다른 언어 칸과 글자 하나 다르지 않으면 복사본이다 (브랜드 이름·URL 은 같을 수 있으니 뺀다)
+            guard field != .name, !urlFields.contains(field) else { return false }
             return asc.values.contains { other in
                 !Locales.sameLanguage(other.key, locale) && other.value[field] == v
             }
@@ -116,17 +131,30 @@ enum StoreWriter {
             haveNotes.first { Locales.sameLanguage($0.key, loc) }?.value
         }
 
+        // 레포가 원본이다 — 스토어에만 있는 (그 언어로 맞게 쓰인) 글은 레포로 가져온다.
+        // 안 가져오면 레포는 영원히 비어 보이고, 배포 준비(--prepare)가 끝나지 않는다.
         var missing: [String: [Field]] = [:]
         for loc in locales {
+            for f in fields + urlFields where repoValue(loc, f) == nil {
+                if let v = ascValue(loc, f) { result.imported[loc, default: [:]][f] = v }
+            }
+            for f in urlFields where value(loc, f) == nil {
+                result.warnings.append("\(Locales.displayName(loc)) \(label(f)) — 레포에도 스토어에도 없습니다. 실제 주소를 APPSTORE.md 에 적으세요 (지어내지 않습니다)")
+            }
             let need = fields.filter { value(loc, $0) == nil }
             result.kept += fields.count - need.count
             if !need.isEmpty { missing[loc] = need }
         }
+        if result.importedCount > 0 {
+            onLog("📥 스토어에만 있던 글 \(result.importedCount)칸을 레포로 가져옵니다")
+        }
         let notesMissing = locales.filter { note($0) == nil }
         if missing.isEmpty && notesMissing.isEmpty {
-            onLog("✅ \(locales.count)개 언어 모두 채워져 있습니다 — 쓸 것이 없습니다")
-            return result
-        }
+            if result.importedCount == 0 {
+                onLog("✅ \(locales.count)개 언어 모두 채워져 있습니다 — 쓸 것이 없습니다")
+                return result
+            }
+        } else {
         onLog("✍️  \(AIWriter.engineLabel) 로 씁니다 — 빈 칸 \(missing.values.reduce(0) { $0 + $1.count })개 · 릴리즈노트 \(notesMissing.count)개 언어")
 
         // 2) 한국어부터 — 다른 언어의 출발점
@@ -190,15 +218,19 @@ enum StoreWriter {
             }
         }
 
+        }
+
         // 4) 레포에 쓴다
         if dryRun { return result }
         var written: [String] = []
-        let stores = result.store.filter { !$0.value.isEmpty }
+        var stores = result.imported
+        for (loc, m) in result.store { stores[loc, default: [:]].merge(m) { $1 } }
+        stores = stores.filter { !$0.value.isEmpty }
         if !stores.isEmpty {
             let path = StoreMeta.path(in: app.path) ?? (app.path as NSString).appendingPathComponent("APPSTORE.md")
             var body = (try? String(contentsOfFile: path, encoding: .utf8)) ?? storeHeader
             for loc in Locales.sorted(Array(stores.keys)) {
-                let pairs = fields.compactMap { f in stores[loc]?[f].map { (f, $0) } }
+                let pairs = (fields + urlFields).compactMap { f in stores[loc]?[f].map { (f, $0) } }
                 body = insertStore(body, locale: loc, fields: pairs, locales: locales)
             }
             try body.write(toFile: path, atomically: true, encoding: .utf8)
@@ -219,7 +251,7 @@ enum StoreWriter {
         if commit, !written.isEmpty, GitInfo.isRepo(app.path) {
             let dir = URL(fileURLWithPath: app.path)
             let rel = written.map { $0.hasPrefix(app.path + "/") ? String($0.dropFirst(app.path.count + 1)) : $0 }
-            let langs = Set(Array(result.store.keys) + Array(result.notes.keys)).count
+            let langs = Set(Array(result.store.keys) + Array(result.notes.keys) + Array(result.imported.keys)).count
             do {
                 _ = try Shell.capture("/usr/bin/git", ["add", "--"] + rel, cwd: dir)
                 _ = try Shell.capture("/usr/bin/git", ["commit", "-m",
@@ -391,6 +423,7 @@ enum StoreWriter {
                 out.values[t.locale, default: [:]][.description] = t.description
                 out.values[t.locale, default: [:]][.keywords] = t.keywords
                 out.values[t.locale, default: [:]][.promotionalText] = t.promotionalText
+                out.values[t.locale, default: [:]][.supportUrl] = t.supportUrl
             }
         }
         if let info = try? await ASCClient.appInfo(appId: appId),
@@ -398,6 +431,7 @@ enum StoreWriter {
             for t in texts {
                 out.values[t.locale, default: [:]][.name] = t.name
                 out.values[t.locale, default: [:]][.subtitle] = t.subtitle
+                out.values[t.locale, default: [:]][.privacyPolicyUrl] = t.privacyPolicyUrl
             }
         }
         return out
