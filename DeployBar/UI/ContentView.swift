@@ -29,6 +29,16 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Xcode 에서 띄운 개발용 빌드면 맨 위에 띠를 건다 — 옛 디버그 빌드로 배포해서
+            // 고친 문제가 다시 난 적이 있다. 눈에 안 띄면 또 그런다.
+            if RunLog.isDevBuild {
+                Text("⚠️ 개발용 DeployBar (Xcode 빌드) — 배포는 /Applications 의 DeployBar 로 하세요")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .background(Color.orange)
+            }
             // 헤더 한 줄 — 요약(=필터)과 도구를 같은 줄에.
             // 제목은 창 타이틀바가 이미 '배포 콘솔' 이라 두 번 쓰지 않는다.
             HStack(spacing: 8) {

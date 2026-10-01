@@ -41,7 +41,27 @@ final class RunLog: @unchecked Sendable {
         RunLog.prune()
         write("━━ \(title)")
         write("━━ 시작 \(RunLog.stamp())")
+        for line in RunLog.identity { write(line) }
     }
+
+    /// 지금 도는 DeployBar 가 어느 것인가 — 실행 파일 위치와 빌드 시각.
+    ///
+    /// 2026-10-01, 고쳐서 설치까지 한 문제가 또 났다. Xcode 에서 띄워 둔 **옛 디버그 빌드**로 배포했기
+    /// 때문이다. 로그만 봐서는 어느 DeployBar 가 돌았는지 알 수 없어 원인을 찾는 데 시간이 들었다.
+    /// 그래서 모든 실행 로그 첫머리에 적고, 개발용 빌드면 경고한다.
+    static var identity: [String] {
+        let exe = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        let built = (try? FileManager.default.attributesOfItem(atPath: exe.path)[.modificationDate] as? Date) ?? nil
+        let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm"
+        var out = ["🧩 DeployBar: \(Bundle.main.bundlePath) · 빌드 \(built.map(f.string) ?? "?")"]
+        if isDevBuild {
+            out.append("⚠️  Xcode 에서 띄운 개발용 DeployBar 입니다 — 고친 코드가 빠져 있을 수 있습니다. 배포는 /Applications 의 DeployBar 로 하세요")
+        }
+        return out
+    }
+
+    /// Xcode 가 만든 빌드(DerivedData)로 돌고 있나
+    static var isDevBuild: Bool { Bundle.main.bundlePath.contains("/DerivedData/") }
 
     func write(_ line: String) {
         lock.lock(); defer { lock.unlock() }

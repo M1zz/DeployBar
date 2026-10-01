@@ -54,6 +54,8 @@ extension Store {
                       batch: (index: Int, total: Int, name: String)? = nil,
                       deferStore: Bool = false) async -> DeployOutcome {
         job.resetProgress(app: app.name, batch: batch)
+        // 어느 DeployBar 로 배포하는지 창에도 남긴다 — 개발용 빌드면 여기서 바로 보이게
+        if RunLog.isDevBuild { for line in RunLog.identity { job.lines.append(line) } }
 
         var cont: AsyncStream<String>.Continuation!
         let stream = AsyncStream<String> { cont = $0 }
