@@ -175,9 +175,32 @@ enum GitInfo {
         // 같이 쓰는 레포면 이 앱 폴더를 건드린 커밋만
         var spec = pathspec(dir)
         if shippingOnly { spec = (spec.isEmpty ? ["--", "."] : spec) + notShipped.map { ":(exclude)\($0)" } }
-        if let tag { raw = git(dir, ["log", "\(tag)..HEAD", "--pretty=%s"] + spec) }
-        else { raw = git(dir, ["log", "-n", "50", "--pretty=%s"] + spec) }
-        return raw.split(separator: "\n").filter { !$0.isEmpty }.map(String.init)
+        let fmt = shippingOnly ? "--pretty=%H\t%s" : "--pretty=%s"
+        if let tag { raw = git(dir, ["log", "\(tag)..HEAD", fmt] + spec) }
+        else { raw = git(dir, ["log", "-n", "50", fmt] + spec) }
+        let lines = raw.split(separator: "\n").filter { !$0.isEmpty }.map(String.init)
+        guard shippingOnly else { return lines }
+        return lines.compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return nil }
+            return onlyEncryptionKey(dir, parts[0], spec) ? nil : parts[1]
+        }
+    }
+
+    /// 수출 규정 키(ITSAppUsesNonExemptEncryption)만 넣고 뺀 커밋인가.
+    /// 배포는 아카이브 때마다 이 값을 넘기므로(ENCRYPTION_EXEMPT) 이 키만 바꾼 커밋은 나가는 앱을 바꾸지 않는다 —
+    /// 모든 레포에 이 키를 넣은 커밋 하나로 출시된 앱이 줄줄이 '배포 가능' 이 되면 안 된다.
+    private static func onlyEncryptionKey(_ dir: String, _ sha: String, _ spec: [String]) -> Bool {
+        let diff = git(dir, ["show", "--unified=0", "--format=", sha] + spec)
+        let changed = diff.split(separator: "\n").filter {
+            ($0.hasPrefix("+") || $0.hasPrefix("-")) && !$0.hasPrefix("+++") && !$0.hasPrefix("---")
+        }
+        guard !changed.isEmpty else { return false }
+        return changed.allSatisfy { l in
+            let t = l.dropFirst().trimmingCharacters(in: .whitespaces)
+            return t.contains("ITSAppUsesNonExemptEncryption") || t == "<false/>" || t == "<true/>"
+                || t.hasPrefix("#") || t.isEmpty
+        }
     }
 
     /// 앱 바이너리에 들어가지 않는 파일. 이것만 바꾼 커밋은 '올릴 변경' 이 아니다 —

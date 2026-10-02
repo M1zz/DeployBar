@@ -272,7 +272,7 @@ struct Readiness: Codable, Hashable {
                         : "원격 코드를 받을 수 없는 상태입니다 — 위 [원격] 항목부터 푸세요")
                 : ReadyItem(
                     key: "changes", level: .blocked, title: "올릴 변경 없음",
-                    detail: "로컬 v\(status.localVersion ?? "?") 이 이미 스토어에 있습니다",
+                    detail: "배포된 v\(status.liveVersion ?? status.localVersion ?? "?") 이후 앱에 들어가는 변경이 없습니다 (문서·스토어 문구·스크린샷만 바꾼 커밋은 세지 않습니다 — 그건 [스토어 올리기] 로 올라갑니다)",
                     fix: .bumpPatch, todo: "새 커밋을 하거나 버전을 올리세요"))
         } else if status.commitsSinceDeploy > 0 {
             out.append(ReadyItem(

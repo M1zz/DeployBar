@@ -98,10 +98,16 @@ enum Status {
             st.ascReach = error is URLError ? .unreachable : .unauthorized
         }
 
-        // 마지막 배포(deploy-*) 태그 이후 새 커밋이 있으면 같은 버전이라도 배포할 게 있는 것.
-        // 배포 태그가 있어야만(=이 툴로 배포한 이력) 신호로 쓴다. 태그가 없으면 숫자 비교로만 판정.
-        if GitInfo.isRepo(app.path), let tag = GitInfo.lastDeployTag(app.path) {
-            st.commitsSinceDeploy = GitInfo.commitsSince(app.path, tag: tag, shippingOnly: true).count
+        // '배포 가능' 의 기준: **배포된 버전 이후 앱에 들어가는 변경이 있는가.**
+        // 기준점은 직전 배포 태그(deploy-*), 없으면 스토어에 나가 있는 버전 번호의 태그(v1.2.3 · 1.2.3).
+        // 둘 다 없으면(이 툴로 배포한 적도, 태그를 단 적도 없는 앱) 변경을 셀 수 없어 번호 비교로만 판정한다.
+        var base: String?
+        if GitInfo.isRepo(app.path) {
+            base = GitInfo.lastDeployTag(app.path)
+                ?? (st.liveState == "READY_FOR_SALE" ? st.liveVersion.flatMap { GitInfo.tagForVersion(app.path, $0) } : nil)
+            if let base {
+                st.commitsSinceDeploy = GitInfo.commitsSince(app.path, tag: base, shippingOnly: true).count
+            }
         }
 
         // 판정
@@ -114,14 +120,14 @@ enum Status {
             && cmpVer(st.localVersion, st.liveVersion) == 0
             && (Int(st.localBuild ?? "0") ?? 0) > (Int(st.ascBuild ?? "0") ?? 0)
         let commitsAhead = st.commitsSinceDeploy > 0
-        // 스토어에 새 버전을 만들어 두고(부제·키워드를 고치려고 등) 빌드를 기다리는 중이면,
-        // 코드가 그대로여도 올릴 게 있는 것이다 — 배포가 번호를 그 버전에 맞춰 올린다.
-        let storeWaiting = st.editableHasBuild == false
+        // 스토어에 빈 새 버전만 만들어 둔 것은 '올릴 변경' 이 아니다 — 코드가 그대로면 같은 앱이 번호만 바꿔 나간다.
+        // (예전엔 이것만으로 배포 가능이라 했다. 리모컨 1.0.9 처럼 바뀐 게 없는 앱이 배포 가능에 떴다)
         // 심사에서 거부된 버전 — 고친 빌드를 다시 올리는 게 다음 일이다. 첫 출시 앱은 판매 중인 버전이 없어
         // 거부된 그 버전을 '스토어 버전' 으로 읽으므로, 이게 없으면 "로컬 v1.0 이 이미 스토어에 있음" 으로 잠겼다.
         let rejected = st.reviewState.map(ASCState.isRejected) ?? false
         if st.dirty { st.state = .dev }
-        else if verAhead || buildAhead || commitsAhead || storeWaiting || rejected { st.state = .ready }
+        // 기준점이 있으면 변경만 본다. 번호만 올린 커밋도 앱에 들어가는 파일(xcconfig·pbxproj)이라 변경으로 잡힌다.
+        else if base != nil ? (commitsAhead || rejected) : (verAhead || buildAhead || rejected) { st.state = .ready }
         else { st.state = .deployed }
 
         st.prepGaps = await DeployPrep.audit(app, known: known).gaps
