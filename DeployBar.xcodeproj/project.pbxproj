@@ -10,6 +10,7 @@
 		07056F64EDD79B538C159BA3 /* Locales.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBBC501FF88B330887E3DD0 /* Locales.swift */; };
 		0AA077725794C71F3403A8FC /* ASCClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE760690B10ED4A37047527 /* ASCClient.swift */; };
 		0B3A995605865CD370FD476F /* Scaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C45C322FB31451E294A39FB /* Scaffold.swift */; };
+		0B893C7E74E2C6C6006C73CD /* Store+Remote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29DFDF16764DC73D25168464 /* Store+Remote.swift */; };
 		11E323D001E7144BACADDF3E /* RepoNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5EB79973281716559A209B2 /* RepoNotes.swift */; };
 		1955033602085126C60BEAB8 /* RunLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3870570BA7A5EDCE6632BA /* RunLog.swift */; };
 		1A2AD71C3C8D5A309441562B /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5225FCAE223BB17548EEBD8D /* Store.swift */; };
@@ -24,6 +25,7 @@
 		473A5C4B6A8C7BBA2C3420EB /* Readiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9EE1D707F414933B0F50390 /* Readiness.swift */; };
 		47BC0F1E84D79021B9086CD2 /* Store+ReleaseNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C56DBFC16FAA54399A3E620E /* Store+ReleaseNotes.swift */; };
 		4A69BADEE3A0780C7136E4C5 /* ReleaseNotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2031292F4200301117DF4A /* ReleaseNotes.swift */; };
+		4A7D12F5D01F7FF3AB3BB6B7 /* CLI+Remote.swift in Sources */ = {isa = PBXBuildFile; fileRef = B036C74DA5417D2C3B92B7EC /* CLI+Remote.swift */; };
 		4BECA40730A2FB74E7CDC66C /* Store+StoreWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53D60DF5F4B0B291079A4E2C /* Store+StoreWriter.swift */; };
 		4CE266D403217B857476CB09 /* Store+Publish.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C26F6C4BB01A612A7E9DF5 /* Store+Publish.swift */; };
 		5AE46D691EE910833D80EAD5 /* MenuBarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38597888E635324CD29D2333 /* MenuBarPanel.swift */; };
@@ -65,6 +67,7 @@
 		0F9A9946EE8D99FDDA58F64E /* StoreMeta.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreMeta.swift; sourceTree = "<group>"; };
 		1EF2112119180659331C2054 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		2682C393B3944D18F64D114C /* DeployProgressPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployProgressPanel.swift; sourceTree = "<group>"; };
+		29DFDF16764DC73D25168464 /* Store+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Remote.swift"; sourceTree = "<group>"; };
 		2E84E2C115C59E8BF29DA44E /* Clipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Clipboard.swift; sourceTree = "<group>"; };
 		36C4E9821C1904EC4156A7E9 /* NotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotesView.swift; sourceTree = "<group>"; };
 		38597888E635324CD29D2333 /* MenuBarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarPanel.swift; sourceTree = "<group>"; };
@@ -92,6 +95,7 @@
 		A374A6AA5C657BDAE55BFDA7 /* GitInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitInfo.swift; sourceTree = "<group>"; };
 		A4C12FC724FA840EF3C06E16 /* StatusChange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusChange.swift; sourceTree = "<group>"; };
 		AC4D5228C69A5DD4DC81D7DE /* Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell.swift; sourceTree = "<group>"; };
+		B036C74DA5417D2C3B92B7EC /* CLI+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLI+Remote.swift"; sourceTree = "<group>"; };
 		B228C05B05FA1AC680B6515D /* OrderEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrderEditor.swift; sourceTree = "<group>"; };
 		B43DBFC0D66929E1A4C78681 /* Store+Scaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Scaffold.swift"; sourceTree = "<group>"; };
 		BFE808863D0A36BAA4A1D7F9 /* AppCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCard.swift; sourceTree = "<group>"; };
@@ -150,6 +154,7 @@
 				E9D778E45E4B8A99C150CA81 /* Store+Fix.swift */,
 				60C26F6C4BB01A612A7E9DF5 /* Store+Publish.swift */,
 				C56DBFC16FAA54399A3E620E /* Store+ReleaseNotes.swift */,
+				29DFDF16764DC73D25168464 /* Store+Remote.swift */,
 				B43DBFC0D66929E1A4C78681 /* Store+Scaffold.swift */,
 				53D60DF5F4B0B291079A4E2C /* Store+StoreWriter.swift */,
 			);
@@ -192,6 +197,7 @@
 				4D33D4B35E9C46D91AD0A7C8 /* App.swift */,
 				CB9D4EBA17ACC04E8F2C9252 /* Assets.xcassets */,
 				D851284B3138512FDF6EF157 /* CLI.swift */,
+				B036C74DA5417D2C3B92B7EC /* CLI+Remote.swift */,
 				D0B23C9BD3D2E15EC6C0DA7E /* Core */,
 				296636BDD8317D5EB171DCEC /* Services */,
 				4A8953F6B61B839231CCE8F5 /* Store */,
@@ -297,6 +303,7 @@
 				66342B21D45D2D032AF851BD /* AppCard.swift in Sources */,
 				CA9193EADEA8F8B1452EED9F /* AppFilter.swift in Sources */,
 				7EAEEF7C6B8714A6D27C6EBD /* AppRepo.swift in Sources */,
+				4A7D12F5D01F7FF3AB3BB6B7 /* CLI+Remote.swift in Sources */,
 				D2C74952362425B60D734D5C /* CLI.swift in Sources */,
 				C24B20F9E4AD7FE9BBA24823 /* ChangeBanner.swift in Sources */,
 				9CC9759E97A07806568DE0A8 /* Clipboard.swift in Sources */,
@@ -332,6 +339,7 @@
 				409E6BAAF6DAC213841D3621 /* Store+Fix.swift in Sources */,
 				4CE266D403217B857476CB09 /* Store+Publish.swift in Sources */,
 				47BC0F1E84D79021B9086CD2 /* Store+ReleaseNotes.swift in Sources */,
+				0B893C7E74E2C6C6006C73CD /* Store+Remote.swift in Sources */,
 				31ADCCD92DA9A091AD05814C /* Store+Scaffold.swift in Sources */,
 				4BECA40730A2FB74E7CDC66C /* Store+StoreWriter.swift in Sources */,
 				1A2AD71C3C8D5A309441562B /* Store.swift in Sources */,

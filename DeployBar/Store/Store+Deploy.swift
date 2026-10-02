@@ -200,7 +200,9 @@ extension Store {
 
     // 개별 배포 (원 버튼: 빌드→업로드→언어별 릴리즈노트까지 자동)
     // versionBump nil = 빌드만 올리기, .patch/.minor/.major = 버전 올려 배포
-    func startDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump? = nil) {
+    /// onFinish: 끝나고 판정이 정해진 뒤 한 번 (명령줄 배포가 결과를 돌려받는 자리 — Store+Remote)
+    func startDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump? = nil,
+                     onFinish: ((Job) -> Void)? = nil) {
         let job = Job(title: "\(laneLabel(lane)) · \(app.name)")
         self.job = job
         Task {
@@ -221,6 +223,7 @@ extension Store {
                 job.lines.append("🏁 결과: \(v.line)")
             }
             job.running = false
+            onFinish?(job)
             await refresh(fresh: true)
             // 앱 하나만 배포했을 때만 클립보드로 — 전체 배포에서 31번 덮어쓰면 아무 뜻도 없다
             if let prompt = shotPromptReady[app.path] {

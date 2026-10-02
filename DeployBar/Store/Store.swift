@@ -346,6 +346,7 @@ final class Store: ObservableObject {
         hidden = AppRepo.hiddenApps()
         skipped = AppRepo.skipped()
         loadNotices()
+        listenForRemote()
     }
 
     /// 원격에서 코드를 받아왔으면 그 사실을 먼저 말한다.

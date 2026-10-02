@@ -565,6 +565,26 @@ swift scripts/make_icon.swift    # 10개 크기 + 메뉴바 템플릿 3장 재�
 ASC 키는 `~/Documents/workspace/fastlane-shared/asc.env` 재사용,
 `.p8` 은 `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8` 에서 탐색.
 
+## 폰에서 배포하기 — `--deploy` · `--ready`
+
+이 Mac 에서 도는 Claude Code 세션을 폰으로 이어 쓰면(Remote Control) "달빛 배포해줘" 한마디로 배포가 된다.
+세션이 부르는 명령은 둘이다.
+
+```bash
+D=/Applications/DeployBar.app/Contents/MacOS/DeployBar
+$D --ready                       # 배포 가능 · 심사 중 · 막힌 앱 (떠 있는 앱이 들고 있는 상태로 바로 답한다)
+$D --deploy 달빛                  # 배포 버튼과 똑같이 — 끝날 때까지 로그를 흘리고 결과 한 줄
+$D --deploy 달빛 --bump patch     # 버전 올려서
+$D --deploy 달빛 --check          # 게이트까지만 (업로드 없음)
+```
+
+- 배포를 돌리는 건 **떠 있는 DeployBar 창 앱**이다. 명령은 요청만 넘긴다(DistributedNotification). 그래서 진행판·알림·로그가
+  창에도 그대로 뜨고, 앱이 꺼져 있으면 명령이 띄운다(`open -g` — 화면을 뺏지 않는다).
+- 버튼과 같은 규칙으로 거절한다: 막힌 앱, 심사 중인 앱(올리면 심사가 취소된다), 이름이 모호할 때, 다른 배포가 도는 중일 때.
+  `--bump` 를 주면 '올릴 변경 없음' 하나는 넘는다 — 버전을 올리는 것 자체가 올릴 것이다.
+- 끝 코드: `0` 성공 · `2` 미완(업로드는 됐지만 심사에 못 냄) · `1` 실패 · `3` 거절. 처리 대기까지 길면 한 시간 — 기본 90분 기다린다
+  (`--timeout <분>`, `--no-wait` 면 시작만 확인하고 끝, `--quiet` 면 로그를 흘리지 않는다).
+
 ## CLI 모드
 
 UI 없이 확인만 할 때 쓴다.

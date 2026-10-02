@@ -48,6 +48,10 @@ enum CLI {
       --autowrite <앱> [--dry-run] [--no-commit]
                                  빈 스토어 문구(이름·부제·키워드·프로모션·설명)와 이번 버전 릴리즈노트를
                                  모든 언어로 AI 가 써서 APPSTORE.md · RELEASE_NOTES.md 에 채우고 커밋한다
+      --ready                    지금 배포할 수 있는 앱 · 심사 중 · 막힌 앱 (떠 있는 DeployBar 에 묻는다)
+      --deploy <앱> [--bump patch|minor|major] [--check] [--no-wait] [--quiet] [--timeout <분>]
+                                 배포 버튼과 똑같이 배포 — 떠 있는 DeployBar 가 돌리고 결과를 돌려준다
+                                 (끝 코드 0 성공 · 2 미완 · 1 실패 · 3 거절). 폰의 Claude Code 에서 부르는 용도
       --attach <앱>              올라간 빌드를 App Store 버전에 연결
       --submit <앱>              심사 제출 (여기서부터 애플이 본다)
       --release <앱>             '출시 대기' 를 지금 출시
@@ -67,6 +71,7 @@ enum CLI {
         "--selftest-changes", "--selftest-lock", "--selftest-version",
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--text-only", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
         "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
+        "--ready", "--deploy", "--bump", "--no-wait", "--quiet", "--timeout",
     ]
 
     static func runIfRequested() {
@@ -403,6 +408,8 @@ enum CLI {
     // check 레인은 원격 받기·다국어·릴리즈노트·predeploy 까지만 하고 멈춘다.
     // UI 의 진행 패널과 **같은 보고 채널**을 쓰므로, 여기서 칸이 제대로 켜지면
     // 창에서도 제대로 켜진다. 배포를 실제로 돌리지 않고 배선을 확인할 수 있는 유일한 길이다.
+    // 명령줄 배포·배포 가능 목록 — 떠 있는 창 앱에 넘긴다 (CLI+Remote)
+    if args.contains("--deploy") || args.contains("--ready") { RemoteCLI.run() }
     if let i = CommandLine.arguments.firstIndex(of: "--check") {
         let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
         guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
