@@ -170,13 +170,23 @@ enum GitInfo {
         }
         return usable.first(where: isRelease) ?? usable.first
     }
-    static func commitsSince(_ dir: String, tag: String?) -> [String] {
+    static func commitsSince(_ dir: String, tag: String?, shippingOnly: Bool = false) -> [String] {
         let raw: String
         // 같이 쓰는 레포면 이 앱 폴더를 건드린 커밋만
-        if let tag { raw = git(dir, ["log", "\(tag)..HEAD", "--pretty=%s"] + pathspec(dir)) }
-        else { raw = git(dir, ["log", "-n", "50", "--pretty=%s"] + pathspec(dir)) }
-        return raw.split(separator: "\n").map(String.init)
+        var spec = pathspec(dir)
+        if shippingOnly { spec = (spec.isEmpty ? ["--", "."] : spec) + notShipped.map { ":(exclude)\($0)" } }
+        if let tag { raw = git(dir, ["log", "\(tag)..HEAD", "--pretty=%s"] + spec) }
+        else { raw = git(dir, ["log", "-n", "50", "--pretty=%s"] + spec) }
+        return raw.split(separator: "\n").filter { !$0.isEmpty }.map(String.init)
     }
+
+    /// 앱 바이너리에 들어가지 않는 파일. 이것만 바꾼 커밋은 '올릴 변경' 이 아니다 —
+    /// 스토어 문구·릴리즈노트·스크린샷을 고친 커밋 하나로 출시된 앱이 '배포 가능' 이 되면 안 된다.
+    /// (문구·그림은 배포 없이 [스토어 올리기] 로 올라간다)
+    static let notShipped = [
+        "*.md", "docs", "Docs", "AppStore", "Screenshots", "screenshots", "fastlane", "scripts",
+        "deploy.env", ".gitignore", ".github", ".sprintcommander", "todo.md",
+    ]
     @discardableResult
     static func tag(_ dir: String, name: String, message: String) -> Bool {
         !git(dir, ["tag", "-a", name, "-m", message]).contains("fatal")

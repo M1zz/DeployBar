@@ -101,12 +101,16 @@ enum Status {
         // 마지막 배포(deploy-*) 태그 이후 새 커밋이 있으면 같은 버전이라도 배포할 게 있는 것.
         // 배포 태그가 있어야만(=이 툴로 배포한 이력) 신호로 쓴다. 태그가 없으면 숫자 비교로만 판정.
         if GitInfo.isRepo(app.path), let tag = GitInfo.lastDeployTag(app.path) {
-            st.commitsSinceDeploy = GitInfo.commitsSince(app.path, tag: tag).count
+            st.commitsSinceDeploy = GitInfo.commitsSince(app.path, tag: tag, shippingOnly: true).count
         }
 
         // 판정
         let verAhead = st.liveVersion != nil ? cmpVer(st.localVersion, st.liveVersion) > 0 : true
+        // 같은 버전에 빌드만 높다 — 그 버전이 아직 안 나갔을 때만 뜻이 있다. 이미 판매 중인 버전엔
+        // 새 빌드를 붙일 수 없으니(배포가 번호를 올린다), 리젝 대응으로 올려 두고 남은 빌드 번호 하나로
+        // 출시된 앱이 '배포 가능' 이 되면 안 된다 (징검돌 2.1.0: 로컬 9 > 스토어 8).
         let buildAhead = st.ascBuild != nil
+            && st.liveState != "READY_FOR_SALE"
             && cmpVer(st.localVersion, st.liveVersion) == 0
             && (Int(st.localBuild ?? "0") ?? 0) > (Int(st.ascBuild ?? "0") ?? 0)
         let commitsAhead = st.commitsSinceDeploy > 0
