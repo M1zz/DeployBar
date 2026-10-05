@@ -70,6 +70,7 @@ struct ReadyItem: Codable, Identifiable, Hashable {
         case "i18n": return "번역 채우면 풀림"
         case "asc": return "App Store Connect 확인"
         case "storepage": return "[스토어 올리기]"
+        case "changes": return "배포하면 올림"
         case "humanonly": return "웹에서 사람이"
         case "version": return "xcconfig 경로 확인"
         case "project": return "scheme 이름 확인"
@@ -111,6 +112,10 @@ struct Readiness: Codable, Hashable {
         // 심사 대기 중 재업로드는 심사를 되돌리므로, 개수보다 이 사실을 먼저 말한다
         if let review = needs.first(where: { $0.key == "review" }) {
             return needs.count > 1 ? "\(review.title) · 권장 \(needs.count - 1)건 더" : review.title
+        }
+        // 출시된 번호에서 바뀐 앱 — '배포 가능' 보다 '번호를 올려 낸다' 가 먼저다
+        if let bump = needs.first(where: { $0.key == "changes" }) {
+            return needs.count > 1 ? "\(bump.title) · 권장 \(needs.count - 1)건 더" : bump.title
         }
         return "배포 가능 · 권장 \(needs.count)건"
     }
@@ -274,6 +279,15 @@ struct Readiness: Codable, Hashable {
                     key: "changes", level: .blocked, title: "올릴 변경 없음",
                     detail: "배포된 v\(status.liveVersion ?? status.localVersion ?? "?") 이후 앱에 들어가는 변경이 없습니다 (문서·스토어 문구·스크린샷만 바꾼 커밋은 세지 않습니다 — 그건 [스토어 올리기] 로 올라갑니다)",
                     fix: .bumpPatch, todo: "새 커밋을 하거나 버전을 올리세요"))
+        } else if status.commitsSinceDeploy > 0, status.liveState == "READY_FOR_SALE",
+                  let live = status.liveVersion, Status.cmpVer(status.localVersion, live) <= 0 {
+            // 바뀐 건 있는데 로컬 번호가 이미 출시된 번호다 — 이 번호로는 못 낸다. 배포가 알아서 올리지만,
+            // 그걸 카드가 말하지 않으면 "출시된 앱이 왜 배포 가능이지" 가 된다. 올라갈 번호와 그 노트를 먼저 말한다.
+            let next = status.nextVersion.flatMap { Status.cmpVer($0, live) > 0 ? $0 : nil } ?? "다음 번호"
+            out.append(ReadyItem(
+                key: "changes", level: .need, title: "버전 올려야 함 — v\(live) → v\(next)",
+                detail: "v\(live) 는 이미 출시됐고 그 뒤 앱 변경 커밋 \(status.commitsSinceDeploy)개가 있습니다 — 배포하면 v\(next) 로 올려 냅니다 (minor·major 는 배포 ▾ 메뉴)",
+                todo: "RELEASE_NOTES.md 에 `## \(next)` 절을 먼저 써 두세요 — 없으면 커밋 제목으로 노트 초안을 만듭니다"))
         } else if status.commitsSinceDeploy > 0 {
             out.append(ReadyItem(
                 key: "changes", level: .ok, title: "올릴 변경 있음",

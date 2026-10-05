@@ -171,9 +171,15 @@ struct AppCard: View {
                     }
                 } else {
                     Text("→").font(.subheadline).foregroundStyle(.tertiary)
-                    labeled("올릴 버전",
-                            "v\(status.localVersion ?? "?")  빌드 \(status.localBuild ?? "?")",
-                            weight: .semibold, color: .primary)
+                    // 배포가 실제로 쓸 번호 — 로컬이 이미 출시된 번호면 배포가 올린다. 로컬 번호를 그대로 보여 주면
+                    // 스토어 v2.1.5 → 올릴 버전 v2.1.5 가 되어 무엇이 나가는지 알 수 없다.
+                    if let next = status.nextVersion, let local = status.localVersion, next != local {
+                        labeled("올릴 버전", "v\(next)  ↑ 로컬 v\(local)", weight: .semibold, color: .orange)
+                    } else {
+                        labeled("올릴 버전",
+                                "v\(status.localVersion ?? "?")  빌드 \(status.localBuild ?? "?")",
+                                weight: .semibold, color: .primary)
+                    }
                 }
                 Spacer(minLength: 0)
                 if let shots = status.shots { shotBadge(shots) }
