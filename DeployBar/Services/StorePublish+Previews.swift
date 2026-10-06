@@ -225,10 +225,13 @@ extension StorePublish {
                 if p.state == "FAILED" {
                     let why = p.errors.first ?? "이유 없음"
                     report.warnings.append("\(item.label) 미리보기 영상을 애플이 거절했습니다: \(why)")
-                } else if p.state == "COMPLETE" || p.hasVideo {
+                } else if p.state == "COMPLETE" {
                     do {
                         try await ASCClient.setPreviewFrame(id: item.id, timeCode: code)
                         report.changed.append("\(item.label) 대표 프레임 \(code)")
+                    } catch where reason(error).contains("Complete state") {
+                        // 영상 주소가 먼저 생기고 처리 완료는 나중이다. 아직이면 다시 기다린다
+                        next.append(item)
                     } catch {
                         report.warnings.append("\(item.label) 대표 프레임을 정하지 못했습니다: \(reason(error))")
                     }

@@ -188,7 +188,14 @@ enum StorePublish {
         // App Store 페이지에 없는 언어 — 만들 수 있으면 먼저 만든다.
         // (여태 "웹에서 언어를 추가하세요" 로 남겨 두던 자리다)
         var texts = try await ASCClient.storeTexts(versionId: version.id)
-        let missing = meta.entries.keys.sorted().filter { loc in !texts.contains { Locales.sameLanguage($0.locale, loc) } }
+        // `en` 처럼 언어만 적은 절은 그 언어 페이지 아무것이나 있으면 된다. `en-GB` 처럼 지역까지 적은 절은
+        // **그 로케일 페이지**가 있어야 한다. 같은 언어로만 보면 en-US 가 있다는 이유로 en-GB 페이지가 영영 안 생긴다
+        // (영국 · 한국 · 유럽 대부분이 영어(영국) 칸을 색인한다. 미국 칸은 거기서 안 읽힌다)
+        let missing = meta.entries.keys.sorted().filter { loc in
+            Locales.language(loc) == loc
+                ? !texts.contains { Locales.sameLanguage($0.locale, loc) }
+                : !texts.contains { $0.locale.caseInsensitiveCompare(Locales.ascCode(loc)) == .orderedSame }
+        }
         if !missing.isEmpty {
             if options.dryRun {
                 for loc in missing { report.changed.append("\(Locales.displayName(loc)) 페이지 추가 (미리보기)") }
