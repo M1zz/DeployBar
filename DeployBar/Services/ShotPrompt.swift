@@ -90,8 +90,9 @@ enum ShotPrompt {
         s += "- 버전: 올릴 v\(version.isEmpty ? "?" : version)(\(status?.localBuild ?? info?.buildNumber ?? "?")) · 스토어 \(live)\n"
         if !locales.isEmpty {
             s += "- 스토어 언어: \(Locales.sorted(locales).joined(separator: ", "))"
-            // 스크린샷은 언어별로 따로 올릴 수 있지만 영상은 보통 한 벌로 끝낸다
-            s += kind == .shots ? " — 그림도 언어별로 올릴 수 있다. 한국어부터 찍고, 나머지는 시간이 남을 때.\n" : "\n"
+            // 그림도 영상도 언어별로 올릴 수 있다. 영상은 언어마다 자막이 달라야 다른 나라 검색에서 읽힌다
+            s += kind == .shots ? ", 그림도 언어별로 올릴 수 있다. 한국어부터 찍고, 나머지는 시간이 남을 때.\n"
+                                : ", 영상도 언어별 폴더에 두면 언어별로 올라간다. 한국어부터 만들고 확인받은 뒤 넓힌다.\n"
         }
         if platform == .iOS, let sim = simulator() {
             s += "- 시뮬레이터: \(sim)\n"
@@ -247,6 +248,16 @@ enum ShotPrompt {
            찾은 구간으로 `trim` + `concat` 하고 `scale=886:1920,fps=30` 으로 규격 변환.
         5. 완성본에서 여러 시점 프레임을 뽑아 콘택트 시트로 만들어 Read 로 확인한다.
         6. **15~30초**에 맞춘다. 넘치면 freeze 유지를 0.8초로 줄이거나 시연 단계를 덜어낸다.
+        7. **소리 트랙(무음이어도)과 bt709 색 태그**를 붙인다. 둘 중 하나라도 없으면 애플이 처리 뒤에 "손상된 파일" 로 돌려보낸다:
+           `-f lavfi -i anullsrc=r=44100:cl=stereo -shortest -c:a aac` · 필터 끝에 `setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709`
+        8. **저장 위치**, 배포가 여기서 읽어 언어별 미리보기 칸에 올린다(다른 곳에 두면 안 올라간다):
+           `\(StorePublish.canonicalPreviewDir)/<로케일>/app-preview.mp4` (언어마다 따로) 또는
+           `\(StorePublish.canonicalPreviewDir)/app-preview.mp4` (모든 언어에 한 벌).
+           한 칸에 세 개까지, 파일 이름 순서가 스토어 순서다. 대표 프레임은 deploy.env 의 `PREVIEW_POSTER=<초>`.
+           확인: `DeployBar --shotplan <앱>` 끝의 '미리보기 영상' 줄이 언어마다 ✅ 여야 한다.
+
+        좋은 미리보기는 기능을 차례로 눌러 보이는 것이 아니라 **쓰는 장면**이다. 첫 2초에 무슨 앱인지 보여야 하고
+        (검색 결과에서 소리 없이 자동 재생된다), 자막만으로 읽혀야 한다.
         \(a.videos.isEmpty ? "" : "   (지금 걸린 영상: \(a.videos.joined(separator: ", ")))\n")
 
         """

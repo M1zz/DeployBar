@@ -341,7 +341,8 @@ extension ASCClient {
     }
 
     /// 예약 응답이 시키는 대로 조각을 올린다. 서명된 URL 이라 우리 토큰을 붙이지 않는다.
-    private static func runUpload(_ op: [String: Any], data: Data) async throws {
+    /// (미리보기 영상도 같은 방식이라 `ASCClient+Previews` 가 함께 쓴다)
+    static func runUpload(_ op: [String: Any], data: Data) async throws {
         guard let urlStr = op["url"] as? String, let url = URL(string: urlStr) else { return }
         let offset = op["offset"] as? Int ?? 0
         let length = op["length"] as? Int ?? data.count

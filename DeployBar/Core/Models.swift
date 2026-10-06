@@ -38,6 +38,9 @@ struct ResolvedApp {
     // yes 는 "운영체제 암호화(HTTPS 등)만 쓴다 — 면제 대상" 이라는 **사람의 선언**이다.
     // 선언이 있을 때만 DeployBar 가 빌드마다 그 답을 대신 넣는다.
     var encryptionExempt: Bool?
+    // 미리보기 영상의 대표 프레임(초) (deploy.env 의 PREVIEW_POSTER). 자동 재생이 꺼진 기기에는 이 한 장만 보인다.
+    // 적지 않으면 애플 기본값(5초).
+    var previewPoster: Double?
 }
 
 // 배포 대상 플랫폼 — archive destination·altool 타입·export 산출물이 다르다.

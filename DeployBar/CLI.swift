@@ -603,6 +603,30 @@ enum CLI {
                 print("   · 그림 없는 언어: \(rep.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))")
             }
         }
+        // 미리보기 영상, 업로드와 같은 함수로 판단한다
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            let rows = await StorePublish.previewPlan(app.path, platform: platform, locales: r.locales)
+            if rows.isEmpty {
+                print("\n미리보기 영상: 없음 (\(StorePublish.canonicalPreviewDir)/<로케일>/app-preview.mp4 에 두면 배포가 올립니다)")
+            } else {
+                print("\n미리보기 영상 \(rows.count)개 · 대표 프레임 \(r.previewPoster.map { StorePublish.timeCode($0) } ?? "애플 기본값 5초 (deploy.env 의 PREVIEW_POSTER)")")
+                for row in rows {
+                    let slot = row.type.map { StorePublish.previewTypeLabel($0) } ?? "규격 아님"
+                    let mark = (row.problem == nil && row.type != nil) ? "✅" : "⚠️"
+                    print("   \(mark) \(row.locale.isEmpty ? "모든 언어" : row.locale) · \(slot) · \(row.file.lastPathComponent)\(row.problem.map { ", \($0)" } ?? "")")
+                }
+                let covered = Set(rows.filter { $0.problem == nil && $0.type != nil }.map(\.locale))
+                if !covered.contains("") {
+                    let missing = r.locales.filter { want in !covered.contains { Locales.sameLanguage($0, want) } }
+                    if !missing.isEmpty {
+                        print("   · 영상 없는 언어: \(missing.map { Locales.displayName($0) }.joined(separator: ", "))")
+                    }
+                }
+            }
+            sem.signal()
+        }
+        sem.wait()
         print("\n보이는 순서가 스토어 순서입니다. 실제로 올리려면 `--publish \(app.name)` 또는 배포하세요.")
         exit(0)
     }

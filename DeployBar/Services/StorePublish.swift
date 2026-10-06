@@ -20,6 +20,9 @@ enum StorePublish {
         var attachBuild = true        // 올라간 빌드를 그 버전에 고른다
         var text = true               // 이름·부제·설명·키워드·URL
         var screenshots = true        // docs/screenshots/ 를 올린다
+        var previews = true           // docs/screenshots/preview/ 의 미리보기 영상을 올린다
+        /// 올린 영상의 처리를 기다렸다가 대표 프레임을 정할 최대 시간(초)
+        var previewWait: TimeInterval = 600
         var ageRating = true          // APPSTORE.md 가 "해당 없음" 이라고 적었을 때만
         /// 스토어에 이미 글이 있어도 레포 글로 덮어쓸지. **기본은 덮어쓴다 — 레포가 원본이다.**
         ///
@@ -134,6 +137,13 @@ enum StorePublish {
         if options.screenshots {
             try await pushShots(app, version: version, platform: info.platform,
                                 options: options, report: &report, onLog: onLog)
+        }
+
+        // 4-1) 미리보기 영상, 검색 결과 첫 칸. 스크린샷과 같은 규칙(레포가 원본, 같으면 안 건드린다)
+        if options.previews {
+            try await pushPreviews(app, version: version, platform: info.platform,
+                                   poster: r.previewPoster, options: options,
+                                   report: &report, onLog: onLog)
         }
 
         // 5) 연령 등급 — 사람이 APPSTORE.md 에 적어 둔 앱만
@@ -1053,7 +1063,7 @@ enum StorePublish {
         url.path.hasPrefix(root) ? String(url.path.dropFirst(root.count + 1)) : url.path
     }
 
-    private static func reason(_ error: Error) -> String {
+    static func reason(_ error: Error) -> String {
         if let e = error as? ASCClient.APIError {
             // 애플의 오류 본문에서 사람이 읽을 한 줄만 꺼낸다
             if let d = e.body.data(using: .utf8),

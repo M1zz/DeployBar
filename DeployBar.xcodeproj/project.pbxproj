@@ -33,6 +33,7 @@
 		66342B21D45D2D032AF851BD /* AppCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFE808863D0A36BAA4A1D7F9 /* AppCard.swift */; };
 		72111E611219448617778907 /* GitInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = A374A6AA5C657BDAE55BFDA7 /* GitInfo.swift */; };
 		7EAEEF7C6B8714A6D27C6EBD /* AppRepo.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDBF5BD1DAEF52D3A9F51A47 /* AppRepo.swift */; };
+		8121DFBF37A0473044A52A77 /* ASCClient+Previews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26056B26D4307AF6DA11C1AF /* ASCClient+Previews.swift */; };
 		88C85FD970D7F18B3CD99D20 /* AIWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81D14090645E0BA65317ADC /* AIWriter.swift */; };
 		8B6C7BD79649DACA64C39BA6 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D3E5F85FD64836F461F8CE1 /* ContentView.swift */; };
 		95D54842D7ECA854A99E7423 /* SummaryBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E71F6A377D91ECEB9DE3C00 /* SummaryBar.swift */; };
@@ -55,6 +56,7 @@
 		DC93BC612F98D0BBE5EFDAEF /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB262BB2814990ED93B6B9B /* Localization.swift */; };
 		E04B6E4057BE44F914934CD9 /* Deployer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BC5421454848BF453EAA81 /* Deployer.swift */; };
 		E63A44AAF7FDFC88436B0DAE /* Store+Deploy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A81893B64F9BF7E01870AEE /* Store+Deploy.swift */; };
+		E8A9128057B18929C90B20C6 /* StorePublish+Previews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21E99B9C48B51FEA28ED7636 /* StorePublish+Previews.swift */; };
 		ED3BDBBD571E0856E798D08D /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28399DAC3FBD06AB97D825B /* LogView.swift */; };
 		F582D48D2BDC9F84C3DA5ADD /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20B29C4108A3C3EACA4C831 /* Models.swift */; };
 		FC178E1F7E1D1CE28E752B88 /* ReadinessChecklist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4FC0E414301AA4BBB5C5E2 /* ReadinessChecklist.swift */; };
@@ -66,6 +68,8 @@
 		0E71F6A377D91ECEB9DE3C00 /* SummaryBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryBar.swift; sourceTree = "<group>"; };
 		0F9A9946EE8D99FDDA58F64E /* StoreMeta.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreMeta.swift; sourceTree = "<group>"; };
 		1EF2112119180659331C2054 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
+		21E99B9C48B51FEA28ED7636 /* StorePublish+Previews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StorePublish+Previews.swift"; sourceTree = "<group>"; };
+		26056B26D4307AF6DA11C1AF /* ASCClient+Previews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ASCClient+Previews.swift"; sourceTree = "<group>"; };
 		2682C393B3944D18F64D114C /* DeployProgressPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployProgressPanel.swift; sourceTree = "<group>"; };
 		29DFDF16764DC73D25168464 /* Store+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Remote.swift"; sourceTree = "<group>"; };
 		2E84E2C115C59E8BF29DA44E /* Clipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Clipboard.swift; sourceTree = "<group>"; };
@@ -131,6 +135,7 @@
 			children = (
 				E81D14090645E0BA65317ADC /* AIWriter.swift */,
 				EBE760690B10ED4A37047527 /* ASCClient.swift */,
+				26056B26D4307AF6DA11C1AF /* ASCClient+Previews.swift */,
 				F196B888DEF40AB4CE0C68EF /* ASCClient+Store.swift */,
 				88BC5421454848BF453EAA81 /* Deployer.swift */,
 				5250A1BD8E9653A6E81CBEE4 /* DeployPrep.swift */,
@@ -141,6 +146,7 @@
 				46B32FAD046DDDEECB5F82F1 /* ShotPrompt.swift */,
 				0F9A9946EE8D99FDDA58F64E /* StoreMeta.swift */,
 				49156153C066251C1E8C5F90 /* StorePublish.swift */,
+				21E99B9C48B51FEA28ED7636 /* StorePublish+Previews.swift */,
 				65085709851C24489FF05934 /* StoreWriter.swift */,
 			);
 			path = Services;
@@ -297,6 +303,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				88C85FD970D7F18B3CD99D20 /* AIWriter.swift in Sources */,
+				8121DFBF37A0473044A52A77 /* ASCClient+Previews.swift in Sources */,
 				B7E3401B6D8723EFD0C8952F /* ASCClient+Store.swift in Sources */,
 				0AA077725794C71F3403A8FC /* ASCClient.swift in Sources */,
 				3C33A4C847474083B59E159A /* App.swift in Sources */,
@@ -344,6 +351,7 @@
 				4BECA40730A2FB74E7CDC66C /* Store+StoreWriter.swift in Sources */,
 				1A2AD71C3C8D5A309441562B /* Store.swift in Sources */,
 				C70906DE796293688D9D357E /* StoreMeta.swift in Sources */,
+				E8A9128057B18929C90B20C6 /* StorePublish+Previews.swift in Sources */,
 				A97324A6E066485D7684E3AA /* StorePublish.swift in Sources */,
 				27DCDAAEFD38C51C0AC218C0 /* StoreWriter.swift in Sources */,
 				95D54842D7ECA854A99E7423 /* SummaryBar.swift in Sources */,

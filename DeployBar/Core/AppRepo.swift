@@ -260,7 +260,8 @@ enum AppRepo {
                 if ["yes", "true", "1", "on"].contains(v) { return true }
                 if ["no", "false", "0", "off"].contains(v) { return false }
                 return nil
-            }
+            },
+            previewPoster: pick("PREVIEW_POSTER").flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
         )
     }
 
