@@ -79,7 +79,7 @@ extension Store {
             // 못 만든 것만 이유와 함께 말한다.
             let resolved = AppRepo.resolve(app)
             let declared = resolved.locales
-            var unlisted = declared.filter { want in !target.localeCodes.contains { Locales.sameLanguage($0, want) } }
+            var unlisted = declared.filter { want in !target.localeCodes.contains { StorePublish.covers($0, want) } }
             if !unlisted.isEmpty,
                let bundleId = try? AppRepo.buildSettings(resolved).bundleId,
                let appId = try await ASCClient.appId(bundleId: bundleId) {
@@ -90,7 +90,7 @@ extension Store {
                     if let fresh = try await ReleaseNotes.editableVersionAndLocales(app) { target = fresh }
                 }
                 for f in res.failed { job.lines.append("   ⚠️ \(f)") }
-                unlisted = declared.filter { want in !target.localeCodes.contains { Locales.sameLanguage($0, want) } }
+                unlisted = declared.filter { want in !target.localeCodes.contains { StorePublish.covers($0, want) } }
             }
             let codes = target.localeCodes
             job.lines.append("📝 릴리즈노트 자동 반영\(when.isEmpty ? "" : " (\(when))") · v\(target.versionString) — 이 앱 언어 \(codes.count)개: \(codes.joined(separator: ", "))")
