@@ -665,7 +665,7 @@ enum StorePublish {
     /// 빌드 연결 하나만 (체크리스트의 [빌드 연결] 버튼).
     static func attachBuild(_ app: ManagedApp) async throws -> String {
         var o = Options()
-        o.text = false; o.screenshots = false; o.ageRating = false; o.createVersion = false
+        o.text = false; o.screenshots = false; o.previews = false; o.ageRating = false; o.createVersion = false
         let rep = try await run(app, options: o)
         if let w = rep.warnings.first, rep.changed.isEmpty { return w }
         return rep.changed.first ?? "이미 연결돼 있습니다"
@@ -1175,7 +1175,7 @@ extension StorePublish {
 
         // 문구·연령 등급 — APPSTORE.md 에 적은 것만, 스토어에 이미 있는 글은 덮지 않는다
         var o = Options()
-        o.attachBuild = false; o.screenshots = false; o.createVersion = false; o.manualCheck = false
+        o.attachBuild = false; o.screenshots = false; o.previews = false; o.createVersion = false; o.manualCheck = false
         if let rep = try? await run(app, options: o, onLog: onLog) {
             for w in rep.warnings { onLog("   ⚠️  \(w)") }
         }

@@ -742,7 +742,7 @@ enum CLI {
         if CommandLine.arguments.contains("--replace-shots") { o.shotMode = .replaceAll }
         // 문구만 — 배포가 도는 중에 빈 언어 칸만 채울 때. 버전·빌드·그림·연령 등급은 건드리지 않는다
         if CommandLine.arguments.contains("--text-only") {
-            o.screenshots = false; o.attachBuild = false; o.ageRating = false; o.createVersion = false; o.manualCheck = false
+            o.screenshots = false; o.previews = false; o.attachBuild = false; o.ageRating = false; o.createVersion = false; o.manualCheck = false
         }
         let sem = DispatchSemaphore(value: 0)
         Task.detached {
