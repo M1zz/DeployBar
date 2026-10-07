@@ -255,6 +255,22 @@ git pull → 다국어 게이트 → 릴리즈노트 게이트 → predeploy.sh 
 `릴리즈노트` 창은 App Store 가 요구하는 언어 수만큼 편집칸을 만든다.
 `빈 언어 채우기` 버튼으로 한국어 원문에서 나머지를 한 번에 번역한다.
 
+### 3. 업로드 뒤 — 빌드마다 dSYM 을 남긴다
+
+archive 는 앱 폴더의 `build/deploy-console/<scheme>.xcarchive` 한 자리에 만들어져 **배포할 때마다 덮어써진다.**
+그래서 지난 빌드에서 온 크래시 보고(MetricKit 등)는 dSYM 이 없어 함수 이름으로 풀 수 없었다.
+이제 업로드가 확인되면 그 archive 의 `dSYMs/` 를 버전·빌드별로 복사해 두고, **지우지 않는다.**
+
+```
+~/Library/Application Support/DeployBar/dSYMs/<번들 ID>/<버전>(<빌드>)/
+    <앱>.app.dSYM …    archive 의 dSYMs/ 그대로
+    uuids.txt          dwarfdump --uuid 결과 (UUID · 아키텍처 · 경로)
+```
+
+- 버전·빌드는 archive 의 `Info.plist`(`ApplicationProperties`)에서 읽는다 — 실제로 올라간 번호다.
+- 복사에 실패해도 배포는 실패하지 않는다. 로그에 ⚠️ 로만 남는다.
+- 크래시 보고의 UUID 로 빌드 찾기: `$D --dsym 골드위크 <UUID>` (앱을 빼면 전체에서), 또는 `grep -ri <UUID> ~/Library/Application\ Support/DeployBar/dSYMs`.
+
 ---
 
 ## 스토어 페이지 — 문구와 그림도 DeployBar 가 올린다
@@ -638,6 +654,7 @@ swift scripts/make_icon.swift    # 10개 크기 + 메뉴바 템플릿 3장 재�
   로그 창의 `📄` 버튼이 이 파일을 Finder 에서 열고, CLI 는 `--logs` / `--logs last`.
   업로드가 거부되면 애플이 남긴 원문 로그(`~/Library/Logs/ContentDelivery/com.apple.itunes.altool`)
   에서 사유를 한 줄 더 읽어 실패 패널에 붙인다
+- `dSYMs/<번들 ID>/<버전>(<빌드>)/` — 업로드한 빌드마다 남긴 dSYM 과 `uuids.txt`. **지우지 않는다** (`--dsym`)
 - `config.env` (선택) — `ANTHROPIC_API_KEY`(AI 릴리즈노트), `ANTHROPIC_MODEL`, ASC 키 재정의 등
 
 ASC 키는 `~/Documents/workspace/fastlane-shared/asc.env` 재사용,
@@ -694,6 +711,8 @@ $D --submit 두번알림       # 심사 제출 (여기서부터 애플이 본다
 $D --release 두번알림      # '출시 대기' 를 지금 출시
 $D --logs                 # 지난 배포·점검 로그 목록 (❌ 가 붙은 게 실패한 실행)
 $D --logs last            # 가장 최근 실행 로그 전체
+$D --dsym 골드위크          # 보관한 dSYM — 버전·빌드 목록 (읽기만)
+$D --dsym 골드위크 <UUID>   # 크래시 보고의 UUID 가 어느 버전·빌드인지, dSYM 경로까지
 $D --selftest-lock        # '무엇이 배포를 잠그는가' 규칙 검증 (조회 실패는 잠그면 안 된다)
 $D --selftest-changes     # 상태 변화 알림 규칙 검증
 $D --help                 # 명령 목록

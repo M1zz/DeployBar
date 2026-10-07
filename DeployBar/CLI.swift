@@ -17,6 +17,7 @@ import Foundation
 //   --publish <앱>      스토어 페이지 올리기 (--dry-run 이면 무엇이 올라갈지만)
 //   --attach/--submit/--release <앱>   빌드 연결 · 심사 제출 · 출시
 //   --logs [n|last]     지난 배포·점검 로그 (창을 닫아도 남는다). last 면 최근 것 전체를 출력
+//   --dsym [앱] [UUID]  배포마다 보관한 dSYM — 버전·빌드 목록, UUID 를 주면 맞는 빌드 (읽기만)
 //   --selftest-changes  상태 변화 알림 규칙 검증
 //   --selftest-lock     '무엇이 배포를 잠그는가' 규칙 검증 (조회 실패는 잠그면 안 된다)
 //   --selftest-version  배포가 마케팅 버전을 스토어에 맞춰 정하는 규칙 검증
@@ -56,6 +57,7 @@ enum CLI {
       --submit <앱>              심사 제출 (여기서부터 애플이 본다)
       --release <앱>             '출시 대기' 를 지금 출시
       --logs [n|last]            지난 배포·점검 로그
+      --dsym [앱] [UUID]         배포마다 보관한 dSYM — 버전·빌드 목록, UUID 를 주면 어느 빌드인지 (읽기만)
       --selftest-changes         상태 변화 알림 규칙 검증
       --selftest-lock            '무엇이 배포를 잠그는가' 규칙 검증
       --selftest-version         배포가 버전 번호를 스토어에 맞춰 정하는 규칙 검증
@@ -72,6 +74,7 @@ enum CLI {
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--text-only", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
         "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
         "--ready", "--deploy", "--bump", "--no-wait", "--quiet", "--timeout",
+        "--dsym",
     ]
 
     static func runIfRequested() {
@@ -298,6 +301,53 @@ enum CLI {
             sem.signal()
         }
         sem.wait()
+        exit(0)
+    }
+    // 보관한 dSYM: DeployBar --dsym [앱] [UUID]
+    //
+    // 크래시 보고(MetricKit 등)는 빌드 UUID 와 주소만 준다. 그 빌드의 dSYM 이 있어야 함수 이름이 나오는데,
+    // archive 는 배포마다 덮어써지므로 배포가 올린 빌드마다 따로 남겨 둔 것(DSymArchive)을 여기서 찾는다.
+    // 앱 없이 UUID 만 줘도 전체 보관소에서 찾는다. 파일은 읽기만 한다.
+    if let i = CommandLine.arguments.firstIndex(of: "--dsym") {
+        let rest = CommandLine.arguments.dropFirst(i + 1).filter { !$0.hasPrefix("--") }
+        let uuid = rest.first(where: { DSymArchive.looksLikeUUID($0) })
+        let name = rest.first(where: { !DSymArchive.looksLikeUUID($0) }) ?? ""
+        let all = DSymArchive.bundleIds()
+        print("보관소: \(DSymArchive.root.path)")
+        guard !all.isEmpty else {
+            print("보관된 dSYM 이 없습니다 — 배포가 업로드를 마칠 때마다 여기에 쌓입니다"); exit(0)
+        }
+        // 앱 이름 → 번들 ID. 등록된 앱이 아니면 보관소 폴더 이름(번들 ID)으로도 찾는다.
+        var ids = all
+        if !name.isEmpty {
+            if let app = AppRepo.registry().first(where: { $0.name.contains(name) }),
+               let bid = try? AppRepo.buildSettings(AppRepo.resolve(app)).bundleId {
+                ids = all.filter { $0 == bid || $0.hasPrefix(bid + ".") }
+                if ids.isEmpty { print("\(app.name) (\(bid)) 로 보관된 dSYM 이 없습니다"); exit(1) }
+            } else {
+                ids = all.filter { $0.localizedCaseInsensitiveContains(name) }
+                if ids.isEmpty { print("앱을 찾지 못했습니다: \(name)"); exit(1) }
+            }
+        }
+        let builds = ids.flatMap { DSymArchive.list(bundleId: $0) }
+        if let uuid {
+            let hits = DSymArchive.match(uuid, in: builds)
+            guard !hits.isEmpty else {
+                print("UUID \(uuid) 와 맞는 빌드가 없습니다 — 보관을 시작하기 전 빌드이거나 다른 앱입니다"); exit(1)
+            }
+            for (b, line) in hits {
+                print("✅ \(b.bundleId) · \(b.label)")
+                print("   \(line)")
+            }
+            exit(0)
+        }
+        for id in ids {
+            print("\n━━━ \(id)")
+            for b in DSymArchive.list(bundleId: id) {
+                print("  \(b.label)  UUID \(b.uuids.count)개  \(b.dir.path)")
+            }
+        }
+        print("\nUUID 로 찾기: DeployBar --dsym [앱] <UUID>  ·  직접: grep -ri <UUID> '\(DSymArchive.root.path)'")
         exit(0)
     }
     // 지난 실행 로그: DeployBar --logs [개수|last]

@@ -470,6 +470,10 @@ enum Deployer {
         }
         done(.confirm, "v\(marketingVersion) build \(newBuild)")
 
+        // archive 는 다음 배포가 덮어쓴다 — 올라간 빌드의 dSYM 은 여기서 따로 남겨 둔다.
+        // 실패해도 배포는 이미 끝난 것이므로 경고만 남긴다.
+        DSymArchive.keep(archivePath: archivePath, onLog: onLog)
+
         onLog("🚀 [\(r.scheme)] 업로드 완료 — v\(marketingVersion) (build \(newBuild))")
         // '업로드 완료' 가 '출시됨' 으로 읽히지 않게, 여기서 끝나는 지점을 분명히 말한다.
         // 빌드 연결·심사 제출은 이 뒤의 칸(Store 쪽)이 이어서 한다.
@@ -904,5 +908,123 @@ enum Deployer {
 
     private static func err(_ msg: String) -> NSError {
         NSError(domain: "DeployBar", code: 10, userInfo: [NSLocalizedDescriptionKey: msg])
+    }
+}
+
+// 올린 빌드마다 dSYM 을 남긴다.
+//
+// 왜 필요한가: archive 는 `build/deploy-console/<scheme>.xcarchive` 한 자리에 만들어져
+// 배포할 때마다 덮어써진다. 그래서 MetricKit 크래시 보고가 지난 빌드(예: 골드위크 2.1.5,
+// 2.2.0 build 3)에서 오면 그 빌드의 dSYM 이 이미 없어 주소를 함수 이름으로 바꿀 수 없었다.
+// 이제 업로드가 확인된 빌드는 버전·빌드별 폴더에 dSYM 을 복사해 두고, 지우지 않는다.
+//
+//   ~/Library/Application Support/DeployBar/dSYMs/<번들 ID>/<버전>(<빌드>)/
+//       <앱>.app.dSYM …     archive 의 dSYMs/ 그대로
+//       uuids.txt           dwarfdump --uuid 결과 — 크래시 보고의 UUID 를 grep -r 로 찾는다
+enum DSymArchive {
+    /// ~/Library/Application Support/DeployBar/dSYMs
+    static var root: URL { Config.supportDir.appendingPathComponent("dSYMs", isDirectory: true) }
+
+    struct Stored {
+        var bundleId: String
+        var label: String        // "2.2.0(3)"
+        var dir: URL
+        var uuids: [String]      // uuids.txt 의 줄 그대로
+    }
+
+    /// archive 의 dSYM 을 보관소로 복사한다. 실패는 경고로만 남긴다 — 배포를 실패시키지 않는다.
+    static func keep(archivePath: String, onLog: (String) -> Void) {
+        let fm = FileManager.default
+        let archive = URL(fileURLWithPath: archivePath)
+        let src = archive.appendingPathComponent("dSYMs", isDirectory: true)
+        let plist = archive.appendingPathComponent("Info.plist")
+        guard let data = try? Data(contentsOf: plist),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let props = info["ApplicationProperties"] as? [String: Any],
+              let bundleId = props["CFBundleIdentifier"] as? String,
+              let version = props["CFBundleShortVersionString"] as? String,
+              let build = props["CFBundleVersion"] as? String else {
+            onLog("⚠️  dSYM 보관 건너뜀 — archive 의 Info.plist 에서 번들 ID·버전·빌드를 읽지 못했습니다 (\(plist.path))")
+            return
+        }
+        let dsyms = ((try? fm.contentsOfDirectory(atPath: src.path)) ?? []).filter { $0.hasSuffix(".dSYM") }
+        guard !dsyms.isEmpty else {
+            onLog("⚠️  dSYM 보관 건너뜀 — archive 에 dSYM 이 없습니다 (Release 의 DEBUG_INFORMATION_FORMAT 이 dwarf-with-dsym 인지 확인하세요)")
+            return
+        }
+        let dest = root.appendingPathComponent(bundleId, isDirectory: true)
+            .appendingPathComponent("\(version)(\(build))", isDirectory: true)
+        // 같은 버전·빌드는 애플이 두 번 받지 않으므로, 이미 있으면 그때 올린 것이다 — 덮어쓰지 않는다.
+        if fm.fileExists(atPath: dest.path) {
+            onLog("🗃  dSYM 이미 보관됨 — \(dest.path)")
+            return
+        }
+        // 반쯤 복사된 폴더가 '보관됨' 으로 읽히지 않게, 옆 자리에 다 만든 뒤 이름을 바꾼다.
+        let partial = dest.deletingLastPathComponent()
+            .appendingPathComponent(".\(dest.lastPathComponent).partial", isDirectory: true)
+        do {
+            try? fm.removeItem(at: partial)
+            try fm.createDirectory(at: partial, withIntermediateDirectories: true)
+            for name in dsyms {
+                try fm.copyItem(at: src.appendingPathComponent(name), to: partial.appendingPathComponent(name))
+            }
+            // 복사본을 대상으로 돌려야 uuids.txt 의 경로가 보관소를 가리킨다 — 이름 바꾼 뒤 경로로 고쳐 적는다.
+            var lines: [String] = []
+            for name in dsyms.sorted() {
+                let out = Shell.outcome("/usr/bin/dwarfdump", ["--uuid", partial.appendingPathComponent(name).path],
+                                        timeout: 60)
+                if !out.ok { onLog("⚠️  dwarfdump --uuid 실패 (\(name)): \(out.reason)") }
+                lines += out.output.split(separator: "\n").map(String.init)
+                    .filter { $0.hasPrefix("UUID:") }
+                    .map { $0.replacingOccurrences(of: partial.path, with: dest.path) }
+            }
+            try (lines.joined(separator: "\n") + "\n")
+                .write(to: partial.appendingPathComponent("uuids.txt"), atomically: true, encoding: .utf8)
+            try fm.moveItem(at: partial, to: dest)
+            onLog("🗃  dSYM 보관 — \(version)(\(build)) · \(dsyms.count)개 · UUID \(lines.count)개 → \(dest.path)")
+        } catch {
+            try? fm.removeItem(at: partial)
+            onLog("⚠️  dSYM 보관 실패 (배포는 그대로 성공): \(error.localizedDescription)")
+        }
+    }
+
+    /// 번들 ID 하나의 보관된 빌드들 (오래된 것부터). 읽기만 한다.
+    static func list(bundleId: String) -> [Stored] {
+        let dir = root.appendingPathComponent(bundleId, isDirectory: true)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+        return names.filter { !$0.hasPrefix(".") }
+            .sorted { $0.compare($1, options: .numeric) == .orderedAscending }
+            .map { name in
+                let d = dir.appendingPathComponent(name, isDirectory: true)
+                let text = (try? String(contentsOf: d.appendingPathComponent("uuids.txt"), encoding: .utf8)) ?? ""
+                return Stored(bundleId: bundleId, label: name, dir: d,
+                              uuids: text.split(separator: "\n").map(String.init))
+            }
+    }
+
+    /// 보관소에 있는 번들 ID 전부
+    static func bundleIds() -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [])
+            .filter { !$0.hasPrefix(".") }.sorted()
+    }
+
+    /// 크래시 보고의 UUID 와 맞는 줄. 대시·대소문자는 가리지 않는다.
+    static func match(_ uuid: String, in builds: [Stored]) -> [(Stored, String)] {
+        let want = normalize(uuid)
+        return builds.flatMap { b in
+            b.uuids.filter { line in
+                line.split(separator: " ").dropFirst().first.map { normalize(String($0)) == want } ?? false
+            }.map { (b, $0) }
+        }
+    }
+
+    static func normalize(_ s: String) -> String {
+        s.uppercased().filter { $0.isHexDigit }
+    }
+
+    /// 인자가 UUID 처럼 생겼나 (16진수 32자, 대시는 있어도 없어도)
+    static func looksLikeUUID(_ s: String) -> Bool {
+        let n = normalize(s)
+        return n.count == 32 && s.allSatisfy { $0.isHexDigit || $0 == "-" }
     }
 }
