@@ -580,7 +580,7 @@ enum Deployer {
         //     따로 돌리는 이유: 문구 한도 초과 같은 실패가 그림 올리기까지 막으면 안 된다.
         if lane == .appstore, StoreMeta.read(app.path, locales: AppRepo.resolve(app).locales) != nil {
             var o = StorePublish.Options()
-            o.screenshots = false; o.previews = false; o.ageRating = false; o.attachBuild = false
+            o.screenshots = false; o.previews = false; o.creatives = false; o.ageRating = false; o.attachBuild = false
             o.manualCheck = false; o.createVersion = true
             do {
                 let rep = try await StorePublish.run(app, options: o, onLog: onLog)

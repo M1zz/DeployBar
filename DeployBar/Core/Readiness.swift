@@ -19,6 +19,7 @@ enum Fix: String, Codable {
     case attachBuild // 올라간 빌드를 App Store 버전에 고른다 (ASC API)
     case publishStore // APPSTORE.md 문구 + docs/screenshots 그림을 스토어에 올린다 (ASC API)
     case prepPrompt  // 배포 준비 지시문(완비 기준 + 빠진 것)을 클립보드에 (채우는 건 붙여넣은 세션이 한다)
+    case creativePrompt // 헤더·검색 결과를 만들 지시문을 클립보드에
 
     var label: String {
         switch self {
@@ -31,6 +32,7 @@ enum Fix: String, Codable {
         case .attachBuild: return "빌드 연결"
         case .publishStore: return "스토어 올리기"
         case .prepPrompt: return "지시문 복사"
+        case .creativePrompt: return "프롬프트 복사"
         }
     }
 }
@@ -601,7 +603,7 @@ struct Readiness: Codable, Hashable {
         //       다른 항목이 이미 말하는 것(번역 구멍 = i18n, 커밋 = git)과 사람 몫은 빼서 같은 말을 두 번 하지 않는다.
         if let gaps = status.prepGaps {
             let mine = gaps.filter { !$0.human && $0.area != "다국어" && $0.area != "저장소" }
-            let areas = ["설정", "스토어 문구", "릴리즈노트", "스크린샷"]
+            let areas = ["설정", "스토어 문구", "릴리즈노트", "스크린샷", "헤더·검색 결과"]
             for area in areas + Set(mine.map(\.area)).subtracting(areas).sorted() {
                 let list = mine.filter { $0.area == area }
                 guard !list.isEmpty else { continue }
@@ -613,16 +615,18 @@ struct Readiness: Codable, Hashable {
                     key: "prep-\(area)", level: .need,
                     title: "\(area) — 빠진 것 \(list.count)건",
                     detail: head + more,
-                    fix: area == "스크린샷" ? .shotPrompt : .prepPrompt,
+                    fix: area == "스크린샷" ? .shotPrompt : area == "헤더·검색 결과" ? .creativePrompt : .prepPrompt,
                     todo: area == "스크린샷"
                         ? "[프롬프트 복사] 를 눌러 Claude Code 에 붙여넣으면 언어마다 시뮬레이터로 찍습니다"
+                        : area == "헤더·검색 결과"
+                        ? "[프롬프트 복사] 를 눌러 Claude Code 에 붙여넣으면 언어마다 헤더·검색 결과 그림을 만듭니다"
                         : "[지시문 복사] 를 눌러 Claude Code 에 붙여넣으면 완비 기준대로 언어마다 채웁니다",
                     agent: "`\(DeployPrep.cli) --prepare \(status.name)` 를 실행해 그 지시를 따라 이 갈래(\(area))의 빈 곳을 모든 언어에 채워줘. 끝에 `✅ 자동 배포 완비` 가 나와야 한다."))
             }
             if mine.isEmpty {
                 out.append(ReadyItem(
                     key: "prep", level: .ok, title: "자동 배포 완비",
-                    detail: "언어마다 스토어 문구·릴리즈노트·스크린샷이 레포에 있습니다"))
+                    detail: "언어마다 스토어 문구·릴리즈노트·스크린샷·헤더·검색 결과가 레포에 있습니다"))
             }
         }
 

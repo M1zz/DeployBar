@@ -12,7 +12,7 @@ import Foundation
 //   --reponotes [앱] [버전]  레포의 RELEASE_NOTES.md 에서 무엇을 읽어 가는지
 //   --check   <앱>      게이트까지만 돌려 본다 (업로드 안 함)
 //   --help              사용법 (모르는 -- 명령도 창을 띄우지 않고 사용법으로 끝난다)
-//   --shots   <앱>      앱스토어 스크린샷 다시 만들 때 붙여넣을 지시문 (--video 면 미리보기 영상)
+//   --shots   <앱>      앱스토어 스크린샷 다시 만들 때 붙여넣을 지시문 (--video 면 미리보기 영상, --creative 면 헤더·검색 결과)
 //   --storemeta <앱>    APPSTORE.md 에서 무엇을 읽어 가는지 (--write 면 뼈대 생성)
 //   --publish <앱>      스토어 페이지 올리기 (--dry-run 이면 무엇이 올라갈지만)
 //   --attach/--submit/--release <앱>   빌드 연결 · 심사 제출 · 출시
@@ -35,7 +35,7 @@ enum CLI {
       --notes <앱>               언어별 릴리즈노트 초안 미리보기 (업로드 안 함)
       --reponotes [앱] [버전]    레포의 RELEASE_NOTES.md 에서 무엇을 읽어 가는지
       --check <앱> [--verbose]   게이트까지만 돌려 보고 단계판을 그린다 (업로드 안 함)
-      --shots <앱> [--video]     스크린샷(영상) 다시 만들 때 붙여넣을 지시문
+      --shots <앱> [--video|--creative]  스크린샷(영상·헤더) 다시 만들 때 붙여넣을 지시문
       --storemeta <앱> [--write] APPSTORE.md 를 어떻게 읽는지 (--write 면 뼈대 생성)
       --shotplan <앱>            docs/screenshots 의 그림이 어느 기기 자리에 올라갈지 (네트워크 없음)
       --todo <앱>                제출까지 남은 일 — 도구가 할 것 / 사람만 할 수 있는 것
@@ -67,7 +67,7 @@ enum CLI {
     /// 창 달린 앱이 하나씩 더 뜨고 있었다. (Xcode 가 넘기는 `-NS…` 같은 한 줄 인자는 건드리지 않는다)
     static let known: Set<String> = [
         "--status", "--pull", "--audit", "--doctor", "--builds", "--prompt", "--template", "--write",
-        "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--logs",
+        "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--creative", "--logs",
         "--selftest-changes", "--selftest-lock", "--selftest-version",
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--text-only", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
         "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
@@ -331,7 +331,7 @@ enum CLI {
         print("\n전체 보기: DeployBar --logs last  ·  파일 하나: cat '<위 경로>'")
         exit(0)
     }
-    // 스크린샷·미리보기 영상 지시문: DeployBar --shots 앱이름 [--video]
+    // 스크린샷·미리보기 영상 지시문: DeployBar --shots 앱이름 [--video|--creative]
     //
     // 스크린샷은 DeployBar 가 찍지 않는다 (올리는 건 배포·`--publish` 가 docs/screenshots 에서 한다).
     // 대신 **무엇을 다시 찍어야 하는지**를 아는 것은 이쪽이므로, 그 사실을 지시문으로 만들어 준다. `| pbcopy` 로 바로 붙여넣기.
@@ -341,7 +341,8 @@ enum CLI {
               !name.isEmpty, !name.hasPrefix("--") else {
             print("앱을 찾지 못했습니다: \(name)"); exit(1)
         }
-        let kind: ShotPrompt.Kind = CommandLine.arguments.contains("--video") ? .video : .shots
+        let kind: ShotPrompt.Kind = CommandLine.arguments.contains("--video") ? .video
+            : CommandLine.arguments.contains("--creative") ? .creative : .shots
         let sem = DispatchSemaphore(value: 0)
         Task.detached {
             // 스토어 버전을 같이 적어 주려고 조회한다. 안 되면 프로젝트 값만으로도 글은 나온다.
@@ -624,6 +625,26 @@ enum CLI {
                     }
                 }
             }
+            // 헤더·검색 결과, 업로드와 같은 함수로 판단한다
+            let creative = await StorePublish.creativePlan(app.path, locales: r.locales)
+            if creative.isEmpty {
+                print("\n헤더·검색 결과: 없음 (\(StorePublish.canonicalCreativeDir)/<로케일>/header.png · search.png 에 두면 배포가 올립니다. 비우면 검색 결과는 스크린샷이 대신)")
+            } else {
+                print("\n헤더·검색 결과 \(creative.count)개")
+                for row in creative {
+                    let c = row.file
+                    let slot = c.types.isEmpty ? "규격 아님" : c.types.map { StorePublish.creativeLabel($0) }.joined(separator: "·")
+                    print("   \(c.problem == nil ? "✅" : "⚠️") \(row.locale.isEmpty ? "모든 언어" : row.locale) · \(slot) · \(c.file.lastPathComponent)\(c.problem.map { ", \($0)" } ?? "")")
+                }
+                var byLocale: [String: [StorePublish.CreativeFile]] = [:]
+                for row in creative { byLocale[row.locale, default: []].append(row.file) }
+                for type in ASCClient.creativeTypes {
+                    let missing = r.locales.filter { StorePublish.creativesFor($0, resolved: byLocale).byType[type] == nil }
+                    if !missing.isEmpty && missing.count < r.locales.count {
+                        print("   · \(StorePublish.creativeLabel(type)) 없는 언어: \(missing.map { Locales.displayName($0) }.joined(separator: ", "))")
+                    }
+                }
+            }
             sem.signal()
         }
         sem.wait()
@@ -742,7 +763,7 @@ enum CLI {
         if CommandLine.arguments.contains("--replace-shots") { o.shotMode = .replaceAll }
         // 문구만 — 배포가 도는 중에 빈 언어 칸만 채울 때. 버전·빌드·그림·연령 등급은 건드리지 않는다
         if CommandLine.arguments.contains("--text-only") {
-            o.screenshots = false; o.previews = false; o.attachBuild = false; o.ageRating = false; o.createVersion = false; o.manualCheck = false
+            o.screenshots = false; o.previews = false; o.creatives = false; o.attachBuild = false; o.ageRating = false; o.createVersion = false; o.manualCheck = false
         }
         let sem = DispatchSemaphore(value: 0)
         Task.detached {

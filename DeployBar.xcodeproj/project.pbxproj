@@ -20,6 +20,7 @@
 		31ADCCD92DA9A091AD05814C /* Store+Scaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = B43DBFC0D66929E1A4C78681 /* Store+Scaffold.swift */; };
 		344CC6E35B133E3C4585C065 /* DeployProgressPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2682C393B3944D18F64D114C /* DeployProgressPanel.swift */; };
 		36148CF28DACAEA5519E04FF /* NotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C4E9821C1904EC4156A7E9 /* NotesView.swift */; };
+		3BAE6D3DD218CD87F2935404 /* StorePublish+Creative.swift in Sources */ = {isa = PBXBuildFile; fileRef = C893A6B13E9C4E77731107EA /* StorePublish+Creative.swift */; };
 		3C33A4C847474083B59E159A /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D33D4B35E9C46D91AD0A7C8 /* App.swift */; };
 		409E6BAAF6DAC213841D3621 /* Store+Fix.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9D778E45E4B8A99C150CA81 /* Store+Fix.swift */; };
 		473A5C4B6A8C7BBA2C3420EB /* Readiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9EE1D707F414933B0F50390 /* Readiness.swift */; };
@@ -58,6 +59,7 @@
 		E63A44AAF7FDFC88436B0DAE /* Store+Deploy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A81893B64F9BF7E01870AEE /* Store+Deploy.swift */; };
 		E8A9128057B18929C90B20C6 /* StorePublish+Previews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21E99B9C48B51FEA28ED7636 /* StorePublish+Previews.swift */; };
 		ED3BDBBD571E0856E798D08D /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28399DAC3FBD06AB97D825B /* LogView.swift */; };
+		F4F11B73B3D7A9B5364404FF /* ASCClient+Creative.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CBDB885BE302FA5EFA62B08 /* ASCClient+Creative.swift */; };
 		F582D48D2BDC9F84C3DA5ADD /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20B29C4108A3C3EACA4C831 /* Models.swift */; };
 		FC178E1F7E1D1CE28E752B88 /* ReadinessChecklist.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E4FC0E414301AA4BBB5C5E2 /* ReadinessChecklist.swift */; };
 		FD6742723D35E3A20487AD5D /* DeployProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CF611CBBA4B443D645B90B0 /* DeployProgress.swift */; };
@@ -89,6 +91,7 @@
 		5225FCAE223BB17548EEBD8D /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
 		5250A1BD8E9653A6E81CBEE4 /* DeployPrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployPrep.swift; sourceTree = "<group>"; };
 		53D60DF5F4B0B291079A4E2C /* Store+StoreWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+StoreWriter.swift"; sourceTree = "<group>"; };
+		5CBDB885BE302FA5EFA62B08 /* ASCClient+Creative.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ASCClient+Creative.swift"; sourceTree = "<group>"; };
 		60C26F6C4BB01A612A7E9DF5 /* Store+Publish.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Publish.swift"; sourceTree = "<group>"; };
 		65085709851C24489FF05934 /* StoreWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreWriter.swift; sourceTree = "<group>"; };
 		6817E153578A4E00168F8A72 /* AppFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFilter.swift; sourceTree = "<group>"; };
@@ -104,6 +107,7 @@
 		B43DBFC0D66929E1A4C78681 /* Store+Scaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Scaffold.swift"; sourceTree = "<group>"; };
 		BFE808863D0A36BAA4A1D7F9 /* AppCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCard.swift; sourceTree = "<group>"; };
 		C56DBFC16FAA54399A3E620E /* Store+ReleaseNotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+ReleaseNotes.swift"; sourceTree = "<group>"; };
+		C893A6B13E9C4E77731107EA /* StorePublish+Creative.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StorePublish+Creative.swift"; sourceTree = "<group>"; };
 		C9EE1D707F414933B0F50390 /* Readiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Readiness.swift; sourceTree = "<group>"; };
 		CB9D4EBA17ACC04E8F2C9252 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CBB6479E21A3BE2BCC8DA4CE /* Notifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifier.swift; sourceTree = "<group>"; };
@@ -135,6 +139,7 @@
 			children = (
 				E81D14090645E0BA65317ADC /* AIWriter.swift */,
 				EBE760690B10ED4A37047527 /* ASCClient.swift */,
+				5CBDB885BE302FA5EFA62B08 /* ASCClient+Creative.swift */,
 				26056B26D4307AF6DA11C1AF /* ASCClient+Previews.swift */,
 				F196B888DEF40AB4CE0C68EF /* ASCClient+Store.swift */,
 				88BC5421454848BF453EAA81 /* Deployer.swift */,
@@ -146,6 +151,7 @@
 				46B32FAD046DDDEECB5F82F1 /* ShotPrompt.swift */,
 				0F9A9946EE8D99FDDA58F64E /* StoreMeta.swift */,
 				49156153C066251C1E8C5F90 /* StorePublish.swift */,
+				C893A6B13E9C4E77731107EA /* StorePublish+Creative.swift */,
 				21E99B9C48B51FEA28ED7636 /* StorePublish+Previews.swift */,
 				65085709851C24489FF05934 /* StoreWriter.swift */,
 			);
@@ -303,6 +309,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				88C85FD970D7F18B3CD99D20 /* AIWriter.swift in Sources */,
+				F4F11B73B3D7A9B5364404FF /* ASCClient+Creative.swift in Sources */,
 				8121DFBF37A0473044A52A77 /* ASCClient+Previews.swift in Sources */,
 				B7E3401B6D8723EFD0C8952F /* ASCClient+Store.swift in Sources */,
 				0AA077725794C71F3403A8FC /* ASCClient.swift in Sources */,
@@ -351,6 +358,7 @@
 				4BECA40730A2FB74E7CDC66C /* Store+StoreWriter.swift in Sources */,
 				1A2AD71C3C8D5A309441562B /* Store.swift in Sources */,
 				C70906DE796293688D9D357E /* StoreMeta.swift in Sources */,
+				3BAE6D3DD218CD87F2935404 /* StorePublish+Creative.swift in Sources */,
 				E8A9128057B18929C90B20C6 /* StorePublish+Previews.swift in Sources */,
 				A97324A6E066485D7684E3AA /* StorePublish.swift in Sources */,
 				27DCDAAEFD38C51C0AC218C0 /* StoreWriter.swift in Sources */,

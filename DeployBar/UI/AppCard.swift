@@ -212,6 +212,7 @@ struct AppCard: View {
             case "다국어": label = "앱 번역 구멍"
             case "스토어 문구": label = "스토어 문구 빈 칸"
             case "릴리즈노트": label = "릴리즈노트 원고 없음"
+            case "헤더·검색 결과": label = g.text.hasPrefix("검색 결과") ? "검색 결과 그림 없음" : g.text.hasPrefix("헤더") ? "헤더 그림 없음" : "헤더·검색 결과 없음"
             case "스크린샷": label = g.text.contains("아이패드") ? "아이패드 그림 없음" : g.text.contains("워치") ? "워치 그림 없음" : "스크린샷 없음"
             default: label = g.area
             }
@@ -582,6 +583,7 @@ struct AppCard: View {
                 Menu {
                     Button("스크린샷 다시 찍기") { copyShotPrompt(.shots) }
                     Button("미리보기 영상 만들기") { copyShotPrompt(.video) }
+                    Button("헤더·검색 결과 만들기") { copyShotPrompt(.creative) }
                 } label: {
                     Label("앱스토어 그림 프롬프트 복사", systemImage: "camera")
                 }

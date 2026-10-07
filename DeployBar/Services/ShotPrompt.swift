@@ -15,7 +15,10 @@ enum ShotPrompt {
     enum Kind: String {
         case shots      // 기본 캡처 + 마케팅 합성
         case video      // 앱 미리보기 영상
-        var label: String { self == .shots ? "스크린샷" : "미리보기 영상" }
+        case creative   // 제품 페이지 헤더 · 검색 결과 (iOS·iPadOS 27)
+        var label: String {
+            switch self { case .shots: return "스크린샷"; case .video: return "미리보기 영상"; case .creative: return "헤더·검색 결과" }
+        }
     }
 
     // ── 지금이 다시 찍을 때인가 ──────────────────────────────────────
@@ -76,7 +79,7 @@ enum ShotPrompt {
         let assets = scan(app.path)
         let locales = r.locales
 
-        var s = "\(app.path) 의 App Store \(kind.label)을 v\(version.isEmpty ? "?" : version) 에 맞게 다시 만들어줘.\n"
+        var s = "\(app.path) 의 App Store \(kind.label)\(kind == .creative ? "를" : "을") v\(version.isEmpty ? "?" : version) 에 맞게 다시 만들어줘.\n"
         s += "appstore-assets 스킬이 있으면 먼저 읽고 그 순서를 따라라. 아래는 DeployBar 가 이 앱에 대해 알고 있는 사실이다.\n"
 
         // ── 앱 ────────────────────────────────────────────────────────
@@ -91,8 +94,11 @@ enum ShotPrompt {
         if !locales.isEmpty {
             s += "- 스토어 언어: \(Locales.sorted(locales).joined(separator: ", "))"
             // 그림도 영상도 언어별로 올릴 수 있다. 영상은 언어마다 자막이 달라야 다른 나라 검색에서 읽힌다
-            s += kind == .shots ? ", 그림도 언어별로 올릴 수 있다. 한국어부터 찍고, 나머지는 시간이 남을 때.\n"
-                                : ", 영상도 언어별 폴더에 두면 언어별로 올라간다. 한국어부터 만들고 확인받은 뒤 넓힌다.\n"
+            switch kind {
+            case .shots: s += ", 그림도 언어별로 올릴 수 있다. 한국어부터 찍고, 나머지는 시간이 남을 때.\n"
+            case .video: s += ", 영상도 언어별 폴더에 두면 언어별로 올라간다. 한국어부터 만들고 확인받은 뒤 넓힌다.\n"
+            case .creative: s += ", 헤더·검색 결과는 글이 들어가므로 **모든 언어**를 만든다. 한국어부터 만들고 확인받은 뒤 넓힌다.\n"
+            }
         }
         if platform == .iOS, let sim = simulator() {
             s += "- 시뮬레이터: \(sim)\n"
@@ -148,6 +154,9 @@ enum ShotPrompt {
             }
         }
 
+        // 헤더·검색 결과는 찍는 일이 아니라 **합성**이다. 저장 자리·지킬 것이 스크린샷과 달라 따로 쓴다
+        if kind == .creative { return s + creativeBody(app, locales: locales) }
+
         // ── 할 일 ────────────────────────────────────────────────────
         s += "\n## 할 일\n"
         s += kind == .shots ? shotsSteps(assets, platform: platform)
@@ -156,6 +165,7 @@ enum ShotPrompt {
         // ── 규격 ─────────────────────────────────────────────────────
         s += "\n## 규격\n"
         s += platform == .macOS ? Spec.mac : (kind == .shots ? Spec.iosShots : Spec.iosVideo)
+        if platform == .iOS { s += Spec.creative }
 
         // ── 어디에 저장하나 ──────────────────────────────────────────
         // 이 절이 이 글에서 제일 중요하다. **DeployBar 가 배포할 때 이 폴더를 그대로 올리므로**,
@@ -263,8 +273,98 @@ enum ShotPrompt {
         """
     }
 
+    // ── 헤더 · 검색 결과 ────────────────────────────────────────────
+    /// 클립키보드에서 처음 만들며 정한 방식이다(scripts/make_creative_assets.py): HTML 을 헤드리스 Chrome 으로 그리고,
+    /// 글이 안전 영역을 넘거나 적은 줄보다 쪼개지면 그림을 만들지 않고 멈춘다.
+    static let creativeScript = "scripts/make_creative_assets.py"
+
+    /// 본보기 생성 스크립트. 이 앱 자신 → appstore-assets 스킬에 번들된 사본 → 이미 만든 다른 앱 순.
+    static func creativeReference(for app: ManagedApp) -> String? {
+        let fm = FileManager.default
+        let own = (app.path as NSString).appendingPathComponent(creativeScript)
+        if fm.fileExists(atPath: own) { return own }
+        let skill = Config.home.appendingPathComponent(".claude/skills/appstore-assets/\(creativeScript)").path
+        if fm.fileExists(atPath: skill) { return skill }
+        return AppRepo.registry().lazy
+            .map { ($0.path as NSString).appendingPathComponent(creativeScript) }
+            .first { fm.fileExists(atPath: $0) }
+    }
+
+    private static func creativeBody(_ app: ManagedApp, locales: [String]) -> String {
+        let dir = StorePublish.canonicalCreativeDir
+        var s = "\n## 지금 걸려 있는 헤더·검색 결과\n"
+        let have = StorePublish.resolveCreatives(app.path, locales: locales)
+        if have.isEmpty {
+            s += "없다. 새로 만든다.\n"
+        } else {
+            for (loc, files) in have.sorted(by: { $0.key < $1.key }) {
+                s += "  \(loc.isEmpty ? "(모든 언어)" : loc)/ \(files.map(\.lastPathComponent).joined(separator: ", "))\n"
+            }
+        }
+        let own = (app.path as NSString).appendingPathComponent(creativeScript)
+        if FileManager.default.fileExists(atPath: own) {
+            s += "생성 스크립트: \(creativeScript), 문구·그림만 고치고 다시 돌리면 된다 (`python3 \(creativeScript) [언어 ...]`).\n"
+        } else if let ref = creativeReference(for: app) {
+            s += "생성 스크립트 없음. **\(ref) 를 이 레포 `scripts/` 로 복사해서** 이 앱에 맞게 고쳐 써라\n"
+            s += "(문구 표 · 쓰는 원본 캡처 · 바탕색 · 로케일 표). 안전 영역 수치와 글 맞추기(FIT_JS)는 그대로 둔다.\n"
+        }
+
+        s += """
+
+        ## 할 일
+        1. **헤더(3840×1646)**: 처음 온 사람에게 **한 가지 약속**만 한다. 앱이 무엇을 해 주는지 한 문장 + 짧은 눈썹글.
+           가운데 안전 영역에 글, 양옆(아이폰에서는 잘리는 곳)에 기기 그림·장식.
+        2. **검색 결과(3840×2560)**: 스크린샷 1장과 **같은 이야기**다(검색에서 본 말이 페이지에서도 이어져야 한다).
+           눈썹글은 **그 나라 사람이 검색창에 치는 말**, 헤드라인, 보조 한 줄 + 기기 한 대.
+           아이폰에서 약 385pt 폭으로 줄어 보이므로 글이 커야 한다.
+        3. 바탕·글자색·글꼴은 **지금 스크린샷(marketing)과 같게.** 다르면 헤더만 남의 앱처럼 보인다.
+        4. 기기 화면은 원본 캡처(`docs/screenshots/raw/`)를 쓴다. 없는 언어는 그 언어로 먼저 찍는다.
+        5. 문구는 언어마다 **따로 쓴다**(기계번역 금지). 줄바꿈 자리를 문구에 적고(`<br>`), 그보다 더 쪼개지거나
+           안전 영역을 넘으면 글자를 줄이고, 최소 크기에서도 안 맞으면 **그림을 만들지 말고 멈춰서** 문구를 줄인다.
+           잘린 글이 스토어에 올라가는 것보다 낫다.
+        6. 만든 그림을 줄여서 Read 로 하나씩 열어 본다: 잘림·글자 깨짐(태국어·아랍어)·다른 언어 섞임.
+
+        ## 어디에 저장하나, 이 경로가 곧 배포다
+        ```
+        \(dir)/<로케일>/header.png    3840×1646 PNG
+        \(dir)/<로케일>/search.png    3840×2560 PNG (3:2 면 1920×1280 부터)
+        ```
+        - 로케일은 스토어 로케일(`en-US` · `es-MX` · `ko`). 같은 언어의 다른 지역(`en-GB`)은 폴더가 없으면 `en-US` 를 빌려 쓴다.
+        - **투명(알파) 채널 없이** 저장한다. 있으면 애플이 거절한다 (Chrome 스크린샷은 알파가 없다).
+        - 확인: `DeployBar --shotplan \(app.name)` 끝의 '헤더·검색 결과' 줄이 언어마다 ✅ 여야 한다.
+
+        ## 지켜야 할 것
+        - 가격·할인·주소(URL)·수상 내역·다른 플랫폼 이름은 넣지 않는다 (Apple 가이드). 4+ 등급에 맞는 그림만.
+        - 앱에 없는 기능을 보이지 않는다.
+        - 올리는 건 DeployBar 가 한다. 다음 배포가 빈 칸을 채우고, 바꾼 그림은 `--publish` 나 '스크린샷 교체' 체크로 올라간다.
+          App Store Connect 를 직접 고치지 마라.
+        - 다 끝나면 생성 스크립트와 그림을 함께 커밋해줘. 커밋되지 않은 변경이 남으면 배포가 막힌다.
+
+        """
+        s += Spec.creative
+        return s
+    }
+
     // ── 규격 표 ──────────────────────────────────────────────────────
     private enum Spec {
+        /// 헤더·검색 결과 (iOS·iPadOS 27 부터). 스크린샷이 아니라 브랜드·시즌·새 콘텐츠를 보이는 그림이다.
+        static let creative = """
+
+        ### 헤더 · 검색 결과 (필수, 스크린샷과 함께 언어마다 갖춘다. 배포 준비가 빠지면 '미완' 으로 본다)
+        제품 페이지 맨 위 한 장(헤더)과 검색 결과에 스크린샷 대신 뜨는 한 장. 사용 화면이 아니라 앱의 분위기·브랜드를 보이는 그림이나 영상이다.
+        | 칸 | 크기 | 형식 |
+        |---|---|---|
+        | 헤더 | 3840×1646 (21:9) | PNG, 또는 같은 크기 영상 5~30초 30·60fps |
+        | 검색 결과 | 3:2, 1920×1280 ~ 3840×2560 | PNG·JPEG, 또는 같은 비율 영상 5~30초 |
+        | 둘 다 | 5244×2950 (16:9) | PNG |
+        - **글은 안전 영역 안에만** (Apple PSD 템플릿에서 잰 값, 밖은 기기에 따라 잘린다. 배경·기기 그림은 넘쳐도 된다):
+          헤더 3840×1646 → (1097, 493)–(2743, 1154) · 검색 결과 3840×2560 → (836, 765)–(3004, 1795)
+        - **투명(알파) 채널이 있으면 거절된다.** 영상은 소리 없이 반복 재생되므로 자막·소리에 기대지 않는다. 4+ 등급에 맞는 그림만.
+        - 저장: `\(StorePublish.canonicalCreativeDir)/<로케일>/header.png` · `search.png` (언어마다), 또는 `\(StorePublish.canonicalCreativeDir)/header.png` (모든 언어에 한 벌).
+        - 확인: `DeployBar --shotplan <앱>` 끝의 '헤더·검색 결과' 줄이 ✅ 여야 한다.
+        - 스크린샷 작업이면 끝에 헤더·검색 결과도 확인한다. 없거나 화면이 바뀌었으면 `DeployBar --shots <앱> --creative` 의 지시로 만든다.
+
+        """
         /// 이 사람의 App Store Connect 제출은 늘 이 크기를 쓴다.
         static let submit = "1242×2688"
         static let iosShots = """

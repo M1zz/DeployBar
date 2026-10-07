@@ -12,7 +12,7 @@ import Foundation
 enum DeployPrep {
 
     struct Gap: Codable, Hashable {
-        var area: String     // 설정 · 다국어 · 스토어 문구 · 릴리즈노트 · 스크린샷 · 심사 · 저장소
+        var area: String     // 설정 · 다국어 · 스토어 문구 · 릴리즈노트 · 스크린샷 · 헤더·검색 결과 · 심사 · 저장소
         var text: String
         /// 사람만 할 수 있는 일(애플에 하는 신고·웹에서만 되는 설정) — Claude 는 하지 말고 알려야 한다
         var human = false
@@ -150,6 +150,28 @@ enum DeployPrep {
             }
         } else {
             gap("스크린샷", "docs/screenshots/ 가 없습니다", a.locales)
+        }
+
+        // 5-1) 헤더 · 검색 결과 — iOS·iPadOS 27 의 크리에이티브 자산. 스크린샷과 같은 무게로 언어마다 있어야 한다.
+        //      업로드와 같은 함수(creativePlan · creativesFor)로 판단한다. 규격은 내장 사본이라 네트워크를 쓰지 않는다
+        if info?.platform != .macOS {
+            let rows = await StorePublish.creativePlan(app.path, locales: a.locales)
+            if rows.isEmpty {
+                gap("헤더·검색 결과", "\(StorePublish.canonicalCreativeDir)/ 가 없습니다 — 헤더(3840×1646)·검색 결과(3840×2560)를 언어마다 만드세요", a.locales)
+            } else {
+                var byLocale: [String: [StorePublish.CreativeFile]] = [:]
+                for row in rows { byLocale[row.locale, default: []].append(row.file) }
+                for type in ASCClient.creativeTypes {
+                    let missing = a.locales.filter { StorePublish.creativesFor($0, resolved: byLocale).byType[type] == nil }
+                    if !missing.isEmpty {
+                        gap("헤더·검색 결과", "\(StorePublish.creativeLabel(type)) 없는 언어: \(missing.map { Locales.displayName($0) }.joined(separator: ", "))", missing)
+                    }
+                }
+                for row in rows.filter({ $0.file.problem != nil }).prefix(3) {
+                    gap("헤더·검색 결과", "\(row.locale.isEmpty ? "" : row.locale + "/")\(row.file.file.lastPathComponent) 는 올라가지 않습니다: \(row.file.problem!)",
+                        row.locale.isEmpty ? nil : [row.locale])
+                }
+            }
         }
 
         // 6) 심사 — 사람의 신고가 필요한 것
@@ -290,6 +312,11 @@ enum DeployPrep {
         }
         s += """
            - 확인: `\(cli) --shotplan \(app)` 끝의 `뱃지: ✅ 준비됨` 이어야 하고, '올라가지 않는 파일' 이 없어야 한다.
+        5-1. 헤더 · 검색 결과 (iOS) — 스크린샷처럼 **언어마다** 둔다. 제품 페이지 맨 위와 검색 결과에 뜨는 그림이다.
+           - `docs/screenshots/creative/<로케일>/header.png` 3840×1646 · `search.png` 3840×2560, PNG, 투명(알파) 없음.
+           - 글은 Apple 템플릿의 안전 영역 안에만, 그 언어로 따로 쓴다. 헤더는 한 가지 약속, 검색 결과는 스크린샷 1장과 같은 이야기.
+           - 만드는 법: `\(cli) --shots \(app) --creative` 의 지시를 따른다.
+           - 확인: `\(cli) --shotplan \(app)` 끝의 '헤더·검색 결과' 줄이 모두 ✅ 이고 빠진 언어가 없어야 한다.
         6. 심사 — 수출 규정(암호화)과 연령 등급은 **애플에 하는 신고**다. 사람의 선언 없이 대신 적지 않는다.
         7. 저장소 — 모든 변경을 커밋한다. 커밋 안 된 변경이 남으면 배포가 잠긴다.
 
@@ -335,6 +362,7 @@ enum DeployPrep {
         1. 빈 스토어 문구·릴리즈노트는 먼저 `\(cli) --autowrite \(app.name) --no-commit` 로 초안을 채운다.
            그다음 **언어마다 직접 읽고 고친다** — 초안을 그대로 두지 마라. 이미 있는 글도 기준에 못 미치면 고친다.
         2. 스크린샷이 빠졌으면 `\(cli) --shots \(app.name)` 의 지시를 따라 언어마다 찍는다(appstore-assets 스킬이 있으면 먼저 읽는다).
+           헤더·검색 결과가 빠졌으면 `\(cli) --shots \(app.name) --creative` 의 지시를 따라 언어마다 만든다.
         3. 아래 검증 명령을 **전부** 돌리고, 하나라도 기준에 못 미치면 고친 뒤 다시 돌린다.
            - `\(cli) --doctor \(app.name)`
            - `\(cli) --storemeta \(app.name)`
@@ -376,6 +404,7 @@ enum DeployPrep {
         step("스토어 문구 — `APPSTORE.md` 에 `## \(lang)` 절을 만들고 이름·부제·키워드·프로모션 텍스트·설명·지원 URL·개인정보처리방침 URL 을 **전부** 쓴다. `\(base)` 절을 출발점으로 삼되 그 나라 앱스토어 문체로 새로 쓰고, 키워드는 그 나라 사람이 검색창에 칠 말로 다시 고른다.")
         step("릴리즈노트 — `RELEASE_NOTES.md` 의 `## \(a.version)` 에 `### 앱스토어 (\(lang))` 절(제목의 로케일 코드로 언어를 알아본다). 다른 언어와 항목 수·순서를 맞춘다.")
         step("스크린샷 — `docs/screenshots/marketing/\(lang)/` 에 이 언어 화면으로 찍는다(시뮬레이터 언어를 `\(lang)` 로). `\(cli) --shots \(app.name)` 의 지시와 appstore-assets 스킬을 따르되 **이 언어만** 찍는다." + (a.hasPad ? " 아이패드 2064×2752 도." : "") + (a.hasWatch ? " 워치 416×496 도." : ""))
+        step("헤더·검색 결과 — `\(StorePublish.canonicalCreativeDir)/\(lang)/header.png`(3840×1646) · `search.png`(3840×2560). 생성 스크립트가 있으면 이 언어의 문구만 더해 다시 돌린다(`\(cli) --shots \(app.name) --creative`).")
         step("확인 — `\(cli) --prepare \(app.name) --lang \(lang)` 의 끝이 `✅ \(name) 완비` 여야 한다. 그다음 커밋한다(메시지에 \(name) 추가라고 적는다).")
 
         s += "\n"

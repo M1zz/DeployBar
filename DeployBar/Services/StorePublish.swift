@@ -21,7 +21,8 @@ enum StorePublish {
         var text = true               // 이름·부제·설명·키워드·URL
         var screenshots = true        // docs/screenshots/ 를 올린다
         var previews = true           // docs/screenshots/preview/ 의 미리보기 영상을 올린다
-        /// 올린 영상의 처리를 기다렸다가 대표 프레임을 정할 최대 시간(초)
+        var creatives = true          // docs/screenshots/creative/ 의 헤더·검색 결과 자산을 올린다
+        /// 올린 영상의 처리를 기다렸다가 대표 프레임을 정할 최대 시간(초). 헤더·검색 결과 자산의 처리 대기도 같은 값
         var previewWait: TimeInterval = 600
         var ageRating = true          // APPSTORE.md 가 "해당 없음" 이라고 적었을 때만
         /// 스토어에 이미 글이 있어도 레포 글로 덮어쓸지. **기본은 덮어쓴다 — 레포가 원본이다.**
@@ -144,6 +145,17 @@ enum StorePublish {
             try await pushPreviews(app, version: version, platform: info.platform,
                                    poster: r.previewPoster, options: options,
                                    report: &report, onLog: onLog)
+        }
+
+        // 4-2) 헤더·검색 결과 (크리에이티브 자산), 같은 규칙. 자산 라이브러리에 올리고 언어 칸에 배치한다
+        //      비워도 심사는 되는 칸이라, 여기서 막혀도 배포 전체를 세우지 않고 경고로 남긴다
+        if options.creatives {
+            do {
+                try await pushCreatives(app, appId: appId, version: version, poster: r.previewPoster,
+                                        options: options, report: &report, onLog: onLog)
+            } catch {
+                report.warnings.append("헤더·검색 결과를 올리지 못했습니다: \(reason(error))")
+            }
         }
 
         // 5) 연령 등급 — 사람이 APPSTORE.md 에 적어 둔 앱만
@@ -675,7 +687,7 @@ enum StorePublish {
     /// 빌드 연결 하나만 (체크리스트의 [빌드 연결] 버튼).
     static func attachBuild(_ app: ManagedApp) async throws -> String {
         var o = Options()
-        o.text = false; o.screenshots = false; o.previews = false; o.ageRating = false; o.createVersion = false
+        o.text = false; o.screenshots = false; o.previews = false; o.creatives = false; o.ageRating = false; o.createVersion = false
         let rep = try await run(app, options: o)
         if let w = rep.warnings.first, rep.changed.isEmpty { return w }
         return rep.changed.first ?? "이미 연결돼 있습니다"
@@ -1069,7 +1081,7 @@ enum StorePublish {
         }
     }
 
-    private static func rel(_ url: URL, _ root: String) -> String {
+    static func rel(_ url: URL, _ root: String) -> String {
         url.path.hasPrefix(root) ? String(url.path.dropFirst(root.count + 1)) : url.path
     }
 
@@ -1185,7 +1197,7 @@ extension StorePublish {
 
         // 문구·연령 등급 — APPSTORE.md 에 적은 것만, 스토어에 이미 있는 글은 덮지 않는다
         var o = Options()
-        o.attachBuild = false; o.screenshots = false; o.previews = false; o.createVersion = false; o.manualCheck = false
+        o.attachBuild = false; o.screenshots = false; o.previews = false; o.creatives = false; o.createVersion = false; o.manualCheck = false
         if let rep = try? await run(app, options: o, onLog: onLog) {
             for w in rep.warnings { onLog("   ⚠️  \(w)") }
         }
