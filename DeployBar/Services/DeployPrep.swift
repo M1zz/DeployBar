@@ -109,6 +109,32 @@ enum DeployPrep {
             }
         }
 
+        // 3-1) 개인정보처리방침 · 소개 페이지는 언어마다 **그 언어 페이지**여야 한다.
+        //      한 주소를 모든 언어에 걸면 일본어 페이지에서 눌러도 한국어 방침이 열린다.
+        //      같은 언어의 지역 로케일(en-US · en-GB)은 한 페이지를 같이 써도 된다.
+        if let meta {
+            let entries = a.locales.compactMap { loc in
+                meta.entries.first { Locales.sameLanguage($0.key, loc) }.map { (loc, $0.value) }
+            }
+            for (loc, e) in entries where (e.marketingUrl ?? "").isEmpty {
+                gap("스토어 문구", "\(Locales.displayName(loc)) — 소개 페이지(마케팅 URL) 없음", [loc])
+            }
+            for (label, url) in [("개인정보처리방침이", { (e: StoreMeta.Entry) in e.privacyPolicyUrl }),
+                                 ("소개 페이지가", { (e: StoreMeta.Entry) in e.marketingUrl })] {
+                var byURL: [String: [String]] = [:]
+                for (loc, e) in entries { if let u = url(e), !u.isEmpty { byURL[u, default: []].append(loc) } }
+                for (u, locs) in byURL {
+                    // 언어가 둘 이상 섞여 한 주소를 쓰면, 첫 언어(대개 한국어)를 뺀 나머지가 빈 곳이다
+                    var langs: [String] = []
+                    for l in locs where !langs.contains(where: { Locales.sameLanguage($0, l) }) { langs.append(l) }
+                    guard langs.count > 1 else { continue }
+                    let base = langs.first(where: Locales.isKorean) ?? langs[0]
+                    let others = locs.filter { !Locales.sameLanguage($0, base) }
+                    gap("스토어 문구", "\(label) 언어별 페이지가 아닙니다 — \(others.map { Locales.displayName($0) }.joined(separator: ", ")) 이(가) \(Locales.displayName(base))와 같은 주소(\(u))를 씁니다. 그 언어로 쓴 페이지(`docs/<언어>/`)를 걸어야 합니다", others)
+                }
+            }
+        }
+
         // 4) 릴리즈노트 — 배포가 쓸 번호의 절에, 모든 언어
         let store: (version: String, released: Bool)
         if let known { store = (known.version, known.released) }
@@ -292,7 +318,10 @@ enum DeployPrep {
            - 키워드는 쉼표로만 나누고 공백을 넣지 않는다. 이름·부제에 이미 있는 단어, 다른 회사 상표는 넣지 않는다.
              그 언어 사용자가 **검색창에 실제로 칠 말**로 고른다(직역 금지). 100자를 거의 다 쓴다.
            - 설명은 첫 두 줄에 핵심을 둔다. 마크다운·이모지를 쓰지 않는다. 앱에 없는 기능을 지어내지 않는다.
-           - URL 은 실제로 열려야 한다(심사자가 누른다). 그 언어 페이지가 있으면 그 주소를 쓴다.
+           - URL 은 실제로 열려야 한다(심사자가 누른다).
+           - **개인정보처리방침 · 소개 페이지(마케팅 URL) · 지원 페이지는 언어마다 그 언어로 쓴 페이지**를 건다.
+             GitHub Pages 의 `docs/<언어>/privacy.html · index.html · support.html` (루트는 기본 언어), 페이지끼리 언어 전환 링크와 hreflang.
+             한 주소를 모든 언어에 걸지 않는다(같은 언어의 지역 로케일 en-US · en-GB 는 같이 써도 된다).
            - 확인: `\(cli) --storemeta \(app)` 에 모든 언어가 나오고, 모든 칸이 한도 안이어야 한다.
         4. 릴리즈노트 — `RELEASE_NOTES.md` 의 `## <배포할 버전>` 절에 언어마다 `### 앱스토어 (<언어 이름>)` 절.
            배포할 버전은 `\(cli) --todo \(app)` 의 '다음 배포' 번호다(로컬 번호가 아닐 수 있다).
