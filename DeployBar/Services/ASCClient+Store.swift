@@ -512,9 +512,23 @@ extension ASCClient {
                           body: try JSONSerialization.data(withJSONObject: payload))
     }
 
+    /// App Store Connect 에 만들어진 상품 ID — 인앱결제와 자동 갱신 구독을 합친다.
+    /// 구독은 inAppPurchasesV2 에 나오지 않고 구독 그룹 아래에만 있다. 그걸 빼먹으면
+    /// 승인된 연간 구독도 "인앱결제 만들기" 로 잡혀 심사 제출이 막힌다.
     static func inAppPurchaseIds(appId: String) async throws -> [String] {
         let j = try await api("GET", "/v1/apps/\(appId)/inAppPurchasesV2?limit=50&fields[inAppPurchases]=productId")
         let data = j["data"] as? [[String: Any]] ?? []
-        return data.compactMap { ($0["attributes"] as? [String: Any])?["productId"] as? String }
+        let iaps = data.compactMap { ($0["attributes"] as? [String: Any])?["productId"] as? String }
+        return iaps + ((try? await subscriptionProductIds(appId: appId)) ?? [])
+    }
+
+    private static func subscriptionProductIds(appId: String) async throws -> [String] {
+        let j = try await api("GET", "/v1/apps/\(appId)/subscriptionGroups?limit=50&include=subscriptions"
+                              + "&fields[subscriptions]=productId&limit[subscriptions]=50")
+        let included = j["included"] as? [[String: Any]] ?? []
+        return included.compactMap {
+            guard $0["type"] as? String == "subscriptions" else { return nil }
+            return ($0["attributes"] as? [String: Any])?["productId"] as? String
+        }
     }
 }
