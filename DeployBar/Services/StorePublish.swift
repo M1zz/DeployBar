@@ -137,6 +137,7 @@ enum StorePublish {
         // 4) 스크린샷
         if options.screenshots {
             try await pushShots(app, version: version, platform: info.platform,
+                                padOnly: DeployPrep.padOnly(r, info: info),
                                 options: options, report: &report, onLog: onLog)
         }
 
@@ -322,7 +323,7 @@ enum StorePublish {
     /// 뒤쪽 규칙이 거칠어 보이지만, 스크린샷은 언어마다 있어야 제출이 되므로
     /// "한국어에만 올리고 나머지는 빈칸" 이 훨씬 나쁜 결과를 만든다. 대신 로그에 분명히 적는다.
     private static func pushShots(_ app: ManagedApp, version: ASCClient.Version,
-                                  platform: Platform, options: Options,
+                                  platform: Platform, padOnly: Bool, options: Options,
                                   report: inout Report, onLog: (String) -> Void) async throws {
         guard let dir = shotDir(app.path) else {
             // 이 워크플로를 안 쓰는 앱엔 말하지 않는다 — 다만 교체를 체크했다면 못 한 이유를 남긴다
@@ -361,8 +362,9 @@ enum StorePublish {
                 if files.isEmpty { problems.append("\(lang) 그림 없음"); continue }
                 let g = group(files, platform: platform)
                 if !g.skipped.isEmpty { problems.append("\(lang) — \(g.skipped.first!)") }
-                if !g.byType.keys.contains(where: { deviceFamily($0) == "iPhone" || deviceFamily($0) == "Mac" }) {
-                    problems.append("\(lang) \(platform == .macOS ? "Mac" : "아이폰") 그림 없음")
+                let primary = primaryFamily(platform: platform, padOnly: padOnly)
+                if !g.byType.keys.contains(where: { deviceFamily($0) == primary }) {
+                    problems.append("\(lang) \(ShotReport(primary: primary).primaryLabel) 그림 없음")
                 }
             }
             if !problems.isEmpty {
@@ -990,16 +992,23 @@ enum StorePublish {
         return (rows, skipped, dir)
     }
 
+    /// 심사 제출에 꼭 있어야 하는 기기 묶음. 아이패드 전용 앱엔 애플이 아이폰 그림을 요구하지 않는다.
+    static func primaryFamily(platform: Platform, padOnly: Bool) -> String {
+        platform == .macOS ? "Mac" : (padOnly ? "iPad" : "iPhone")
+    }
+
     /// 카드 뱃지용 요약. `shotPlan` 을 그대로 줄인 것이라 업로드와 판단이 갈라지지 않는다.
-    static func shotReport(_ root: String, platform: Platform, locales: [String]) -> ShotReport? {
+    /// `padOnly` 는 `DeployPrep.padOnly` 로 구한다 — 아이패드 전용이면 아이패드 그림이 대표다.
+    static func shotReport(_ root: String, platform: Platform, locales: [String], padOnly: Bool = false) -> ShotReport? {
         let plan = shotPlan(root, platform: platform, locales: locales)
         guard plan.dir != nil else { return nil }
         var rep = ShotReport()
         rep.skipped = plan.skipped
+        rep.primary = primaryFamily(platform: platform, padOnly: padOnly)
         for row in plan.rows {
             let family = deviceFamily(row.type)
             rep.devices[family] = max(rep.devices[family] ?? 0, row.files.count)
-            if family == "iPhone" || family == "Mac" { rep.hasPrimary = true }
+            if family == rep.primary { rep.hasPrimary = true }
         }
         let shared = plan.rows.contains { $0.locale == "모든 언어" }
         if !shared {

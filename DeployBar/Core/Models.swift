@@ -83,8 +83,14 @@ struct ShotReport: Codable, Equatable {
     var missingLocales: [String] = []
     /// 규격이 아니거나 읽지 못해 빠지는 파일
     var skipped: [String] = []
-    /// 아이폰(또는 Mac) 그림이 있나 — 없으면 애플이 심사 제출을 받지 않는다
+    /// 대표 기기 그림이 있나 — 없으면 애플이 심사 제출을 받지 않는다
     var hasPrimary: Bool = false
+    /// 대표 기기 묶음. 보통 iPhone(Mac 앱은 Mac), 아이패드 전용 앱은 iPad. nil 은 예전 캐시 — iPhone 으로 본다
+    var primary: String? = nil
+    /// 안내문에 쓰는 대표 기기 이름 ("아이폰 그림이 없어 …")
+    var primaryLabel: String {
+        switch primary { case "iPad": return "아이패드"; case "Mac": return "Mac"; default: return "아이폰" }
+    }
     var ready: Bool { hasPrimary && missingLocales.isEmpty && skipped.isEmpty }
 }
 

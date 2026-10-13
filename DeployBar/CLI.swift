@@ -627,7 +627,8 @@ enum CLI {
             print("앱을 찾지 못했습니다: \(name)"); exit(1)
         }
         let r = AppRepo.resolve(app)
-        let platform = (try? AppRepo.buildSettings(r))?.platform ?? .iOS
+        let info = try? AppRepo.buildSettings(r)
+        let platform = info?.platform ?? .iOS
         let plan = StorePublish.shotPlan(app.path, platform: platform, locales: r.locales)
         guard let dir = plan.dir else {
             print("\(app.name): 그림 폴더가 없습니다 — \(StorePublish.canonicalShotDir)/ 에 두면 배포가 올립니다")
@@ -646,10 +647,11 @@ enum CLI {
             for x in plan.skipped { print("   · \(x)") }
         }
         // 카드 뱃지와 같은 판단 — 뱃지가 주황인데 왜인지 모를 때 여기서 본다
-        if let rep = StorePublish.shotReport(app.path, platform: platform, locales: r.locales) {
+        if let rep = StorePublish.shotReport(app.path, platform: platform, locales: r.locales,
+                                             padOnly: DeployPrep.padOnly(r, info: info)) {
             let devices = ["iPhone", "iPad", "Watch", "Mac"].compactMap { f in rep.devices[f].map { "\(f) \($0)장" } }
             print("\n뱃지: \(rep.ready ? "✅ 준비됨" : "⚠️ 확인 필요") · \(devices.joined(separator: " · "))")
-            if !rep.hasPrimary { print("   · 아이폰 그림이 없어 심사 제출이 막힙니다") }
+            if !rep.hasPrimary { print("   · \(rep.primaryLabel) 그림이 없어 심사 제출이 막힙니다") }
             if !rep.missingLocales.isEmpty {
                 print("   · 그림 없는 언어: \(rep.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))")
             }

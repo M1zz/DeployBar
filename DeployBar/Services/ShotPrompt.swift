@@ -75,6 +75,8 @@ enum ShotPrompt {
         let r = AppRepo.resolve(app)
         let info = try? AppRepo.buildSettings(r)
         let platform = info?.platform ?? .iOS
+        // 아이패드 전용 앱엔 아이폰 그림이 필요 없다 — 시뮬레이터·제출 규격을 아이패드로 잡는다
+        let padOnly = DeployPrep.padOnly(r, info: info)
         let version = status?.localVersion ?? info?.marketingVersion ?? ""
         let assets = scan(app.path)
         let locales = r.locales
@@ -100,7 +102,7 @@ enum ShotPrompt {
             case .creative: s += ", 헤더·검색 결과는 글이 들어가므로 **모든 언어**를 만든다. 한국어부터 만들고 확인받은 뒤 넓힌다.\n"
             }
         }
-        if platform == .iOS, let sim = simulator() {
+        if platform == .iOS, let sim = simulator(pad: padOnly) {
             s += "- 시뮬레이터: \(sim)\n"
         }
 
@@ -159,12 +161,12 @@ enum ShotPrompt {
 
         // ── 할 일 ────────────────────────────────────────────────────
         s += "\n## 할 일\n"
-        s += kind == .shots ? shotsSteps(assets, platform: platform)
+        s += kind == .shots ? shotsSteps(assets, platform: platform, padOnly: padOnly)
                             : videoSteps(assets, platform: platform)
 
         // ── 규격 ─────────────────────────────────────────────────────
         s += "\n## 규격\n"
-        s += platform == .macOS ? Spec.mac : (kind == .shots ? Spec.iosShots : Spec.iosVideo)
+        s += platform == .macOS ? Spec.mac : (kind == .shots ? (padOnly ? Spec.padOnlyShots : Spec.iosShots) : Spec.iosVideo)
         if platform == .iOS { s += Spec.creative }
 
         // ── 어디에 저장하나 ──────────────────────────────────────────
@@ -208,7 +210,7 @@ enum ShotPrompt {
     }
 
     // ── 단계 ─────────────────────────────────────────────────────────
-    private static func shotsSteps(_ a: Assets, platform: Platform) -> String {
+    private static func shotsSteps(_ a: Assets, platform: Platform, padOnly: Bool) -> String {
         if platform == .macOS {
             return """
             1. 앱을 Release 로 빌드해 실행하고, 창 크기를 규격 비율(16:10)에 맞춘다.
@@ -219,7 +221,7 @@ enum ShotPrompt {
             """
         }
         var s = """
-        1. `xcrun simctl list devices available` 에서 6.9인치급(iPhone 17 Pro Max 등)을 골라 부팅한다.
+        1. `xcrun simctl list devices available` 에서 \(padOnly ? "13인치 아이패드(iPad Pro 13-inch 등)" : "6.9인치급(iPhone 17 Pro Max 등)")을 골라 부팅한다.
         2. Release 로 빌드해 설치·실행하고, 온보딩·권한 팝업·코치마크를 먼저 닫아 화면을 깨끗하게 만든다.
         3. 화면마다 `xcrun simctl io <UDID> screenshot <파일>` 로 **풀해상도**로 저장한다
            (MCP 스크린샷은 확인용이지 저장용이 아니다). 주요 화면 4~6장: 메인 · 핵심 기능 실행 중 · 부가 모드 · 설정.
@@ -231,7 +233,7 @@ enum ShotPrompt {
         }
         s += """
         4. 마케팅 합성: 헤드라인 + 서브카피 + 디바이스 목업으로 슬라이드마다 레이아웃을 다르게
-           (hero-bleed / left-text / text-bottom / flat-rotate / dark). 출력 캔버스를 \(Spec.submit) 로 두면
+           (hero-bleed / left-text / text-bottom / flat-rotate / dark). 출력 캔버스를 \(padOnly ? Spec.padSubmit : Spec.submit) 로 두면
            변환 없이 그대로 제출할 수 있다.
         5. 렌더링한 각 장을 Read 로 열어 **핵심 UI 가 블리드에 잘리지 않았는지** 확인하고, 잘렸으면 폰 위치를 고쳐 다시 렌더링한다.
 
@@ -382,6 +384,17 @@ enum ShotPrompt {
         합성 파이프라인이 있으면 변환 대신 **출력 캔버스를 \(submit) 로** 두는 쪽이 화질이 좋다.
 
         """
+        /// 아이패드 전용 앱 — 아이패드 그림이 제출 규격이고 아이폰 칸은 없다.
+        static let padSubmit = "2064×2752"
+        static let padOnlyShots = """
+        | 용도 | 크기(세로) |
+        |---|---|
+        | **iPad 13" 제출 규격 (이 앱은 아이패드 전용)** | **\(padSubmit)** 또는 2048×2732 |
+
+        이 앱은 아이패드 전용이라 아이폰 그림은 찍지 않는다(App Store 가 요구하지 않는다).
+        위 표의 크기여야 DeployBar 가 아이패드 자리에 올린다. 그 밖의 크기는 "규격이 아닙니다" 로 보고된다.
+
+        """
         static let iosVideo = """
         | 용도 | 값 |
         |---|---|
@@ -504,14 +517,14 @@ enum ShotPrompt {
     }
 
     // ── 시뮬레이터 ───────────────────────────────────────────────────
-    /// 6.9인치급 기기 하나. 부팅돼 있으면 그걸 먼저 준다 — 새로 부팅할 이유가 없다.
-    private static func simulator() -> String? {
+    /// 6.9인치급 기기 하나(아이패드 전용 앱이면 13인치 아이패드). 부팅돼 있으면 그걸 먼저 준다 — 새로 부팅할 이유가 없다.
+    private static func simulator(pad: Bool = false) -> String? {
         let out = (try? Shell.capture("/usr/bin/xcrun", ["simctl", "list", "devices", "available"])) ?? ""
         let lines = out.split(separator: "\n").map(String.init)
-            .filter { $0.contains("iPhone") && $0.contains("(") }
+            .filter { $0.contains(pad ? "iPad" : "iPhone") && $0.contains("(") }
         func pick(_ f: (String) -> Bool) -> String? { lines.last(where: f) }
         let line = pick { $0.contains("Booted") }
-            ?? pick { $0.contains("Pro Max") }
+            ?? pick { $0.contains(pad ? "13-inch" : "Pro Max") }
             ?? lines.last
         guard let line else { return nil }
         let t = line.trimmingCharacters(in: .whitespaces)

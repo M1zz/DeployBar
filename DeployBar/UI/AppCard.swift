@@ -276,7 +276,7 @@ struct AppCard: View {
         var help: [String] = [ok ? "스크린샷 준비됨 — 배포할 때 이대로 올라갑니다" : "스크린샷 확인 필요"]
         for f in order { if let n = shots.devices[f] { help.append("\(f) \(n)장") } }
         if shots.devices.isEmpty { help.append("규격에 맞는 그림이 없습니다") }
-        else if !shots.hasPrimary { help.append("아이폰 그림이 없어 심사 제출이 막힙니다") }
+        else if !shots.hasPrimary { help.append("\(shots.primaryLabel) 그림이 없어 심사 제출이 막힙니다") }
         if !shots.missingLocales.isEmpty {
             help.append("그림 없는 언어: " + shots.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))
         }

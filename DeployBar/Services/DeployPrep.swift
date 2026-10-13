@@ -29,6 +29,8 @@ enum DeployPrep {
         var notes: [String] = []
         var hasWatch = false
         var hasPad = false
+        /// 아이패드 전용(TARGETED_DEVICE_FAMILY 가 2 뿐) — 아이폰 그림을 요구하지 않는다
+        var padOnly = false
         var ready: Bool { gaps.isEmpty }
     }
 
@@ -56,6 +58,7 @@ enum DeployPrep {
         // 본체 타깃을 **iOS SDK 로** 본다. 그냥 읽으면 Catalyst 앱은 Mac 쪽 조건부 값("2,6")이 나와
         // 아이폰 전용 앱도 아이패드 지원으로 잡힌다 (두번알림이 그랬다).
         a.hasPad = info?.platform != .macOS && iosFamily(r, bundleId: info?.bundleId).contains("2")
+        a.padOnly = padOnly(r, info: info)
 
         // 1) 설정
         let envPath = (app.path as NSString).appendingPathComponent("deploy.env")
@@ -152,8 +155,8 @@ enum DeployPrep {
         }
 
         // 5) 스크린샷 — 언어마다, 기기마다, 규격대로
-        if let rep = StorePublish.shotReport(app.path, platform: info?.platform ?? .iOS, locales: a.locales) {
-            if !rep.hasPrimary { gap("스크린샷", "\(info?.platform == .macOS ? "Mac" : "아이폰") 제출 규격 그림이 없습니다") }
+        if let rep = StorePublish.shotReport(app.path, platform: info?.platform ?? .iOS, locales: a.locales, padOnly: a.padOnly) {
+            if !rep.hasPrimary { gap("스크린샷", "\(rep.primaryLabel) 제출 규격 그림이 없습니다") }
             if !rep.missingLocales.isEmpty {
                 gap("스크린샷", "그림 없는 언어: \(rep.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))", rep.missingLocales)
             }
@@ -236,6 +239,13 @@ enum DeployPrep {
         func set(_ k: String, _ d: Date, _ v: [String]) { lock.lock(); defer { lock.unlock() }; map[k] = (d, v) }
     }
 
+    /// 아이패드 전용 앱인가 — 본체가 iOS SDK 로 "2" 하나만 대상으로 한다.
+    /// 스크린샷의 대표 기기가 아이폰이 아니라 아이패드가 된다 (애플이 아이폰 그림을 요구하지 않는다).
+    static func padOnly(_ r: ResolvedApp, info: BuildInfo?) -> Bool {
+        guard let info, info.platform != .macOS else { return false }
+        return iosFamily(r, bundleId: info.bundleId) == ["2"]
+    }
+
     /// iOS SDK 기준 본체의 TARGETED_DEVICE_FAMILY 숫자들 ("1,2" → ["1","2"]).
     private static func iosFamily(_ r: ResolvedApp, bundleId: String?) -> [String] {
         let stamp = projectStamp(r.path)
@@ -300,8 +310,12 @@ enum DeployPrep {
 
     // ── 기준 ────────────────────────────────────────────────────────────
     /// 자동 배포 완비 기준. 해결 프롬프트도 이 글을 붙인다 — 기준이 두 곳에 갈라지지 않게.
-    static func standard(_ app: String, locales: [String], hasWatch: Bool, hasPad: Bool) -> String {
+    static func standard(_ app: String, locales: [String], hasWatch: Bool, hasPad: Bool, padOnly: Bool = false) -> String {
         let langs = locales.isEmpty ? "deploy.env 의 LOCALES 전부" : locales.joined(separator: ", ")
+        // 아이패드 전용 앱은 아이패드 그림이 제출 규격이다 — 아이폰 그림을 요구하지 않는다
+        let primary = padOnly
+            ? "아이패드(이 앱은 아이패드 전용): 2064×2752 (또는 2048×2732)"
+            : "아이폰: 1242×2688 (또는 1320×2868 · 1290×2796)"
         var s = """
         ## 자동 배포 완비 기준 — 하나라도 빠지면 준비가 끝난 게 아니다
         대상 언어: \(langs). **모든 항목을 모든 언어에** 갖춘다. 한국어만, 영어만 채우고 끝내지 않는다.
@@ -328,7 +342,7 @@ enum DeployPrep {
            사용자 CLAUDE.md 의 '릴리즈 노트 작성 규칙'을 지킨다 — 특수기호 없음, 3~5줄, 줄당 40자, 사용자 관점, 언어마다 같은 항목 수·순서.
            확인: `\(cli) --reponotes \(app) <버전>` 에 모든 언어가 나와야 한다.
         5. 스크린샷 — `docs/screenshots/marketing/<로케일>/01-….png` 처럼 **언어마다** 그 언어 화면으로.
-           - 아이폰: 1242×2688 (또는 1320×2868 · 1290×2796), 3~10장, 번호 접두사 순서가 스토어 순서다.
+           - \(primary), 3~10장, 번호 접두사 순서가 스토어 순서다.
            - 화면 속 글자와 헤드라인이 그 언어여야 한다. 한국어 화면을 다른 언어 칸에 올리지 않는다.
            - 원본 캡처는 `raw/` 에 두고 섞지 않는다. 빈 화면·권한 팝업·디버그 표시가 보이면 안 된다.
 
@@ -336,7 +350,7 @@ enum DeployPrep {
         if hasWatch {
             s += "   - 이 앱에는 **워치 앱**이 있다: `docs/screenshots/watch/<로케일>/` 에 416×496 으로 언어마다.\n"
         }
-        if hasPad {
+        if hasPad && !padOnly {
             s += "   - 이 앱은 **아이패드**를 지원한다: 2064×2752 아이패드 그림도 언어마다 둔다.\n"
         }
         s += """
@@ -363,7 +377,7 @@ enum DeployPrep {
         if a.hasWatch { s += "- 워치 앱 있음\n" }
         if a.hasPad { s += "- 아이패드 지원\n" }
         s += "\n"
-        s += standard(app.name, locales: a.locales, hasWatch: a.hasWatch, hasPad: a.hasPad)
+        s += standard(app.name, locales: a.locales, hasWatch: a.hasWatch, hasPad: a.hasPad, padOnly: a.padOnly)
 
         let mine = a.gaps.filter { !$0.human }
         let human = a.gaps.filter(\.human)
@@ -437,7 +451,7 @@ enum DeployPrep {
         step("확인 — `\(cli) --prepare \(app.name) --lang \(lang)` 의 끝이 `✅ \(name) 완비` 여야 한다. 그다음 커밋한다(메시지에 \(name) 추가라고 적는다).")
 
         s += "\n"
-        s += standard(app.name, locales: a.locales, hasWatch: a.hasWatch, hasPad: a.hasPad)
+        s += standard(app.name, locales: a.locales, hasWatch: a.hasWatch, hasPad: a.hasPad, padOnly: a.padOnly)
         s += !declared
             ? "## \(name) 에서 지금 빠진 것\nLOCALES 에 없어 아직 검사 대상이 아니다 — 위 할 일 전부가 남았다. 1번을 한 뒤 이 명령을 다시 돌리면 빈 곳이 나온다.\n\n"
             : gaps.isEmpty
