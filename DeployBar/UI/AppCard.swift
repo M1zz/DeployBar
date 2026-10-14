@@ -113,7 +113,7 @@ struct AppCard: View {
             }
 
             versionRow
-            if status.state != .loading && status.state != .error && !supportedLocales.isEmpty { localeRow }
+            if status.state != .loading && status.state != .error { glanceRow }
 
             HStack(alignment: .center, spacing: 8) {
                 if status.state != .loading && !readiness.items.isEmpty { summaryLine }
@@ -225,7 +225,118 @@ struct AppCard: View {
         return gaps
     }
 
+    // ── 한눈 줄: 마지막 배포 · 준비 갈래 심볼 ─────────────────────────
+    // 예전엔 여기 지원 언어 국기를 늘어놨다. 언어가 열 개를 넘자 국기 줄은 "몇 개 언어" 이상을 말하지 못했다.
+    // 카드를 훑으며 알고 싶은 건 "언제 마지막으로 냈나" 와 "어느 갈래가 비었나" 다.
+    // 갈래마다 심볼 하나 — 회색 = 됨 · 주황 = 권장 · 빨강 = 막힘. 마우스를 올리면 무엇인지, 누르면 체크리스트.
+    // 언어별 빈 곳은 🌐 심볼의 설명으로 옮겼다(누르면 그 언어만 채우는 지시문 복사는 그대로).
+
+    private struct Glance: Identifiable {
+        let id: String
+        let symbol: String
+        let label: String
+        var count: String? = nil
+        let level: ReadyItem.Level
+        let lines: [String]
+    }
+
+    /// 갈래 → 체크리스트 항목 key. 사람 몫(humanonly)은 따로 한 칸.
+    /// 올릴 변경 유무(changes)는 버전 줄과 요약 줄이 이미 말하므로 넣지 않는다 — 배포됨 카드가 빨갛게 보이지 않게.
+    private static let glanceGroups: [(id: String, symbol: String, label: String, keys: [String])] = [
+        ("code", "arrow.triangle.branch", "코드", ["git", "remote", "project", "version"]),
+        ("build", "shippingbox", "빌드 · App Store Connect", ["env", "gate", "asc", "asbuild", "review", "prep-설정"]),
+        ("lang", "globe", "언어", ["i18n", "locales", "asclocale"]),
+        ("notes", "text.bubble", "릴리즈노트", ["notes", "notesrc", "prep-릴리즈노트"]),
+        ("text", "textformat", "스토어 문구", ["storepage", "prep-스토어 문구"]),
+        ("creative", "rectangle.on.rectangle.angled", "헤더 · 검색 결과", ["prep-헤더·검색 결과"]),
+        ("human", "person.crop.circle.badge.exclamationmark", "사람만 할 수 있는 일", ["humanonly"]),
+    ]
+
+    private var glances: [Glance] {
+        let items = readiness.items
+        var out: [Glance] = []
+        for g in Self.glanceGroups {
+            let hits = items.filter { g.keys.contains($0.key) }
+            let localeGapCount = g.id == "lang" ? supportedLocales.filter { !localeGaps($0).isEmpty }.count : 0
+            // 헤더 · 검색 결과는 항목이 없으면 = 빈 곳 없음. 사람 몫은 있을 때만 보인다.
+            if hits.isEmpty && g.id == "human" { continue }
+            if hits.isEmpty && g.id != "creative" && !(g.id == "lang" && !supportedLocales.isEmpty) { continue }
+            var level: ReadyItem.Level = hits.contains { $0.level == .blocked } ? .blocked
+                : hits.contains { $0.level == .need } ? .need : .ok
+            if localeGapCount > 0 && level == .ok { level = .need }
+            var lines = hits.map { "\($0.level == .ok ? "✅" : $0.level == .need ? "⚠️" : "❌") \($0.title)" }
+            if g.id == "creative" && hits.isEmpty { lines = ["✅ 언어마다 갖춤"] }
+            if g.id == "lang" {
+                for loc in supportedLocales {
+                    let gaps = localeGaps(loc)
+                    if !gaps.isEmpty { lines.append("· \(Locales.displayName(loc)) — \(gaps.joined(separator: ", "))") }
+                }
+                if localeGapCount > 0 { lines.append("누르면 빈 곳이 있는 첫 언어만 채우는 지시문을 복사합니다") }
+            }
+            out.append(Glance(id: g.id, symbol: g.symbol, label: g.label,
+                              count: g.id == "lang" && !supportedLocales.isEmpty
+                                ? (localeGapCount > 0 ? "\(supportedLocales.count - localeGapCount)/\(supportedLocales.count)" : "\(supportedLocales.count)")
+                                : nil,
+                              level: level, lines: lines))
+        }
+        return out
+    }
+
+    private func glanceColor(_ l: ReadyItem.Level) -> Color {
+        switch l { case .ok: return .secondary; case .need: return .orange; case .blocked: return .red }
+    }
+
+    private static let relative: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter(); f.unitsStyle = .short; f.locale = Locale(identifier: "ko_KR"); return f
+    }()
+    private static let stamp: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; return f
+    }()
+
+    private var glanceRow: some View {
+        HStack(spacing: 10) {
+            // 마지막 배포 — 언제, 무엇을
+            HStack(spacing: 3) {
+                Image(systemName: "paperplane")
+                if let at = status.lastDeployAt {
+                    Text(Self.relative.localizedString(for: at, relativeTo: Date()))
+                    if let label = status.lastDeployLabel { Text(label).foregroundStyle(.tertiary) }
+                } else {
+                    Text("배포 기록 없음")
+                }
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+            .help(status.lastDeployAt.map { "마지막 배포 \(Self.stamp.string(from: $0))\(status.lastDeployLabel.map { " · \($0)" } ?? "")\(status.commitsSinceDeploy > 0 ? "\n그 뒤 앱에 들어가는 커밋 \(status.commitsSinceDeploy)개" : "")" }
+                  ?? "이 Mac 의 DeployBar 로 배포한 기록(deploy-* 태그)이 없습니다")
+
+            Divider().frame(height: 11)
+
+            ForEach(glances) { g in
+                HStack(spacing: 2) {
+                    Image(systemName: g.symbol)
+                    if let c = g.count { Text(c).monospacedDigit() }
+                }
+                .font(.caption2.weight(g.level == .ok ? .regular : .semibold))
+                .foregroundStyle(glanceColor(g.level))
+                .opacity(g.level == .ok ? 0.6 : 1)
+                .contentShape(Rectangle())
+                .help(([g.label] + g.lines).joined(separator: "\n"))
+                .onTapGesture {
+                    if g.id == "lang", let loc = supportedLocales.first(where: { !localeGaps($0).isEmpty }),
+                       let app = store.app(named: status.path) {
+                        Task { await store.copyPrepPrompt(app, lang: loc) }
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.15)) { expanded = true }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
     /// 지원 언어를 국기로. 빠진 게 있는 언어는 흐리게 — 마우스를 올리면 무엇이 빠졌는지.
+    /// (카드에서는 쓰지 않는다 — 한눈 줄의 🌐 가 대신한다. 다른 화면에서 다시 쓸 수 있게 남겨 둔다)
     private var localeRow: some View {
         HStack(spacing: 3) {
             ForEach(supportedLocales, id: \.self) { loc in

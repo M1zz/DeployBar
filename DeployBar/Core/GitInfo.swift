@@ -147,6 +147,12 @@ enum GitInfo {
         return o.reason
     }
 
+    /// 태그를 단 시각 (annotated 면 태그 시각, 아니면 가리키는 커밋 시각)
+    static func tagDate(_ dir: String, _ tag: String) -> Date? {
+        let s = git(dir, ["for-each-ref", "--format=%(creatordate:iso8601-strict)", "refs/tags/\(tag)"])
+        return ISO8601DateFormatter().date(from: s)
+    }
+
     static func lastDeployTag(_ dir: String) -> String? {
         guard sharesRepo(dir) else {
             let t = git(dir, ["describe", "--tags", "--match", "deploy-*", "--abbrev=0"])

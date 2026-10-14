@@ -105,7 +105,16 @@ enum Status {
         // 둘 다 없으면(이 툴로 배포한 적도, 태그를 단 적도 없는 앱) 변경을 셀 수 없어 번호 비교로만 판정한다.
         var base: String?
         if GitInfo.isRepo(app.path) {
-            base = GitInfo.lastDeployTag(app.path)
+            let tag = GitInfo.lastDeployTag(app.path)
+            if let tag {
+                st.lastDeployAt = GitInfo.tagDate(app.path, tag)
+                // deploy-<스킴>-<버전>-<빌드> → "v1.1.4 (10)"
+                let parts = tag.split(separator: "-")
+                if parts.count >= 3, parts[parts.count - 2].contains(".") {
+                    st.lastDeployLabel = "v\(parts[parts.count - 2]) (\(parts[parts.count - 1]))"
+                }
+            }
+            base = tag
                 ?? (st.liveState == "READY_FOR_SALE" ? st.liveVersion.flatMap { GitInfo.tagForVersion(app.path, $0) } : nil)
             if let base {
                 st.commitsSinceDeploy = GitInfo.commitsSince(app.path, tag: base, shippingOnly: true).count

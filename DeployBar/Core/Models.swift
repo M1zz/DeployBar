@@ -181,6 +181,10 @@ struct AppStatus: Identifiable, Codable {
     /// 릴리즈노트 원고의 `## <버전>` 절은 이 번호로 찾는다. 로컬 번호로 찾으면 스토어에 v1.0.9 가 준비돼 있고
     /// 로컬이 1.0.8 일 때 "`## 1.0.8` 을 쓰라" 와 "`## 1.0.9` 에 없다" 가 한 카드에 같이 뜬다.
     var nextVersion: String?
+    /// 마지막으로 이 Mac 의 DeployBar 가 배포한 때와 그 번호 (deploy-* 태그). 카드 한 줄에 "언제 무엇을" 보여 준다.
+    /// 옵셔널 — 옛 status-cache.json 에 없어도 읽히게, 배포한 적 없는 앱은 nil.
+    var lastDeployAt: Date?
+    var lastDeployLabel: String?
 
     // "지금 배포하려면 뭐가 필요한가" — 카드에서 바로 보여 주는 체크리스트
     var readiness: Readiness = Readiness()
