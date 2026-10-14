@@ -173,8 +173,9 @@ struct AppCard: View {
                     Text("→").font(.subheadline).foregroundStyle(.tertiary)
                     // 배포가 실제로 쓸 번호 — 로컬이 이미 출시된 번호면 배포가 올린다. 로컬 번호를 그대로 보여 주면
                     // 스토어 v2.1.5 → 올릴 버전 v2.1.5 가 되어 무엇이 나가는지 알 수 없다.
+                    // 색은 쓰지 않는다 — 배포가 알아서 올리는 번호라 문제가 아니고, 주황은 '막힘' 의 색이다.
                     if let next = status.nextVersion, let local = status.localVersion, next != local {
-                        labeled("올릴 버전", "v\(next)  ↑ 로컬 v\(local)", weight: .semibold, color: .orange)
+                        labeled("올릴 버전", "v\(next)  ↑ 로컬 v\(local)", weight: .semibold, color: .primary)
                     } else {
                         labeled("올릴 버전",
                                 "v\(status.localVersion ?? "?")  빌드 \(status.localBuild ?? "?")",
@@ -228,7 +229,8 @@ struct AppCard: View {
     // ── 한눈 줄: 마지막 배포 · 준비 갈래 심볼 ─────────────────────────
     // 예전엔 여기 지원 언어 국기를 늘어놨다. 언어가 열 개를 넘자 국기 줄은 "몇 개 언어" 이상을 말하지 못했다.
     // 카드를 훑으며 알고 싶은 건 "언제 마지막으로 냈나" 와 "어느 갈래가 비었나" 다.
-    // 갈래마다 심볼 하나 — 회색 = 됨 · 주황 = 권장 · 빨강 = 막힘. 마우스를 올리면 무엇인지, 누르면 체크리스트.
+    // 갈래마다 심볼 하나 — 색은 체크리스트와 같은 규칙: 회색 = 됨 · 파랑 = 권장 · 주황 = 막힘.
+    // 마우스를 올리면 무엇인지, 누르면 체크리스트.
     // 언어별 빈 곳은 🌐 심볼의 설명으로 옮겼다(누르면 그 언어만 채우는 지시문 복사는 그대로).
 
     private struct Glance: Identifiable {
@@ -283,7 +285,7 @@ struct AppCard: View {
     }
 
     private func glanceColor(_ l: ReadyItem.Level) -> Color {
-        switch l { case .ok: return .secondary; case .need: return .orange; case .blocked: return .red }
+        switch l { case .ok: return .secondary; case .need: return .blue; case .blocked: return .orange }
     }
 
     private static let relative: RelativeDateTimeFormatter = {
@@ -381,7 +383,8 @@ struct AppCard: View {
         let stale = readiness.items.contains { $0.key == "shots" && $0.level != .ok }
         let ok = shots.ready && !stale
         let replacing = replaceShots.wrappedValue
-        let color: Color = replacing ? (shots.ready ? .blue : .red) : (ok ? .green : .orange)
+        // 초록은 '배포 가능', 주황은 '막힘' 의 색이라 여기선 쓰지 않는다 — 스크린샷은 배포를 막지 않는다
+        let color: Color = replacing ? (shots.ready ? .indigo : .orange) : (ok ? .secondary : .blue)
         let order = ["iPhone", "iPad", "Watch", "Mac"]
         let icons = ["iPhone": "iphone", "iPad": "ipad", "Watch": "applewatch", "Mac": "desktopcomputer"]
         var help: [String] = [ok ? "스크린샷 준비됨 — 배포할 때 이대로 올라갑니다" : "스크린샷 확인 필요"]
