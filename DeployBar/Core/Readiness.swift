@@ -234,7 +234,9 @@ struct Readiness: Codable, Hashable {
                 out.append(ReadyItem(
                     key: "remote", level: .blocked, title: "원격과 갈라짐",
                     detail: "내 커밋 \(ahead)개 · 원격 커밋 \(behind)개 — 배포 첫 단계(git pull)에서 멈춥니다",
-                    todo: "터미널에서 `git pull --rebase` 로 합치거나, 내 커밋을 먼저 push 하세요"))
+                    todo: status.pullSkipped?.contains("충돌") == true
+                        ? "합치면 충돌이 납니다 — 터미널에서 `git pull` 로 합치고 충돌을 직접 정리하세요"
+                        : "저장 안 된 변경을 커밋하고 [새로고침] 하면 자동으로 합쳐 받습니다"))
             } else if ahead > 0 {
                 out.append(ReadyItem(
                     key: "remote", level: .need, title: "push 안 된 커밋 \(ahead)개",
@@ -256,7 +258,9 @@ struct Readiness: Codable, Hashable {
             } else if status.pulledCommits > 0 {
                 out.append(ReadyItem(
                     key: "remote", level: .ok, title: "최신 코드 받음 — 커밋 \(status.pulledCommits)개",
-                    detail: "\(status.branch ?? "-") 를 방금 원격에 맞췄습니다"))
+                    detail: status.pulledByMerge
+                        ? "\(status.branch ?? "-") 가 원격과 갈라져 있어 병합 커밋으로 합쳤습니다 — push 하면 원격에도 남습니다"
+                        : "\(status.branch ?? "-") 를 방금 원격에 맞췄습니다"))
             } else {
                 out.append(ReadyItem(
                     key: "remote", level: .ok, title: "원격과 동기화됨",

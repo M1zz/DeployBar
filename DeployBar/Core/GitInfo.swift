@@ -131,6 +131,22 @@ enum GitInfo {
         return o.ok ? nil : o.reason
     }
 
+    /// 갈라진 저장소에 원격을 병합 커밋으로 합친다. 성공하면 nil, 실패하면 사람이 읽을 이유.
+    ///
+    /// 갈라지는 가장 흔한 까닭은 DeployBar 자신이다 — 배포가 남긴 '빌드 N' 커밋은 push 되지 않으니,
+    /// 다른 Mac 에서 기능을 올리면 다음 조회부터 '원격과 갈라짐' 으로 막힌다.
+    /// rebase 가 아니라 merge 인 건 배포 태그가 그 '빌드 N' 커밋을 가리키고 있어서다 — 되쓰면 태그가 허공에 뜬다.
+    /// 충돌이 나면 곧바로 되돌려 저장소를 손대기 전 그대로 둔다(임의로 고르지 않는다).
+    static func mergeUpstream(_ dir: String, timeout: TimeInterval = 60) -> String? {
+        let cwd = URL(fileURLWithPath: dir)
+        let o = Shell.outcome("/usr/bin/git", ["merge", "--no-edit", "--quiet", "@{u}"],
+                              cwd: cwd, env: networkEnv.merging(["GIT_MERGE_AUTOEDIT": "no"]) { $1 },
+                              timeout: timeout)
+        if o.ok { return nil }
+        _ = Shell.outcome("/usr/bin/git", ["merge", "--abort"], cwd: cwd, env: networkEnv, timeout: 20)
+        return o.reason
+    }
+
     static func lastDeployTag(_ dir: String) -> String? {
         guard sharesRepo(dir) else {
             let t = git(dir, ["describe", "--tags", "--match", "deploy-*", "--abbrev=0"])

@@ -160,6 +160,8 @@ struct AppStatus: Identifiable, Codable {
     var remoteError: String?
     /// 이번 조회에서 받아온 원격 커밋 수 (0 이면 받은 게 없음)
     var pulledCommits: Int = 0
+    /// 받아온 방식이 병합이었나 (갈라진 저장소를 합침) — 이 Mac 에 병합 커밋이 하나 생긴다
+    var pulledByMerge = false
     /// 뒤처져 있는데도 받아오지 못한 이유 (더럽거나 갈라진 저장소)
     var pullSkipped: String?
     /// 이번 조회가 받아오기까지 시도했는가. 자동 조회는 fetch 만 하므로 false —

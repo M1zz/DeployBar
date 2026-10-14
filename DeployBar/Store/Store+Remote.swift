@@ -8,7 +8,7 @@ import Foundation
 // 그걸 둘로 만들면 언젠가 갈라진다. 그래서 요청만 넘기고, 돌리는 건 버튼과 **같은 코드**다.
 //
 // 통로는 DistributedNotificationCenter(같은 사용자 세션 안의 프로세스끼리). 주고받는 것:
-//   요청  kind = ping | ready | deploy   (+ id, app, bump, lane)
+//   요청  kind = ping | ready | deploy   (+ id, app, bump, lane, pull)
 //   답    kind = pong | list | accepted | rejected | done   (+ id, message, log)
 enum RemoteDeploy {
     static let request = Notification.Name("com.leeo.deploybar.remote.request")
@@ -39,7 +39,13 @@ extension Store {
         case "ping":
             replyRemote(id, "pong", job?.running == true ? "배포 중: \(job!.title)" : "")
         case "ready":
-            replyRemote(id, "list", readyList())
+            // --pull: 원격부터 받아 온 뒤 답한다. 다른 조회가 돌고 있으면 그게 끝나길 기다렸다가 한 번 더 —
+            // 그 조회는 받아오기를 안 했을 수 있다(15분 자동 조회는 fetch 만 한다).
+            if info["pull"] == "1" {
+                while isRefreshing { try? await Task.sleep(nanoseconds: 500_000_000) }
+                await refresh(fresh: false, pull: true)
+            }
+            replyRemote(id, "list", readyList(pulled: info["pull"] == "1"))
         case "deploy":
             await remoteDeploy(id, info)
         default:
@@ -48,9 +54,10 @@ extension Store {
     }
 
     /// 지금 배포할 수 있는 앱과, 막힌 앱의 이유 한 줄 — 폰에서 "뭐 배포할 수 있어?" 의 답.
-    private func readyList() -> String {
-        var ready: [String] = [], review: [String] = [], blocked: [String] = []
+    private func readyList(pulled: Bool = false) -> String {
+        var ready: [String] = [], review: [String] = [], blocked: [String] = [], got: [String] = []
         for st in statuses {
+            if st.pulledCommits > 0 { got.append("⬇️ \(st.name) — 원격 커밋 \(st.pulledCommits)개\(st.pulledByMerge ? " (내 커밋과 합침)" : "")") }
             if st.deployable { ready.append("🟢 \(st.name) — \(st.readiness.headline)") }
             else if st.inReview { review.append("🟣 \(st.name) — \(st.reviewLabel ?? "심사 중") v\(st.reviewVersion ?? "?")") }
             else if st.state == .ready || st.state == .dev, !st.readiness.blockers.isEmpty {
@@ -58,6 +65,7 @@ extension Store {
             }
         }
         var out = ready.isEmpty ? ["배포할 수 있는 앱이 없습니다"] : ["배포 가능 \(ready.count)개"] + ready
+        if pulled { out = (got.isEmpty ? ["받아올 새 커밋 없음"] : ["최신 코드 받음 \(got.count)개"] + got) + [""] + out }
         if !review.isEmpty { out += ["", "심사 중 \(review.count)개"] + review }
         if !blocked.isEmpty { out += ["", "변경은 있지만 막힘 \(blocked.count)개"] + blocked }
         if job?.running == true { out += ["", "⏳ 지금 배포 중: \(job!.title)"] }

@@ -354,7 +354,7 @@ final class Store: ObservableObject {
     private func pullEvents(_ list: [AppStatus]) -> [StatusChange.Event] {
         list.filter { $0.pulledCommits > 0 }.map {
             StatusChange.Event(title: "\($0.name) 최신 코드 받음",
-                               body: "원격 커밋 \($0.pulledCommits)개를 가져왔습니다 (\($0.branch ?? "-"))",
+                               body: "원격 커밋 \($0.pulledCommits)개를 \($0.pulledByMerge ? "내 커밋과 합쳐 " : "")가져왔습니다 (\($0.branch ?? "-"))",
                                kind: .info)
         }
     }

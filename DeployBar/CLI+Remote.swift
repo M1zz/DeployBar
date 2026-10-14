@@ -2,7 +2,7 @@ import AppKit
 
 // 명령줄 배포 — 떠 있는 DeployBar 에 요청을 넘기고 결과를 기다린다 (받는 쪽은 Store+Remote).
 //
-//   DeployBar --ready                         지금 배포할 수 있는 앱 / 심사 중 / 막힌 앱
+//   DeployBar --ready [--pull]                지금 배포할 수 있는 앱 / 심사 중 / 막힌 앱 (--pull: 원격부터 받아 온 뒤)
 //   DeployBar --deploy <앱> [--bump patch|minor|major] [--check] [--no-wait] [--quiet] [--timeout <분>]
 //
 // 폰에서 Claude Code(Remote Control)로 이 Mac 의 세션에 "달빛 배포해줘" 라고 하면 그 세션이 이걸 부른다.
@@ -21,7 +21,12 @@ enum RemoteCLI {
         }
 
         if a.contains("--ready") {
-            guard let r = ask(["kind": "ready"], until: ["list"], timeout: 30) else { print("❌ 응답 없음"); exit(1) }
+            // --pull 은 앱마다 fetch · pull · xcodebuild · ASC 를 다 돌고 답하므로 넉넉히 기다린다
+            let pull = a.contains("--pull")
+            if pull { print("⬇️  모든 앱의 원격을 받아 오는 중… (몇 분 걸릴 수 있습니다)") }
+            guard let r = ask(["kind": "ready", "pull": pull ? "1" : "0"], until: ["list"], timeout: pull ? 900 : 30) else {
+                print("❌ 응답 없음"); exit(1)
+            }
             print(r["message"] ?? ""); exit(0)
         }
 

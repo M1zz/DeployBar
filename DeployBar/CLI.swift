@@ -50,6 +50,7 @@ enum CLI {
                                  빈 스토어 문구(이름·부제·키워드·프로모션·설명)와 이번 버전 릴리즈노트를
                                  모든 언어로 AI 가 써서 APPSTORE.md · RELEASE_NOTES.md 에 채우고 커밋한다
       --ready                    지금 배포할 수 있는 앱 · 심사 중 · 막힌 앱 (떠 있는 DeployBar 에 묻는다)
+      --ready --pull             모든 앱의 원격을 먼저 받아 온 뒤(갈라졌으면 합침) 같은 목록
       --deploy <앱> [--bump patch|minor|major] [--check] [--no-wait] [--quiet] [--timeout <분>]
                                  배포 버튼과 똑같이 배포 — 떠 있는 DeployBar 가 돌리고 결과를 돌려준다
                                  (끝 코드 0 성공 · 2 미완 · 1 실패 · 3 거절). 폰의 Claude Code 에서 부르는 용도

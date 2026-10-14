@@ -37,6 +37,7 @@ enum Status {
         // 이번 새로고침에서 원격을 다녀온 결과 (Store 가 조회 직전에 돌린다)
         st.remoteError = sync?.fetchError ?? sync?.pullError
         st.pulledCommits = sync?.pulled ?? 0
+        st.pulledByMerge = sync?.merged ?? false
         st.pullSkipped = sync?.skipped
         st.pullAttempted = sync?.attemptedPull ?? false
         // 배포 준비 검사가 쓸 번호 — 스토어 버전 목록을 받으면 그 규칙으로, 못 받으면 로컬 번호로
