@@ -21,6 +21,7 @@ import Foundation
 //   --selftest-changes  상태 변화 알림 규칙 검증
 //   --selftest-lock     '무엇이 배포를 잠그는가' 규칙 검증 (조회 실패는 잠그면 안 된다)
 //   --selftest-version  배포가 마케팅 버전을 스토어에 맞춰 정하는 규칙 검증
+//   --selftest-keywords 키워드를 레포 값으로 바꿀지 정하는 비교 규칙 검증
 //
 // App.init 에서 부른다 — Scene 이 만들어지기 전에 끝나야 창이 뜨지 않는다.
 enum CLI {
@@ -62,6 +63,7 @@ enum CLI {
       --selftest-changes         상태 변화 알림 규칙 검증
       --selftest-lock            '무엇이 배포를 잠그는가' 규칙 검증
       --selftest-version         배포가 버전 번호를 스토어에 맞춰 정하는 규칙 검증
+      --selftest-keywords        키워드를 레포 값으로 바꿀지 정하는 비교 규칙 검증
       --help                     이 안내
     """
 
@@ -71,7 +73,7 @@ enum CLI {
     static let known: Set<String> = [
         "--status", "--pull", "--audit", "--doctor", "--builds", "--prompt", "--template", "--write",
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--creative", "--logs",
-        "--selftest-changes", "--selftest-lock", "--selftest-version",
+        "--selftest-changes", "--selftest-lock", "--selftest-version", "--selftest-keywords",
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--text-only", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
         "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
         "--ready", "--deploy", "--bump", "--no-wait", "--quiet", "--timeout",
@@ -230,6 +232,34 @@ enum CLI {
             if got != expect { bad += 1 }
             print("\(got == expect ? "✅" : "❌") \(name) — 로컬 \(local) · 준비 \(editable ?? "없음") · 나감 \(closed ?? "없음") → \(got) (기대 \(expect))")
         }
+        print(bad == 0 ? "\n전부 통과" : "\n실패 \(bad)건")
+        exit(bad == 0 ? 0 : 1)
+    }
+    // 키워드 비교 규칙 검증: DeployBar --selftest-keywords
+    //
+    // 지키려는 것 둘: 레포에 키워드가 없으면 스토어 값을 절대 건드리지 않고,
+    // 쉼표 앞뒤 공백만 다른 것은 바꾸지 않는다 (배포마다 같은 칸을 다시 쓰면 안 된다).
+    if CommandLine.arguments.contains("--selftest-keywords") {
+        let cases: [(String, String?, String, Bool)] = [
+            ("레포에 키워드 없음 — 그대로", nil, "a,b,c", false),
+            ("레포가 빈칸 — 그대로", "  ", "a,b,c", false),
+            ("같음 — 그대로", "a,b,c", "a,b,c", false),
+            ("쉼표 뒤 공백만 다름 — 그대로", "a, b, c", "a,b,c", false),
+            ("앞뒤 공백·끝 쉼표만 다름 — 그대로", " a,b ,c, ", "a,b,c", false),
+            ("낱말 안의 공백은 다른 말 — 교체", "photo editor,b", "photoeditor,b", true),
+            ("새 키워드 — 교체", "x,y", "a,b,c", true),
+            ("순서가 다름 — 교체 (레포 순서가 원본)", "b,a", "a,b", true),
+            ("스토어가 비어 있음 — 채움", "a,b", "", true),
+        ]
+        var bad = 0
+        for (name, repo, store, expect) in cases {
+            let got = StorePublish.keywordsDiffer(repo: repo, store: store)
+            if got != expect { bad += 1 }
+            print("\(got == expect ? "✅" : "❌") \(name) — 레포 '\(repo ?? "없음")' · 스토어 '\(store)' → \(got ? "교체" : "그대로") (기대 \(expect ? "교체" : "그대로"))")
+        }
+        let n = StorePublish.normalizedKeywords(" a, b ,,c ")
+        if n != "a,b,c" { bad += 1 }
+        print("\(n == "a,b,c" ? "✅" : "❌") 올리는 값은 쉼표만으로 — ' a, b ,,c ' → '\(n)' (기대 'a,b,c')")
         print(bad == 0 ? "\n전부 통과" : "\n실패 \(bad)건")
         exit(bad == 0 ? 0 : 1)
     }

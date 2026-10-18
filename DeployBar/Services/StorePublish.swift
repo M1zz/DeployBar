@@ -31,6 +31,7 @@ enum StorePublish {
         /// 언어를 추가할 때 임시로 들어간 값(한국어 이름 등)이 영원히 남아, APPSTORE.md 에
         /// 독일어를 다 써 둬도 독일어 페이지가 한국어로 나갔다 — 그것도 로그에 아무 말 없이.
         /// 이제는 덮어쓰되 **말없이 하지 않는다**: 바꾸기 전 값을 로그와 백업 파일에 남긴다.
+        /// 키워드는 이 값과 무관하게 늘 레포가 이긴다 (pushText 의 키워드 예외).
         var overwriteText = true
         /// 이미 올라간 그림을 지우고 다시 올릴지 (파일이 달라졌으면 어차피 다시 올린다)
         var replaceShots = false
@@ -234,7 +235,21 @@ enum StorePublish {
                 fields[key] = new
             }
             put("description", entry.description, t.description)
-            put("keywords", entry.keywords, t.keywords)
+            // 키워드만은 예외 — 레포에 적혀 있으면 스토어와 다를 때 늘 레포 값으로 바꾼다 (overwriteText 와 무관).
+            // 새 버전을 만들면 애플이 이전 버전 키워드를 복사해 넣어서, 이 칸은 "사람이 웹에서 고친 글" 과
+            // 구분이 안 된다. 그대로 두면 레포에서 키워드를 갈아엎어도 배포로는 영영 반영되지 않는다.
+            var keywordLine: String?
+            if let repo = entry.keywords, keywordsDiffer(repo: repo, store: t.keywords) {
+                let new = normalizedKeywords(repo)
+                let n = keywordItems(new).count
+                if t.keywords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    keywordLine = "키워드 \(loc) 채움 (새 \(n)개)"
+                } else {
+                    backup.append(["locale": t.locale, "field": "keywords", "old": t.keywords, "new": new])
+                    keywordLine = "키워드 \(loc) 교체 (이전 \(keywordItems(t.keywords).count)개 → 새 \(n)개)"
+                }
+                fields["keywords"] = new
+            }
             put("promotionalText", entry.promotionalText, t.promotionalText)
             put("supportUrl", entry.supportUrl, t.supportUrl)
             put("marketingUrl", entry.marketingUrl, t.marketingUrl)
@@ -242,10 +257,12 @@ enum StorePublish {
             let names = fields.keys.sorted().map(fieldLabel).joined(separator: "·")
             if options.dryRun {
                 report.changed.append("\(Locales.displayName(loc)) \(names) (미리보기)")
+                if let keywordLine { onLog("🔑 [미리보기] \(keywordLine)") }
             } else {
                 try await ASCClient.patchVersionLocalization(id: t.id, fields: fields)
                 report.changed.append("\(Locales.displayName(loc)) \(names)")
                 onLog("✏️  \(Locales.displayName(loc)) — \(names)")
+                if let keywordLine { onLog("🔑 \(keywordLine)") }
             }
         }
 
@@ -299,6 +316,26 @@ enum StorePublish {
                 onLog("✏️  \(Locales.displayName(loc)) — \(names)")
             }
         }
+    }
+
+    // ── 키워드 비교 규칙 (--selftest-keywords) ──────────────────────────
+    /// 쉼표로 나눈 낱말들. 앞뒤 공백과 빈 항목은 버린다 — 낱말 안의 공백("photo editor")은 그대로.
+    static func keywordItems(_ s: String) -> [String] {
+        s.split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// 스토어에 올리는 모양 — 쉼표만으로 잇는다 (공백은 100자를 낭비한다)
+    static func normalizedKeywords(_ s: String) -> String { keywordItems(s).joined(separator: ",") }
+
+    /// 레포 키워드로 스토어 값을 바꿔야 하나. 레포에 없으면(빈칸·절 없음) 절대 안 바꾼다.
+    /// 쉼표 앞뒤 공백 차이만 있으면 같은 것으로 본다. 순서는 레포가 원본이라 다르면 바꾼다.
+    static func keywordsDiffer(repo: String?, store: String) -> Bool {
+        guard let repo else { return false }
+        let r = normalizedKeywords(repo)
+        guard !r.isEmpty else { return false }
+        return r != normalizedKeywords(store)
     }
 
     private static func fieldLabel(_ key: String) -> String {
