@@ -1093,6 +1093,8 @@ enum StorePublish {
         case (1125, 2436), (1080, 2340):                return "APP_IPHONE_58"
         case (1242, 2208):                              return "APP_IPHONE_55"
         case (750, 1334):                               return "APP_IPHONE_47"
+        // 아이폰 듀오 — 바깥 화면 1398×2034, 안쪽 화면 2007×2853(가로로 펴면 뒤집힌 크기). ASC 칸은 하나다.
+        case (1398, 2034), (2007, 2853):                return "APP_IPHONE_DUO"
         case (2064, 2752), (2048, 2732):                return "APP_IPAD_PRO_3GEN_129"
         case (1668, 2420), (1668, 2388):                return "APP_IPAD_PRO_3GEN_11"
         case (1640, 2360), (1620, 2160):                return "APP_IPAD_109"
@@ -1114,6 +1116,7 @@ enum StorePublish {
         case "APP_IPHONE_58": return "iPhone 5.8\""
         case "APP_IPHONE_55": return "iPhone 5.5\""
         case "APP_IPHONE_47": return "iPhone 4.7\""
+        case "APP_IPHONE_DUO": return "iPhone Duo"
         case "APP_IPAD_PRO_3GEN_129": return "iPad 13\""
         case "APP_IPAD_PRO_3GEN_11": return "iPad 11\""
         case "APP_IPAD_109": return "iPad 10.9\""
