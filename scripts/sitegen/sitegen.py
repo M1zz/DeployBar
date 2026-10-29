@@ -67,7 +67,7 @@ def images(repo, docs, site, loc):
     if not (docs / "icon.png").exists():
         icons = sorted((p for p in repo.glob("**/AppIcon.appiconset/*")
                         if p.suffix.lower() in (".png", ".jpg", ".jpeg") and "/build/" not in str(p)),
-                       key=lambda p: any(w in p.name.lower() for w in ("dark", "tint")))   # 기본 아이콘 먼저
+                       key=lambda p: (any(w in p.name.lower() for w in ("dark", "tint")), -p.stat().st_size))   # 기본 · 큰 것 먼저
         icon = icons[0]
         subprocess.run(["sips", "-s", "format", "png", "-Z", "256", str(icon), "--out", str(docs / "icon.png")],
                        check=True, capture_output=True)
