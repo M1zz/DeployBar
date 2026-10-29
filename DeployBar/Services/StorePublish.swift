@@ -25,6 +25,7 @@ enum StorePublish {
         /// 올린 영상의 처리를 기다렸다가 대표 프레임을 정할 최대 시간(초). 헤더·검색 결과 자산의 처리 대기도 같은 값
         var previewWait: TimeInterval = 600
         var ageRating = true          // APPSTORE.md 가 "해당 없음" 이라고 적었을 때만
+        var accessibility = true      // APPSTORE.md 의 `## 손쉬운 사용` → '앱의 손쉬운 사용' (절이 없으면 안 건드린다)
         /// 스토어에 이미 글이 있어도 레포 글로 덮어쓸지. **기본은 덮어쓴다 — 레포가 원본이다.**
         ///
         /// 예전 기본은 false 였다(웹에서 고친 문구를 말없이 되돌리지 않으려고). 그런데 그 탓에
@@ -179,6 +180,13 @@ enum StorePublish {
             } else {
                 report.manual.append("연령 등급 설문이 비어 있습니다 — 내용이 전부 '해당 없음' 이면 APPSTORE.md 의 `## 연령 등급` 절에 '해당 없음' 이라고 적어 두면 다음부터 자동입니다")
             }
+        }
+
+        // 5-1) 앱의 손쉬운 사용 — APPSTORE.md `## 손쉬운 사용` 이 원본. 버전과 무관한 앱 단위 신고이고,
+        //      실패해도 배포를 막지 않는다 (A11y.sync 는 던지지 않고 경고로 돌려준다)
+        if options.accessibility, let repo = A11y.read(app.path) {
+            let o = await A11y.sync(appId: appId, repo: repo, dryRun: options.dryRun, onLog: onLog)
+            report.changed += o.changed; report.kept += o.kept; report.warnings += o.warnings
         }
 
         // 6) 우리가 손댈 수 없는 것들을 **확인만** 해서 알려 준다.
@@ -727,6 +735,7 @@ enum StorePublish {
     static func attachBuild(_ app: ManagedApp) async throws -> String {
         var o = Options()
         o.text = false; o.screenshots = false; o.previews = false; o.creatives = false; o.ageRating = false; o.createVersion = false
+        o.accessibility = false
         let rep = try await run(app, options: o)
         if let w = rep.warnings.first, rep.changed.isEmpty { return w }
         return rep.changed.first ?? "이미 연결돼 있습니다"
@@ -1247,6 +1256,7 @@ extension StorePublish {
         // 문구·연령 등급 — APPSTORE.md 에 적은 것만, 스토어에 이미 있는 글은 덮지 않는다
         var o = Options()
         o.attachBuild = false; o.screenshots = false; o.previews = false; o.creatives = false; o.createVersion = false; o.manualCheck = false
+        o.accessibility = false   // 업로드 직후 문구 단계에서 이미 맞췄다
         if let rep = try? await run(app, options: o, onLog: onLog) {
             for w in rep.warnings { onLog("   ⚠️  \(w)") }
         }

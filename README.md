@@ -360,6 +360,47 @@ https://...
   애플의 409 는 어느 언어의 어느 칸인지 말해 주지 않는다.
 - `--storemeta <앱>` 으로 무엇을 어떻게 읽었는지 확인하고, 파일이 없으면 `--write` 로 뼈대를 만든다.
 
+### `## 손쉬운 사용` — '앱의 손쉬운 사용' (Accessibility Nutrition Labels) 의 원본
+
+같은 `APPSTORE.md` 에 언어 절과 따로 둔다. 기기마다 `###` 절, 한 줄에 키 하나.
+
+```markdown
+## 손쉬운 사용
+
+<!-- DeployBar 가 App Store Connect '앱의 손쉬운 사용' 에 올린다. 실제로 확인한 것만 적는다. -->
+
+### iPhone
+voiceOver
+largerText
+darkInterface
+
+### iPad          ← 키가 없는 절 = '지원 기능 없음' 으로 신고
+```
+
+| 키 | API 속성 | 화면 이름 |
+|---|---|---|
+| `voiceOver` | supportsVoiceover | VoiceOver |
+| `voiceControl` | supportsVoiceControl | 음성 명령 |
+| `largerText` | supportsLargerText | 더 큰 텍스트 |
+| `darkInterface` | supportsDarkInterface | 다크 모드 인터페이스 |
+| `differentiateWithoutColor` | supportsDifferentiateWithoutColorAlone | 색상 사용 없이 구별 |
+| `sufficientContrast` | supportsSufficientContrast | 충분한 대비 |
+| `reducedMotion` | supportsReducedMotion | 동작 줄이기 |
+| `captions` | supportsCaptions | 자막 |
+| `audioDescriptions` | supportsAudioDescriptions | 오디오 설명 |
+
+- 기기 절: `### iPhone` · `### iPad` · `### Mac` · `### Apple Watch` · `### Apple TV` · `### Apple Vision Pro`
+  (API 의 `IPHONE` · `IPAD` · `MAC` · `APPLE_WATCH` · `APPLE_TV` · `VISION`). 적지 않은 키는 `false` 다.
+- **적은 기기만 맞춘다.** 레포에 없는 기기는 스토어에 무엇이 있든 건드리지 않는다.
+- 기기마다 게시본이 레포와 같으면 아무것도 안 한다. 다르면 초안을 만들고(남은 초안이 있으면 그걸 고치고) 게시한다 —
+  애플은 게시본을 고치게 두지 않으므로 늘 '초안 → 게시' 이고, 예전 게시본은 애플이 `REPLACED` 로 돌린다.
+- 애플은 **그 기기로 출시한 적이 있는 앱**에만 신고를 받는다. 거부되면 `iPad 는 아직 출시된 버전이 없어 …` 로
+  경고 한 줄을 남기고 다른 기기는 계속한다.
+- 모르는 기기·키는 `APPSTORE.md 12행: 모르는 키 …` 처럼 줄을 말하고 **아무 기기도 올리지 않는다.**
+- `--publish` 와 배포(업로드 직후 문구 단계)가 같이 맞춘다. 여기서 실패해도 **배포는 막지 않는다** — 경고 한 줄이다.
+- 확인·따로 올리기: `--a11y <앱> --dry-run` (레포 · 스토어 · 바뀔 것) → `--a11y <앱>`. 읽기 규칙 검증: `--selftest-a11y`.
+- 기준은 애플과 같다: 그 기능에 기대는 사람이 앱의 **주요 작업을 끝까지** 할 수 있을 때만 적는다. 부풀린 신고는 심사·신뢰 문제다.
+
 ### 스크린샷 — 배포가 "지금 다시 찍을 때" 를 먼저 말한다
 
 배포 마지막 칸이 **스크린샷 점검**이다. 두 경우에 붙여넣을 지시문을 그 자리에서 만든다.
@@ -524,6 +565,7 @@ $D --shotplan 클립키보드    # 끝에 '헤더·검색 결과' 줄: 언어 ·
 - 워치 앱이 있으면 워치 그림, 본체가 아이패드를 지원하면 아이패드 그림까지
 - 한도·한글 섞임·이름 단어를 반복하는 키워드·열리지 않는 URL·LOCALES 에 빠진 번역 언어·커밋 안 된 변경
 - 사람만 할 수 있는 신고(첫 출시의 연령 등급 등)는 따로 적는다
+- `APPSTORE.md` 에 `## 손쉬운 사용` 절이 없으면 '참고' 에 권장으로 알린다 (빈 곳으로 세지 않는다 — 완비 판정을 막지 않는다)
 
 같은 기준이 카드에도 뜬다 — 갈래(설정·스토어 문구·릴리즈노트·스크린샷)마다 ⚠️ 권장 한 줄씩. 배포를 막지는 않는다.
 
@@ -715,6 +757,8 @@ $D --publish 두번알림 --dry-run   # 스토어 페이지에 무엇이 올라�
 $D --publish 두번알림      # 문구·스크린샷·버전·빌드 연결을 실제로 반영
 $D --publish 두번알림 --overwrite # 스토어에 이미 있는 글까지 레포 글로 덮어쓴다
 $D --publish 두번알림 --replace-shots --dry-run  # 스크린샷 교체 미리보기 (모든 언어 준비됐나 → 전부 지우고 올리기)
+$D --a11y 두번알림 --dry-run      # '앱의 손쉬운 사용' — 레포 · 스토어 · 바뀔 것 (쓰지 않음)
+$D --a11y 두번알림         # 다른 기기만 초안 → 게시 (레포에 없는 기기는 안 건드림)
 $D --attach 두번알림       # 올라간 빌드를 App Store 버전에 연결
 $D --submit 두번알림       # 심사 제출 (여기서부터 애플이 본다)
 $D --release 두번알림      # '출시 대기' 를 지금 출시
@@ -724,6 +768,7 @@ $D --dsym 골드위크          # 보관한 dSYM — 버전·빌드 목록 (읽�
 $D --dsym 골드위크 <UUID>   # 크래시 보고의 UUID 가 어느 버전·빌드인지, dSYM 경로까지
 $D --selftest-lock        # '무엇이 배포를 잠그는가' 규칙 검증 (조회 실패는 잠그면 안 된다)
 $D --selftest-changes     # 상태 변화 알림 규칙 검증
+$D --selftest-a11y        # `## 손쉬운 사용` 읽기·비교 규칙 검증
 $D --help                 # 명령 목록
 ```
 

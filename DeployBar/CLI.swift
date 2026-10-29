@@ -15,6 +15,7 @@ import Foundation
 //   --shots   <앱>      앱스토어 스크린샷 다시 만들 때 붙여넣을 지시문 (--video 면 미리보기 영상, --creative 면 헤더·검색 결과)
 //   --storemeta <앱>    APPSTORE.md 에서 무엇을 읽어 가는지 (--write 면 뼈대 생성)
 //   --publish <앱>      스토어 페이지 올리기 (--dry-run 이면 무엇이 올라갈지만)
+//   --a11y <앱>         APPSTORE.md `## 손쉬운 사용` → '앱의 손쉬운 사용' 게시 (--dry-run 이면 비교만)
 //   --attach/--submit/--release <앱>   빌드 연결 · 심사 제출 · 출시
 //   --logs [n|last]     지난 배포·점검 로그 (창을 닫아도 남는다). last 면 최근 것 전체를 출력
 //   --dsym [앱] [UUID]  배포마다 보관한 dSYM — 버전·빌드 목록, UUID 를 주면 맞는 빌드 (읽기만)
@@ -22,6 +23,7 @@ import Foundation
 //   --selftest-lock     '무엇이 배포를 잠그는가' 규칙 검증 (조회 실패는 잠그면 안 된다)
 //   --selftest-version  배포가 마케팅 버전을 스토어에 맞춰 정하는 규칙 검증
 //   --selftest-keywords 키워드를 레포 값으로 바꿀지 정하는 비교 규칙 검증
+//   --selftest-a11y     `## 손쉬운 사용` 절을 읽는 규칙 검증
 //
 // App.init 에서 부른다 — Scene 이 만들어지기 전에 끝나야 창이 뜨지 않는다.
 enum CLI {
@@ -44,6 +46,8 @@ enum CLI {
       --publish <앱> [--dry-run] [--text-only] 스토어 페이지 올리기 (문구·스크린샷·버전·빌드 연결 · --text-only 면 문구만)
                      [--overwrite]  스토어에 이미 있는 글까지 레포 글로 덮어쓴다
                      [--replace-shots]  모든 언어 그림이 준비됐을 때만 기존 스크린샷을 지우고 올린다
+      --a11y <앱> [--dry-run]    APPSTORE.md 의 `## 손쉬운 사용` 을 '앱의 손쉬운 사용' 에 게시
+                                 (레포 · 스토어 · 바뀔 것을 보여 주고 올린다. --publish · 배포도 같이 맞춘다)
       --prepare <앱>              자동 배포 완비 기준 검사 + Claude Code 에 붙여넣을 배포 준비 지시문
       --prepare <앱> --lang <로케일>  새 언어 하나만 — 그 언어를 다른 언어 수준으로 채우는 지시문 (예: --lang fr-FR)
       --storetext <앱>            App Store Connect 에 지금 올라가 있는 문구를 언어별로 (읽기만)
@@ -64,6 +68,7 @@ enum CLI {
       --selftest-lock            '무엇이 배포를 잠그는가' 규칙 검증
       --selftest-version         배포가 버전 번호를 스토어에 맞춰 정하는 규칙 검증
       --selftest-keywords        키워드를 레포 값으로 바꿀지 정하는 비교 규칙 검증
+      --selftest-a11y            `## 손쉬운 사용` 절을 읽는 규칙 검증 (모르는 기기·키는 줄 번호와 함께 오류)
       --help                     이 안내
     """
 
@@ -78,6 +83,7 @@ enum CLI {
         "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
         "--ready", "--deploy", "--bump", "--no-wait", "--quiet", "--timeout",
         "--dsym",
+        "--a11y", "--selftest-a11y",
     ]
 
     static func runIfRequested() {
@@ -260,6 +266,72 @@ enum CLI {
         let n = StorePublish.normalizedKeywords(" a, b ,,c ")
         if n != "a,b,c" { bad += 1 }
         print("\(n == "a,b,c" ? "✅" : "❌") 올리는 값은 쉼표만으로 — ' a, b ,,c ' → '\(n)' (기대 'a,b,c')")
+        print(bad == 0 ? "\n전부 통과" : "\n실패 \(bad)건")
+        exit(bad == 0 ? 0 : 1)
+    }
+    // 손쉬운 사용 절 읽기 규칙 검증: DeployBar --selftest-a11y
+    //
+    // 지키려는 것: 적은 기기만 맞추고(빈 절 = 지원 기능 없음), 모르는 기기·키는 줄 번호와 함께 오류,
+    // 주석은 읽지 않되 줄 번호는 파일과 같게, 절이 없으면 nil(= 스토어를 건드리지 않음).
+    if CommandLine.arguments.contains("--selftest-a11y") {
+        var bad = 0
+        func check(_ name: String, _ ok: Bool, _ got: String) {
+            if !ok { bad += 1 }
+            print("\(ok ? "✅" : "❌") \(name) → \(got)")
+        }
+        let good = """
+        ## 한국어
+        ### 이름
+        앱
+
+        ## 손쉬운 사용
+
+        <!-- DeployBar 가 올린다.
+             여러 줄 주석 -->
+
+        ### iPhone
+        voiceOver
+        largerText
+        - darkInterface
+
+        ### iPad
+
+        ### Apple Watch
+        VoiceOver
+
+        ## 연령 등급
+        voiceControl
+        """
+        let p = A11y.parse(good)
+        let decl = p?.declarations ?? []
+        check("기기 세 절", decl.map(\.device) == [.iPhone, .iPad, .watch], decl.map(\.device.label).joined(separator: ","))
+        check("iPhone 키 셋", decl.first?.supports == ["supportsVoiceover", "supportsLargerText", "supportsDarkInterface"],
+              decl.first.map { A11y.describe($0.supports) } ?? "-")
+        check("빈 iPad 절 = 지원 기능 없음", decl.count > 1 && decl[1].supports.isEmpty, decl.count > 1 ? A11y.describe(decl[1].supports) : "-")
+        check("키는 대소문자 무관", decl.count > 2 && decl[2].supports == ["supportsVoiceover"], decl.count > 2 ? A11y.describe(decl[2].supports) : "-")
+        check("다음 ## 절에서 끝난다", p?.errors.isEmpty == true, p?.errors.joined(separator: " / ") ?? "nil")
+        check("절이 없으면 nil", A11y.parse("## 한국어\n### 이름\n앱\n") == nil, "nil")
+        let wrong = A11y.parse("# 앱\n## 손쉬운 사용\n<!-- a\nb -->\n### Android\nvoiceOver\n### iPhone\nbigText\n### iPhone\n")
+        let errs = wrong?.errors ?? []
+        check("모르는 기기 — 줄 번호 (5행)", errs.contains { $0.contains("5행") && $0.contains("Android") }, errs.first ?? "-")
+        check("기기 없이 온 키는 오류 (6행)", errs.contains { $0.contains("6행") }, errs.count > 1 ? errs[1] : "-")
+        check("모르는 키 — 줄 번호 (8행)", errs.contains { $0.contains("8행") && $0.contains("bigText") }, errs.count > 2 ? errs[2] : "-")
+        check("같은 기기 두 번 (9행)", errs.contains { $0.contains("9행") }, errs.last ?? "-")
+        // 비교: 같으면 그대로, 다르면 남은 초안을 고치거나 새로 만든다. 레포에 없는 기기는 계획에 없다
+        let live = [
+            ASCClient.AccessibilityDeclaration(id: "1", deviceFamily: "IPHONE", state: "PUBLISHED", supports: ["supportsVoiceover"]),
+            ASCClient.AccessibilityDeclaration(id: "2", deviceFamily: "IPAD", state: "PUBLISHED", supports: ["supportsVoiceover"]),
+            ASCClient.AccessibilityDeclaration(id: "3", deviceFamily: "IPAD", state: "DRAFT", supports: []),
+            ASCClient.AccessibilityDeclaration(id: "4", deviceFamily: "MAC", state: "PUBLISHED", supports: []),
+            ASCClient.AccessibilityDeclaration(id: "5", deviceFamily: "IPHONE", state: "REPLACED", supports: []),
+        ]
+        let plan = A11y.plan([A11y.Declaration(device: .iPhone, supports: ["supportsVoiceover"]),
+                              A11y.Declaration(device: .iPad, supports: []),
+                              A11y.Declaration(device: .watch, supports: [])], live: live)
+        check("게시본과 같음 → 그대로", plan[0].action == .same, "\(plan[0].action)")
+        check("초안 있음 → 초안을 고쳐 게시", plan[1].action == .updateDraft("3"), "\(plan[1].action)")
+        check("스토어에 없음 → 새로 만들어 게시", plan[2].action == .create, "\(plan[2].action)")
+        check("레포에 없는 기기(Mac)는 손대지 않음", !plan.contains { $0.want.device == .mac }, "\(plan.count)개 기기")
         print(bad == 0 ? "\n전부 통과" : "\n실패 \(bad)건")
         exit(bad == 0 ? 0 : 1)
     }
@@ -833,6 +905,62 @@ enum CLI {
         sem.wait()
         exit(0)
     }
+    // 앱의 손쉬운 사용: DeployBar --a11y 앱이름 [--dry-run]
+    //
+    // 레포(APPSTORE.md `## 손쉬운 사용`) · 스토어에 지금 게시된 것 · 바뀔 것을 기기마다 보여 주고,
+    // --dry-run 이 아니면 다른 기기만 게시한다. 레포에 없는 기기는 건드리지 않는다.
+    if let i = CommandLine.arguments.firstIndex(of: "--a11y") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let dryRun = CommandLine.arguments.contains("--dry-run")
+        guard let repo = A11y.read(app.path) else {
+            print("\(app.name): APPSTORE.md 에 `## 손쉬운 사용` 섹션 없음 — 스토어의 손쉬운 사용은 건드리지 않습니다")
+            exit(0)
+        }
+        print("\(app.name) · \(repo.source) `## 손쉬운 사용`\(dryRun ? " (미리보기 — 아무것도 쓰지 않습니다)" : "")")
+        if !repo.errors.isEmpty {
+            print("\n❌ 잘못된 줄 \(repo.errors.count)개 — 고칠 때까지 아무것도 올리지 않습니다")
+            for e in repo.errors { print("   · \(e)") }
+            exit(1)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            do {
+                let info = try AppRepo.buildSettings(AppRepo.resolve(app))
+                guard let appId = try await ASCClient.appId(bundleId: info.bundleId) else {
+                    print("❌ App Store Connect 에 \(info.bundleId) 앱이 없습니다"); exit(1)
+                }
+                let live = try await ASCClient.accessibilityDeclarations(appId: appId)
+                let steps = A11y.plan(repo.declarations, live: live)
+                for s in steps {
+                    print("\n── \(s.want.device.label)")
+                    print("   레포    \(A11y.describe(s.want.supports))")
+                    print("   스토어  \(s.live.map { A11y.describe($0) } ?? "게시된 신고 없음")")
+                    switch s.action {
+                    case .same: print("   → 그대로 (같음)")
+                    case .create: print("   → 새 초안을 만들어 게시")
+                    case .updateDraft: print("   → 남아 있던 초안을 레포 값으로 고쳐 게시")
+                    }
+                }
+                let untouched = Set(live.filter { $0.state == "PUBLISHED" }.map(\.deviceFamily))
+                    .subtracting(repo.declarations.map(\.device.rawValue))
+                    .compactMap { A11y.Device(rawValue: $0)?.label }.sorted()
+                if !untouched.isEmpty { print("\n레포에 없어 건드리지 않는 기기: \(untouched.joined(separator: ", "))") }
+                let o = await A11y.sync(appId: appId, repo: repo, dryRun: dryRun, live: live)
+                print("")
+                if o.changed.isEmpty && o.warnings.isEmpty { print("바꾼 것 없음 — 스토어가 이미 레포와 같습니다") }
+                for c in o.changed { print("\(dryRun ? "📝" : "✅") \(c)") }
+                for w in o.warnings { print("⚠️  \(w)") }
+            } catch {
+                print("❌ \(StorePublish.reason(error))"); exit(1)
+            }
+            sem.signal()
+        }
+        sem.wait()
+        exit(0)
+    }
     // 스토어 페이지 올리기: DeployBar --publish 앱이름 [--dry-run] [--overwrite]
     if let i = CommandLine.arguments.firstIndex(of: "--publish") {
         let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
@@ -847,6 +975,7 @@ enum CLI {
         // 문구만 — 배포가 도는 중에 빈 언어 칸만 채울 때. 버전·빌드·그림·연령 등급은 건드리지 않는다
         if CommandLine.arguments.contains("--text-only") {
             o.screenshots = false; o.previews = false; o.creatives = false; o.attachBuild = false; o.ageRating = false; o.createVersion = false; o.manualCheck = false
+            o.accessibility = false
         }
         let sem = DispatchSemaphore(value: 0)
         Task.detached {

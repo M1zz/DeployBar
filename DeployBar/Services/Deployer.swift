@@ -589,7 +589,7 @@ enum Deployer {
             do {
                 let rep = try await StorePublish.run(app, options: o, onLog: onLog)
                 if !rep.changed.isEmpty {
-                    onLog("✏️  스토어 문구를 APPSTORE.md 로 맞췄습니다")
+                    onLog("✏️  스토어 문구·손쉬운 사용을 APPSTORE.md 로 맞췄습니다")
                     for c in rep.changed { onLog("   · \(c)") }
                 }
                 for w in rep.warnings { onLog("   ⚠️  \(w)") }
@@ -602,7 +602,7 @@ enum Deployer {
         }
         if lane == .appstore, StorePublish.hasShots(app.path) || replaceShots {
             var o = StorePublish.Options()
-            o.text = false; o.ageRating = false; o.attachBuild = false
+            o.text = false; o.ageRating = false; o.attachBuild = false; o.accessibility = false
             o.manualCheck = false; o.createVersion = true
             o.shotMode = replaceShots ? .replaceAll : .fillEmpty
             do {

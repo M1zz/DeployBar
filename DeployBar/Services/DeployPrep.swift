@@ -138,6 +138,15 @@ enum DeployPrep {
             }
         }
 
+        // 3-2) 앱의 손쉬운 사용 — 권장. 없어도 배포는 되므로 빈 곳(gap)이 아니라 참고로만 알린다
+        if let a11y = A11y.read(app.path) {
+            if !a11y.errors.isEmpty {
+                a.notes.append("권장: APPSTORE.md `## 손쉬운 사용` 에 잘못된 줄이 있어 '앱의 손쉬운 사용' 을 올리지 못합니다 — " + a11y.errors.joined(separator: " / "))
+            }
+        } else if meta != nil {
+            a.notes.append("권장: APPSTORE.md 에 `## 손쉬운 사용` 절이 없습니다 — 기기마다(`### iPhone` …) 실제로 확인한 기능 키(voiceOver · largerText · darkInterface …)를 적으면 배포가 '앱의 손쉬운 사용' 을 게시합니다. 확인: `\(cli) --a11y \(app.name) --dry-run`")
+        }
+
         // 4) 릴리즈노트 — 배포가 쓸 번호의 절에, 모든 언어
         let store: (version: String, released: Bool)
         if let known { store = (known.version, known.released) }

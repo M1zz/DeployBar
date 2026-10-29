@@ -54,8 +54,10 @@
 		CC165BF8EEAE82A96A44CE7B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CB9D4EBA17ACC04E8F2C9252 /* Assets.xcassets */; };
 		D2C74952362425B60D734D5C /* CLI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D851284B3138512FDF6EF157 /* CLI.swift */; };
 		D4BDEDA68868D12827BB0486 /* DeployPrep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5250A1BD8E9653A6E81CBEE4 /* DeployPrep.swift */; };
+		DB8E042F3A8077320629C2FD /* ASCClient+Accessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24A4AA4422D50BCBD92C86D8 /* ASCClient+Accessibility.swift */; };
 		DC93BC612F98D0BBE5EFDAEF /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AB262BB2814990ED93B6B9B /* Localization.swift */; };
 		E04B6E4057BE44F914934CD9 /* Deployer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88BC5421454848BF453EAA81 /* Deployer.swift */; };
+		E39A14E5EF422851FB9EDDE9 /* A11y.swift in Sources */ = {isa = PBXBuildFile; fileRef = 081F4318161BC6FFC0A6B9C5 /* A11y.swift */; };
 		E63A44AAF7FDFC88436B0DAE /* Store+Deploy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A81893B64F9BF7E01870AEE /* Store+Deploy.swift */; };
 		E8A9128057B18929C90B20C6 /* StorePublish+Previews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21E99B9C48B51FEA28ED7636 /* StorePublish+Previews.swift */; };
 		ED3BDBBD571E0856E798D08D /* LogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28399DAC3FBD06AB97D825B /* LogView.swift */; };
@@ -67,10 +69,12 @@
 
 /* Begin PBXFileReference section */
 		0715E9C60F3E726E17B41401 /* GitSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitSync.swift; sourceTree = "<group>"; };
+		081F4318161BC6FFC0A6B9C5 /* A11y.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = A11y.swift; sourceTree = "<group>"; };
 		0E71F6A377D91ECEB9DE3C00 /* SummaryBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummaryBar.swift; sourceTree = "<group>"; };
 		0F9A9946EE8D99FDDA58F64E /* StoreMeta.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreMeta.swift; sourceTree = "<group>"; };
 		1EF2112119180659331C2054 /* Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Config.swift; sourceTree = "<group>"; };
 		21E99B9C48B51FEA28ED7636 /* StorePublish+Previews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "StorePublish+Previews.swift"; sourceTree = "<group>"; };
+		24A4AA4422D50BCBD92C86D8 /* ASCClient+Accessibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ASCClient+Accessibility.swift"; sourceTree = "<group>"; };
 		26056B26D4307AF6DA11C1AF /* ASCClient+Previews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ASCClient+Previews.swift"; sourceTree = "<group>"; };
 		2682C393B3944D18F64D114C /* DeployProgressPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployProgressPanel.swift; sourceTree = "<group>"; };
 		29DFDF16764DC73D25168464 /* Store+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Remote.swift"; sourceTree = "<group>"; };
@@ -137,8 +141,10 @@
 		296636BDD8317D5EB171DCEC /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				081F4318161BC6FFC0A6B9C5 /* A11y.swift */,
 				E81D14090645E0BA65317ADC /* AIWriter.swift */,
 				EBE760690B10ED4A37047527 /* ASCClient.swift */,
+				24A4AA4422D50BCBD92C86D8 /* ASCClient+Accessibility.swift */,
 				5CBDB885BE302FA5EFA62B08 /* ASCClient+Creative.swift */,
 				26056B26D4307AF6DA11C1AF /* ASCClient+Previews.swift */,
 				F196B888DEF40AB4CE0C68EF /* ASCClient+Store.swift */,
@@ -308,7 +314,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E39A14E5EF422851FB9EDDE9 /* A11y.swift in Sources */,
 				88C85FD970D7F18B3CD99D20 /* AIWriter.swift in Sources */,
+				DB8E042F3A8077320629C2FD /* ASCClient+Accessibility.swift in Sources */,
 				F4F11B73B3D7A9B5364404FF /* ASCClient+Creative.swift in Sources */,
 				8121DFBF37A0473044A52A77 /* ASCClient+Previews.swift in Sources */,
 				B7E3401B6D8723EFD0C8952F /* ASCClient+Store.swift in Sources */,
