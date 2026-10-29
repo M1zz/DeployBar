@@ -155,6 +155,28 @@ def page(site, loc, t, locales, sizes):
     ui = t["ui"]
     email = site["email"]
     contact = esc(ui["contact"]).replace("{email}", f'<a href="mailto:{email}">{email}</a>')
+    # 첫 주소(x-default)로 들어오면 브라우저 언어에 가장 가까운 페이지로 보낸다. 직접 고른 언어는 기억해 따른다.
+    paths = {l["code"]: l["path"] for l in locales}
+    autolang = "" if loc["path"] else f"""
+  <script>(function () {{
+    var P = {json.dumps(paths)}, here = "{code}", want;
+    try {{ want = localStorage.getItem("sitegen-lang"); }} catch (e) {{}}
+    function match(tag) {{
+      var t = (tag || "").toLowerCase(), b = t.split("-")[0], ks = Object.keys(P), i;
+      for (i = 0; i < ks.length; i++) if (ks[i].toLowerCase() === t) return ks[i];
+      if (b === "zh") return /hant|tw|hk|mo/.test(t) ? (P["zh-Hant"] !== undefined ? "zh-Hant" : null) : (P["zh-Hans"] !== undefined ? "zh-Hans" : null);
+      if (b === "no" || b === "nn") b = "nb";
+      if (P[b] !== undefined) return b;
+      for (i = 0; i < ks.length; i++) if (ks[i].toLowerCase().split("-")[0] === b) return ks[i];
+      return null;
+    }}
+    if (!(want in P)) {{
+      want = null;
+      var ls = navigator.languages || [navigator.language];
+      for (var i = 0; i < ls.length && !want; i++) want = match(ls[i]);
+    }}
+    if (want && want !== here) location.replace(P[want] + location.hash);
+  }})();</script>"""
     og = f'{site["url"]}img/{code}/{"og" if "og" in sizes else site["shots"][0]}.jpg'
 
     return f"""<!doctype html>
@@ -180,7 +202,7 @@ def page(site, loc, t, locales, sizes):
   <link rel="apple-touch-icon" href="{up}icon.png">
   <link rel="stylesheet" href="{up}sitegen.css">{f'{chr(10)}  <link rel="stylesheet" href="{up}demo.css">' if demo else ""}
   <style>:root{{--accent:{site["color"]["light"]}}}@media (prefers-color-scheme:dark){{:root{{--accent:{site["color"]["dark"]}}}}}</style>
-  <script>document.documentElement.classList.add("js")</script>
+  <script>document.documentElement.classList.add("js")</script>{autolang}
 </head>
 <body>
   <a class="skip" href="#main">{esc(ui["skip"])}</a>
@@ -238,6 +260,9 @@ def page(site, loc, t, locales, sizes):
       if (e.isIntersecting) {{ e.target.classList.add("in"); io.unobserve(e.target) }}
     }}), {{ rootMargin: "0px 0px -10% 0px" }});
     document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+    document.querySelectorAll(".langs a").forEach(a => a.addEventListener("click", () => {{
+      try {{ localStorage.setItem("sitegen-lang", a.hreflang) }} catch (e) {{}}
+    }}));
   </script>{f'{chr(10)}  <script src="{up}demo.js"></script>' if demo else ""}
 </body>
 </html>
