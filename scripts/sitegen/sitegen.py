@@ -56,9 +56,12 @@ def images(repo, docs, site, loc):
     """그 언어 화면의 스크린샷을 웹용 크기로 줄여 docs/img/<code>/ 에 두고, 그림마다 크기를 돌려준다."""
     out, sizes = docs / "img" / loc["code"], {}
     folder = shot_dir(docs, site.get("shotsFrom", "raw"), loc, site.get("shotsFallback"))
+    spare = docs / "screenshots" / site.get("shotsFrom", "raw") / site.get("shotsFallback", "")
     for name in site["shots"]:
-        dst = out / f"{name}.jpg"
-        jpeg(folder / f"{name}.png", dst, site.get("shotWidth", 720))
+        dst, src = out / f"{name}.jpg", folder / f"{name}.png"
+        if not src.exists():   # 그 언어에 이 화면만 빠졌으면 대체 언어의 같은 화면
+            src = spare / f"{name}.png"
+        jpeg(src, dst, site.get("shotWidth", 720))
         sizes[name] = size(dst)
     creative = shot_dir(docs, "creative", loc, site.get("shotsFallback"))
     if creative and (creative / "header.png").exists():
@@ -223,7 +226,7 @@ def page(site, loc, t, locales, sizes):
 
   <footer>
     <nav id="languages" class="langs" aria-label="{html.escape(ui["languages"])}">{langs}</nav>
-    <p><a href="privacy.html">{esc(ui["privacy"])}</a> · <a href="mailto:{email}">{email}</a> · © {site["year"]} {html.escape(site["copyright"])}</p>
+    <p><a href="{loc.get('privacy', 'privacy.html')}">{esc(ui["privacy"])}</a> · <a href="mailto:{email}">{email}</a> · © {site["year"]} {html.escape(site["copyright"])}</p>
   </footer>
 
   <script>

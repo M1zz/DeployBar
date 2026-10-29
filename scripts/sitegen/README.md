@@ -40,6 +40,7 @@ python3 ~/Documents/workspace/Auto/DeployBar/scripts/sitegen/sitegen.py <레포 
 }
 ```
 
+언어 폴더 안에 `privacy.html` 이 없고 다른 이름이면 그 언어 항목에 `"privacy": "../privacy-en.html"` 처럼 페이지 기준 주소를 적는다.
 `locales` 는 지금 `docs/` 에 있는 언어 폴더 전부 + 루트(en, path "")다. 기존 index.html 의 언어 목록 · hreflang 과 같은 코드 · 같은 이름을 쓴다.
 `shots` 는 스크린샷 폴더의 파일 이름(확장자 없이)이다. 언어마다 같은 이름으로 있어야 한다.
 
