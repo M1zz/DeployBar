@@ -58,6 +58,7 @@ pricing: title, free{name, items}, pro{name, items, note}, note   무료로 되�
 faq: title, items[{q, a}]             기존 페이지의 문제 해결 · 사용법 · 문의를 모두 여기로. 6~10개
 closing: headline, cta
 ui: skip, languages, privacy, contact ({email} 자리에 메일 주소가 들어간다)
+    links: [[이름, 주소]]              (선택) 푸터에 더할 링크. 예: 리모컨 앱 안내, 지원 페이지
 ```
 
 `` `start` `` 처럼 백틱으로 감싼 말은 강조 색으로 나온다(앱에서 그대로 누르거나 말하는 말에만 쓴다).

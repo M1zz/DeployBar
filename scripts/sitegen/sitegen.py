@@ -226,7 +226,7 @@ def page(site, loc, t, locales, sizes):
 
   <footer>
     <nav id="languages" class="langs" aria-label="{html.escape(ui["languages"])}">{langs}</nav>
-    <p><a href="{loc.get('privacy', 'privacy.html')}">{esc(ui["privacy"])}</a> · <a href="mailto:{email}">{email}</a> · © {site["year"]} {html.escape(site["copyright"])}</p>
+    <p><a href="{loc.get('privacy', 'privacy.html')}">{esc(ui["privacy"])}</a> · {"".join(f'<a href="{h}">{esc(label)}</a> · ' for label, h in ui.get("links", []))}<a href="mailto:{email}">{email}</a> · © {site["year"]} {html.escape(site["copyright"])}</p>
   </footer>
 
   <script>
