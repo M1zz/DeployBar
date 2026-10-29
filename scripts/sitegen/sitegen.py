@@ -6,8 +6,8 @@ docs/index.html · docs/<언어>/index.html 을 만든다. 디자인은 이 폴�
 
     python3 sitegen.py <레포 경로>
 
-docs/site/site.json — 앱 공통: 이름, 주소, App Store ID, 색, 언어 목록
-docs/site/<code>.json — 그 언어의 글. 없는 언어는 건너뛴다.
+docs/site/site.json , 앱 공통: 이름, 주소, App Store ID, 색, 언어 목록
+docs/site/<code>.json , 그 언어의 글. 없는 언어는 건너뛴다.
 """
 import html, json, re, shutil, subprocess, sys
 from pathlib import Path
@@ -69,6 +69,8 @@ def images(repo, docs, site, loc):
         icons = sorted((p for p in repo.glob("**/AppIcon.appiconset/*")
                         if p.suffix.lower() in (".png", ".jpg", ".jpeg") and "/build/" not in str(p)),
                        key=lambda p: (any(w in p.name.lower() for w in ("dark", "tint")), -p.stat().st_size))   # 기본 · 큰 것 먼저
+        if not icons:   # Icon Composer(AppIcon.icon)는 겹친 층이라 그림 한 장이 없다
+            sys.exit("docs/icon.png 가 없고 AppIcon.appiconset 그림도 없다. 앱 아이콘 PNG 를 docs/icon.png 로 두고 다시 돌린다.")
         icon = icons[0]
         subprocess.run(["sips", "-s", "format", "png", "-Z", "256", str(icon), "--out", str(docs / "icon.png")],
                        check=True, capture_output=True)

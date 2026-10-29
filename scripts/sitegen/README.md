@@ -17,6 +17,8 @@ python3 ~/Documents/workspace/Auto/DeployBar/scripts/sitegen/sitegen.py <레포 
 | `<code>.json` | 그 언어의 글. `code` 는 `site.json` locales 의 code 와 같다 |
 | `demo.js` · `demo.css` | (선택) 페이지 안에서 직접 해 보는 체험 |
 
+아이콘은 `docs/icon.png` 가 있으면 그것을, 없으면 `AppIcon.appiconset` 의 가장 큰 그림을 쓴다(Icon Composer 앱은 `docs/icon.png` 를 직접 둔다).
+
 생성기가 만드는 것: `docs/index.html`, `docs/<언어>/index.html`, `docs/sitegen.css`, `docs/img/<code>/*.jpg`(웹용으로 줄인 스크린샷 · 공유 미리보기 `og.jpg`), `docs/icon.png`, 있으면 `docs/demo.*`.
 `privacy.html` · `style.css` 는 건드리지 않는다.
 
