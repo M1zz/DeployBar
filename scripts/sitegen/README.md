@@ -91,4 +91,4 @@ ui: skip, languages, privacy, contact ({email} 자리에 메일 주소가 들어
    헤드리스 캡처: `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars --force-prefers-reduced-motion --window-size=1280,9000 --screenshot=out.png http://localhost:8765/ko/`
    (390px 는 창 최소 폭 때문에 `<iframe style="width:390px">` 로 감싼 페이지를 캡처한다)
 3. 체험이 있으면 버튼을 눌러 상태가 바뀌는지 확인한다.
-4. 커밋: `docs/` 만. 메시지 예: `docs(소개 페이지): 공용 디자인으로 다시 만듦 — 23개 언어, 체험 데모`
+4. 커밋: `docs/` 만. 메시지 예: `docs(소개 페이지): 공용 디자인으로 다시 만듦, 23개 언어와 체험` (줄표는 쓰지 않는다. 막는 레포가 있다)

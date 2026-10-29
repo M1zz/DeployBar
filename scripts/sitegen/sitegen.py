@@ -64,6 +64,7 @@ def images(repo, docs, site, loc):
     creative = shot_dir(docs, "creative", loc, site.get("shotsFallback"), "header.png")
     if creative:
         jpeg(creative / "header.png", out / "og.jpg", 1200)
+        sizes["og"] = size(out / "og.jpg")
     if not (docs / "icon.png").exists():
         icons = sorted((p for p in repo.glob("**/AppIcon.appiconset/*")
                         if p.suffix.lower() in (".png", ".jpg", ".jpeg") and "/build/" not in str(p)),
@@ -152,7 +153,7 @@ def page(site, loc, t, locales, sizes):
     ui = t["ui"]
     email = site["email"]
     contact = esc(ui["contact"]).replace("{email}", f'<a href="mailto:{email}">{email}</a>')
-    og = f'{site["url"]}img/{code}/og.jpg'
+    og = f'{site["url"]}img/{code}/{"og" if "og" in sizes else site["shots"][0]}.jpg'
 
     return f"""<!doctype html>
 <html lang="{code}">
