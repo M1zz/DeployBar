@@ -31,18 +31,16 @@ def jpeg(src, dst, width):
                    check=True, capture_output=True)
 
 
-def shot_dir(docs, folder, loc, fallback=None):
+def shot_dir(docs, folder, loc, fallback=None, need=None):
     """스크린샷 폴더는 스토어 로케일(en-US, de-DE)이라 웹 언어 코드와 다를 수 있다.
-    그 언어 화면이 없으면 fallback 로케일(site.json 의 shotsFallback)을 쓴다."""
+    need 파일이 실제로 있는 첫 폴더를 고르고, 그 언어 화면이 없으면 fallback 로케일을 쓴다."""
     base = docs / "screenshots" / folder
     main = loc["code"] + ("-US" if loc["code"] == "en" else "-" + loc["code"].upper())   # en-US, de-DE, fr-FR
-    for name in (loc.get("shots"), loc["code"], main):
-        if name and (base / name).is_dir():
+    names = [loc.get("shots"), loc["code"], main] + sorted(p.name for p in base.glob(loc["code"] + "-*")) + [fallback]
+    for name in names:
+        if name and (base / name).is_dir() and (not need or (base / name / need).exists()):
             return base / name
-    hits = sorted(p for p in base.glob(loc["code"] + "-*") if p.is_dir())
-    if hits:
-        return hits[0]
-    return base / fallback if fallback and (base / fallback).is_dir() else None
+    return None
 
 
 def size(path):
@@ -55,7 +53,7 @@ def size(path):
 def images(repo, docs, site, loc):
     """그 언어 화면의 스크린샷을 웹용 크기로 줄여 docs/img/<code>/ 에 두고, 그림마다 크기를 돌려준다."""
     out, sizes = docs / "img" / loc["code"], {}
-    folder = shot_dir(docs, site.get("shotsFrom", "raw"), loc, site.get("shotsFallback"))
+    folder = shot_dir(docs, site.get("shotsFrom", "raw"), loc, site.get("shotsFallback"), f'{site["shots"][0]}.png')
     spare = docs / "screenshots" / site.get("shotsFrom", "raw") / site.get("shotsFallback", "")
     for name in site["shots"]:
         dst, src = out / f"{name}.jpg", folder / f"{name}.png"
@@ -63,12 +61,15 @@ def images(repo, docs, site, loc):
             src = spare / f"{name}.png"
         jpeg(src, dst, site.get("shotWidth", 600))
         sizes[name] = size(dst)
-    creative = shot_dir(docs, "creative", loc, site.get("shotsFallback"))
-    if creative and (creative / "header.png").exists():
+    creative = shot_dir(docs, "creative", loc, site.get("shotsFallback"), "header.png")
+    if creative:
         jpeg(creative / "header.png", out / "og.jpg", 1200)
     if not (docs / "icon.png").exists():
-        icon = next(p for p in repo.glob("**/AppIcon.appiconset/*.png") if "/build/" not in str(p))
-        subprocess.run(["sips", "-Z", "256", str(icon), "--out", str(docs / "icon.png")],
+        icons = sorted((p for p in repo.glob("**/AppIcon.appiconset/*")
+                        if p.suffix.lower() in (".png", ".jpg", ".jpeg") and "/build/" not in str(p)),
+                       key=lambda p: any(w in p.name.lower() for w in ("dark", "tint")))   # 기본 아이콘 먼저
+        icon = icons[0]
+        subprocess.run(["sips", "-s", "format", "png", "-Z", "256", str(icon), "--out", str(docs / "icon.png")],
                        check=True, capture_output=True)
     return sizes
 
