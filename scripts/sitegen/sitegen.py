@@ -26,7 +26,7 @@ def lines(s):
 
 def jpeg(src, dst, width):
     dst.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "82",
+    subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "78",
                     "--resampleWidth", str(width), str(src), "--out", str(dst)],
                    check=True, capture_output=True)
 
@@ -61,7 +61,7 @@ def images(repo, docs, site, loc):
         dst, src = out / f"{name}.jpg", folder / f"{name}.png"
         if not src.exists():   # 그 언어에 이 화면만 빠졌으면 대체 언어의 같은 화면
             src = spare / f"{name}.png"
-        jpeg(src, dst, site.get("shotWidth", 720))
+        jpeg(src, dst, site.get("shotWidth", 600))
         sizes[name] = size(dst)
     creative = shot_dir(docs, "creative", loc, site.get("shotsFallback"))
     if creative and (creative / "header.png").exists():
