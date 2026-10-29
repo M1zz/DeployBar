@@ -2,7 +2,7 @@
 """앱 소개 페이지 생성기.
 
 레포의 docs/site/ 에 있는 글(언어마다 JSON 한 장)과 이미 있는 스크린샷으로
-docs/index.html · docs/<언어>/index.html 을 만든다. 디자인은 이 폴더의 site.css 한 벌을 모든 앱이 같이 쓴다.
+docs/index.html · docs/<언어>/index.html 을 만든다. 디자인은 이 폴더의 sitegen.css 한 벌을 모든 앱이 같이 쓴다.
 
     python3 sitegen.py <레포 경로>
 
@@ -176,7 +176,7 @@ def page(site, loc, t, locales, sizes):
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="{up}icon.png">
   <link rel="apple-touch-icon" href="{up}icon.png">
-  <link rel="stylesheet" href="{up}site.css">{f'{chr(10)}  <link rel="stylesheet" href="{up}demo.css">' if demo else ""}
+  <link rel="stylesheet" href="{up}sitegen.css">{f'{chr(10)}  <link rel="stylesheet" href="{up}demo.css">' if demo else ""}
   <style>:root{{--accent:{site["color"]["light"]}}}@media (prefers-color-scheme:dark){{:root{{--accent:{site["color"]["dark"]}}}}}</style>
   <script>document.documentElement.classList.add("js")</script>
 </head>
@@ -250,7 +250,7 @@ def main(repo):
     missing = [l["code"] for l in site["locales"] if l not in locales]
     if missing:
         print("⚠️  글이 없어 건너뛴 언어:", ", ".join(missing))
-    shutil.copy(HERE / "site.css", docs / "site.css")
+    shutil.copy(HERE / "sitegen.css", docs / "sitegen.css")
     for extra in ("demo.js", "demo.css"):   # 앱마다 있을 수 있는 체험 데모
         if (docs / "site" / extra).exists():
             shutil.copy(docs / "site" / extra, docs / extra)

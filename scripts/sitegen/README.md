@@ -17,7 +17,7 @@ python3 ~/Documents/workspace/Auto/DeployBar/scripts/sitegen/sitegen.py <레포 
 | `<code>.json` | 그 언어의 글. `code` 는 `site.json` locales 의 code 와 같다 |
 | `demo.js` · `demo.css` | (선택) 페이지 안에서 직접 해 보는 체험 |
 
-생성기가 만드는 것: `docs/index.html`, `docs/<언어>/index.html`, `docs/site.css`, `docs/img/<code>/*.jpg`(웹용으로 줄인 스크린샷 · 공유 미리보기 `og.jpg`), `docs/icon.png`, 있으면 `docs/demo.*`.
+생성기가 만드는 것: `docs/index.html`, `docs/<언어>/index.html`, `docs/sitegen.css`, `docs/img/<code>/*.jpg`(웹용으로 줄인 스크린샷 · 공유 미리보기 `og.jpg`), `docs/icon.png`, 있으면 `docs/demo.*`.
 `privacy.html` · `style.css` 는 건드리지 않는다.
 
 ### site.json
@@ -79,7 +79,7 @@ ui: skip, languages, privacy, contact ({email} 자리에 메일 주소가 들어
 
 - **체험(`demo.js`)**: 앱의 핵심 동작을 브라우저에서 정직하게 흉내 낼 수 있으면 만든다(낫마템포: 말하면 박이 바뀐다).
   네트워크 · 외부 라이브러리 없이, 앱과 같은 규칙(소스에서 가져온 값)으로, 200줄 안쪽. 앱에 없는 동작을 보여 주지 않는다.
-  `#demo` 의 `data-text` 로 그 언어 글이 들어온다. 디자인 값은 `site.css` 의 변수(`--accent`, `--s*`, `--r-*`, `--ease`)를 쓴다.
+  `#demo` 의 `data-text` 로 그 언어 글이 들어온다. 디자인 값은 `sitegen.css` 의 변수(`--accent`, `--s*`, `--r-*`, `--ease`)를 쓴다.
   동작 줄이기(`prefers-reduced-motion`)를 존중하고, 버튼은 44px 이상, 키보드로 쓸 수 있게.
 - **영상**: `docs/` 안에 앱 미리보기 영상이 있으면 `video` 로 첫 화면에 건다. 8MB 넘으면 쓰지 않는다.
 - 둘 다 맞지 않으면 스크린샷만으로 충분하다. 억지로 만들지 않는다.
