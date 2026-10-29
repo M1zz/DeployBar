@@ -7,7 +7,7 @@ import Foundation
 //   POST   /v1/accessibilityDeclarations             새 초안 (deviceFamily + supports… + app 관계)
 //   PATCH  /v1/accessibilityDeclarations/{id}        초안(DRAFT)만 고칠 수 있다. attributes.publish = true 면 게시
 //   DELETE /v1/accessibilityDeclarations/{id}        초안만 지울 수 있다
-// 적지 않은 supports… 는 false 다. 그래서 늘 아홉 칸을 다 보낸다 — 애플 기본값에 기대지 않는다.
+// 적지 않은 supports… 는 false 다. 그래서 그 기기가 받는 칸은 다 보낸다 — 애플 기본값에 기대지 않는다.
 extension ASCClient {
 
     struct AccessibilityDeclaration {
@@ -30,10 +30,10 @@ extension ASCClient {
     }
 
     /// 새 초안. 돌려받은 id 로 게시한다.
-    static func createAccessibilityDeclaration(appId: String, deviceFamily: String,
+    static func createAccessibilityDeclaration(appId: String, device: A11y.Device,
                                                supports: Set<String>) async throws -> String {
-        var attrs: [String: Any] = ["deviceFamily": deviceFamily]
-        for k in A11y.attributes { attrs[k] = supports.contains(k) }
+        var attrs: [String: Any] = ["deviceFamily": device.rawValue]
+        for k in device.attributes { attrs[k] = supports.contains(k) }
         let payload: [String: Any] = ["data": [
             "type": "accessibilityDeclarations",
             "attributes": attrs,
@@ -45,9 +45,10 @@ extension ASCClient {
     }
 
     /// 초안의 칸을 레포 값으로 (초안일 때만 애플이 받는다).
-    static func updateAccessibilityDeclaration(id: String, supports: Set<String>) async throws {
+    static func updateAccessibilityDeclaration(id: String, device: A11y.Device,
+                                               supports: Set<String>) async throws {
         var attrs: [String: Any] = [:]
-        for k in A11y.attributes { attrs[k] = supports.contains(k) }
+        for k in device.attributes { attrs[k] = supports.contains(k) }
         try await patchAccessibilityDeclaration(id: id, attributes: attrs)
     }
 

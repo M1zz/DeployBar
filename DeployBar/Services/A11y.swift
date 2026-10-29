@@ -45,6 +45,18 @@ enum A11y {
             default: return nil
             }
         }
+
+        /// 이 기기 신고가 받는 칸. 애플은 기기에 없는 기능 칸을 false 로 보내도 409 로 거절한다
+        /// (Mac 에는 더 큰 텍스트, Apple Watch 에는 음성 명령이 없다).
+        var attributes: [String] {
+            let absent: Set<String>
+            switch self {
+            case .mac: absent = ["supportsLargerText"]
+            case .watch: absent = ["supportsVoiceControl"]
+            default: absent = []
+            }
+            return A11y.attributes.filter { !absent.contains($0) }
+        }
     }
 
     /// 레포 키 → API 속성 → 화면 이름 (App Store Connect 한국어 화면과 같은 말)
@@ -128,6 +140,11 @@ enum A11y {
                 out.errors.append("\(at): '\(key)' 가 어느 기기 절(### iPhone 등)에도 속하지 않습니다")
                 continue
             }
+            let device = out.declarations[c].device
+            guard device.attributes.contains(f.attribute) else {
+                out.errors.append("\(at): \(device.label) 에는 '\(f.label)' 칸이 없습니다 — 이 줄을 지우세요")
+                continue
+            }
             out.declarations[c].supports.insert(f.attribute)
         }
         return found ? out : nil
@@ -207,10 +224,10 @@ enum A11y {
                 let id: String
                 switch step.action {
                 case .updateDraft(let draft):
-                    try await ASCClient.updateAccessibilityDeclaration(id: draft, supports: d.supports)
+                    try await ASCClient.updateAccessibilityDeclaration(id: draft, device: d.device, supports: d.supports)
                     id = draft
                 default:
-                    id = try await ASCClient.createAccessibilityDeclaration(appId: appId, deviceFamily: d.device.rawValue,
+                    id = try await ASCClient.createAccessibilityDeclaration(appId: appId, device: d.device,
                                                                             supports: d.supports)
                     created = id
                 }
@@ -226,11 +243,11 @@ enum A11y {
         return o
     }
 
-    /// 애플은 그 기기로 출시한 적이 있는 앱에만 신고를 받는다. 409·422 는 대개 그 뜻이다.
+    /// 애플은 그 기기로 출시한 적이 있는 앱에만 신고를 받는다 ("must be available on the App Store").
     static func refusal(_ label: String, _ error: Error) -> String {
         let why = StorePublish.reason(error)
-        if let e = error as? ASCClient.APIError, [409, 422].contains(e.status) {
-            return "\(label) 는 아직 출시된 버전이 없어 손쉬운 사용을 게시하지 못함 (애플: \(why))"
+        if why.contains("must be available on the App Store") {
+            return "\(label) 는 아직 출시된 버전이 없어 손쉬운 사용을 게시하지 못함"
         }
         return "\(label) 손쉬운 사용을 게시하지 못함 — \(why)"
     }
