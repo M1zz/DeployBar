@@ -22,6 +22,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 :lang(ko) { word-break: keep-all; }
+:lang(ja) { word-break: auto-phrase; }   /* 일본어: 단어 가운데서 줄이 바뀌지 않게 (지원하는 브라우저만) */
 h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.15; letter-spacing: -0.02em; }
 p, li, dd, summary { text-wrap: pretty; }
 h1 { font-size: clamp(2.25rem, 6vw, 3.75rem); font-weight: 700; }

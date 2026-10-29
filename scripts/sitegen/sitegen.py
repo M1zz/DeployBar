@@ -35,7 +35,8 @@ def shot_dir(docs, folder, loc, fallback=None):
     """스크린샷 폴더는 스토어 로케일(en-US, de-DE)이라 웹 언어 코드와 다를 수 있다.
     그 언어 화면이 없으면 fallback 로케일(site.json 의 shotsFallback)을 쓴다."""
     base = docs / "screenshots" / folder
-    for name in (loc.get("shots"), loc["code"]):
+    main = loc["code"] + ("-US" if loc["code"] == "en" else "-" + loc["code"].upper())   # en-US, de-DE, fr-FR
+    for name in (loc.get("shots"), loc["code"], main):
         if name and (base / name).is_dir():
             return base / name
     hits = sorted(p for p in base.glob(loc["code"] + "-*") if p.is_dir())
@@ -118,12 +119,21 @@ def page(site, loc, t, locales, sizes):
       <p class="muted">{esc(ref["note"])}</p>
     </section>"""
 
-    p = t["pricing"]
+    p = t.get("pricing")
     plan = lambda x, cls: f"""<div class="card plan {cls}">
           <h3>{esc(x["name"])}</h3>
           <ul>{"".join(f"<li>{esc(i)}</li>" for i in x["items"])}</ul>
           {f'<p class="muted">{esc(x["note"])}</p>' if x.get("note") else ""}
         </div>"""
+    pricing = "" if not p else f"""
+    <section class="reveal" id="pricing">
+      <h2>{esc(p["title"])}</h2>
+      <div class="plans">
+        {plan(p["free"], "free")}
+        {plan(p["pro"], "pro")}
+      </div>
+      <p class="muted">{esc(p["note"])}</p>
+    </section>"""
 
     faq = "\n".join(
         f'<details><summary>{esc(q["q"])}</summary><p>{esc(q["a"])}</p></details>' for q in t["faq"]["items"])
@@ -197,14 +207,7 @@ def page(site, loc, t, locales, sizes):
     </section>
 {reference}
 
-    <section class="reveal" id="pricing">
-      <h2>{esc(p["title"])}</h2>
-      <div class="plans">
-        {plan(p["free"], "free")}
-        {plan(p["pro"], "pro")}
-      </div>
-      <p class="muted">{esc(p["note"])}</p>
-    </section>
+{pricing}
 
     <section class="reveal" id="faq">
       <h2>{esc(t["faq"]["title"])}</h2>
