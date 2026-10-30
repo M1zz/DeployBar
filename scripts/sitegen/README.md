@@ -65,6 +65,26 @@ ui: skip, languages, privacy, contact ({email} 자리에 메일 주소가 들어
 
 `` `start` `` 처럼 백틱으로 감싼 말은 강조 색으로 나온다(앱에서 그대로 누르거나 말하는 말에만 쓴다).
 
+## 한 레포에 페이지 둘
+
+Mac 앱과 iPhone 리모컨처럼 한 레포의 `docs/` 에 소개 페이지가 둘이면, 두 번째 페이지의 글을 다른 폴더(예: `docs/site-remote/`)에 두고 그 폴더를 넘긴다.
+
+```
+python3 sitegen.py <레포>/docs/site-remote
+```
+
+그 `site.json` 에 아래 선택 키를 더해 첫 페이지의 `index.html` · `img/` · `icon.png` 와 겹치지 않게 한다. 없으면 기본값이라 다른 앱의 결과는 그대로다.
+
+| 키 | 기본 | 예 (StickyPresenter 리모컨) |
+|---|---|---|
+| `page` | `index.html` | `remote.html` → `docs/remote.html`, `docs/ko/remote.html` |
+| `img` | `img` | `img/remote` |
+| `icon` | `icon.png` | `remote-icon.png` |
+| `privacy` | `privacy.html` | `remote-privacy.html` (언어 항목의 `privacy` 가 있으면 그것이 먼저) |
+| `screenshots` | `docs/screenshots` | `../../../StickyPresenterRemote/docs/screenshots` (글 폴더 기준, 다른 레포의 스크린샷) |
+
+언어 항목의 `"also": ["en/"]` 는 같은 글을 그 폴더에도 한 벌 더 쓴다. 스토어에 등록된 옛 주소(`en/remote.html`)를 리다이렉트 없이 살려 둘 때 쓴다. canonical 은 원래 주소를 가리킨다.
+
 ## 글 쓰는 규칙
 
 1. **기능은 소스에서 확인한다.** 앱에 없는 기능, 유료 · 무료 구분이 틀린 말은 실패다. 기존 페이지 · `APPSTORE.md` 와 어긋나면 소스를 따른다.
