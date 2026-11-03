@@ -10,6 +10,9 @@ enum Locales {
 
     // "en-US" → "en", "zh-Hans" → "zh-Hans" (스크립트 표기는 유지)
     static func language(_ locale: String) -> String {
+        // 노르웨이어: 앱은 nb(보크말), App Store Connect 는 no 로 쓴다 — 같은 언어로 봐야
+        // 레포의 nb 그림·문구가 스토어 no 페이지에 올라간다 (안 그러면 그림 없는 언어가 남아 심사 제출이 막힌다)
+        if locale == "nb" || locale.hasPrefix("nb-") { return "no" }
         let parts = locale.split(separator: "-").map(String.init)
         guard parts.count > 1 else { return locale }
         // 두 번째 조각이 4글자면 스크립트(Hans/Hant) → 언어의 일부로 유지

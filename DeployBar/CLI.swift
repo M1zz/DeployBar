@@ -60,6 +60,8 @@ enum CLI {
                                  배포 버튼과 똑같이 배포 — 떠 있는 DeployBar 가 돌리고 결과를 돌려준다
                                  (끝 코드 0 성공 · 2 미완 · 1 실패 · 3 거절). 폰의 Claude Code 에서 부르는 용도
       --attach <앱>              올라간 빌드를 App Store 버전에 연결
+      --pushnotes <앱>           레포 RELEASE_NOTES.md 의 이번 버전 글을 '이 버전의 새로운 기능' 에 올린다
+                                 (배포 뒤에 새로 생긴 언어 페이지가 비어 심사 제출이 막혔을 때)
       --submit <앱>              심사 제출 (여기서부터 애플이 본다)
       --release <앱>             '출시 대기' 를 지금 출시
       --logs [n|last]            지난 배포·점검 로그
@@ -79,7 +81,7 @@ enum CLI {
         "--status", "--pull", "--audit", "--doctor", "--builds", "--prompt", "--template", "--write",
         "--notes", "--reponotes", "--check", "--verbose", "--shots", "--video", "--creative", "--logs",
         "--selftest-changes", "--selftest-lock", "--selftest-version", "--selftest-keywords",
-        "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--text-only", "--autowrite", "--no-commit", "--attach", "--submit", "--release",
+        "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--text-only", "--autowrite", "--no-commit", "--attach", "--submit", "--release", "--pushnotes",
         "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
         "--ready", "--deploy", "--bump", "--no-wait", "--quiet", "--timeout",
         "--dsym",
@@ -999,6 +1001,34 @@ enum CLI {
                 if !e.detail.isEmpty { print("   \(e.detail)") }
             } catch {
                 print("\n❌ \(error.localizedDescription)")
+            }
+            sem.signal()
+        }
+        sem.wait()
+        exit(0)
+    }
+    // 릴리즈노트만 다시 — 배포가 노트를 올린 뒤에 생긴 언어 페이지는 whatsNew 가 비어 심사 제출이 409 로 막힌다
+    if let i = CommandLine.arguments.firstIndex(of: "--pushnotes") {
+        let name = CommandLine.arguments.count > i + 1 ? CommandLine.arguments[i + 1] : ""
+        guard let app = AppRepo.registry().first(where: { $0.name.contains(name) }), !name.isEmpty else {
+            print("앱을 찾지 못했습니다: \(name)"); exit(1)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            do {
+                guard let target = try await ReleaseNotes.editableVersionAndLocales(app) else {
+                    print("❌ 편집 가능한 App Store 버전이 없습니다"); sem.signal(); return
+                }
+                guard let found = RepoNotes.read(app.path, version: target.versionString, locales: target.localeCodes) else {
+                    print("❌ RELEASE_NOTES.md 에 v\(target.versionString) 스토어용 절이 없습니다"); sem.signal(); return
+                }
+                let r = try await ReleaseNotes.upload(app, texts: found.texts, mode: .repoWins(Set(found.texts.keys)))
+                print("✅ v\(r.version) 릴리즈노트 — \(found.source)")
+                if !r.locales.isEmpty { print("   새로 올림 \(r.locales.count): \(r.locales.joined(separator: ", "))") }
+                if !r.kept.isEmpty { print("   그대로 \(r.kept.count): \(r.kept.joined(separator: ", "))") }
+                if !r.skipped.isEmpty { print("   ⚠️ 글이 없어 못 올림 \(r.skipped.count): \(r.skipped.joined(separator: ", "))") }
+            } catch {
+                print("❌ \(error.localizedDescription)")
             }
             sem.signal()
         }

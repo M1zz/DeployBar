@@ -694,7 +694,8 @@ enum StorePublish {
         do {
             try await ASCClient.addVersionToSubmission(submissionId: submissionId, versionId: v.id)
         } catch let e as ASCClient.APIError where e.status == 409 {
-            onLog("📮 v\(v.versionString) 는 이미 묶음에 들어 있습니다")
+            // 409 는 '이미 들어 있음' 만이 아니다 — 버전이 아직 낼 수 없는 상태일 때도 409 다. 애플의 말을 그대로 남긴다
+            onLog("📮 v\(v.versionString) 를 묶음에 넣지 못했습니다 (409) — \(e.body.prefix(4000))")
         }
         // 준비된 인앱 구매를 같이 싣는다. 버전만 내면 심사자가 페이월에서 상품을 못 봐
         // 거절될 수 있으므로, 싣지 못하면 **제출하지 않고** 멈춘다 (버전은 묶음에 남아 있다).
