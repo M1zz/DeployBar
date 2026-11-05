@@ -545,7 +545,30 @@ enum StorePublish {
                   let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             collectProductIds(j, into: &out)
         }
+        out.subtract(unsoldGiftIds(root, among: out))
         return out.isEmpty ? nil : Array(out).sorted()
+    }
+
+    /// 팔지 않는 선물 상품 — 요구하지 않는다.
+    /// LeeoKit 3.31 부터 선물 보내기는 `LeeoGiftConfig(sellsGifts: true)` 로만 열린다(기본 닫힘).
+    /// 닫혀 있으면 선물 상품(`*.gift.*`, 또는 `LeeoGiftConfig(productID: "…")` 에 바로 쓴 ID)은
+    /// 앱이 부르지 않으니 ASC 에 없어도 된다. 옛 방식(소모성 선물 → 자체 코드)은 심사 3.1.1 거절 사유라
+    /// 만들라고 하면 오히려 해롭다.
+    private static func unsoldGiftIds(_ root: String, among ids: Set<String>) -> Set<String> {
+        var gifts = ids.filter { $0.contains(".gift.") || $0.hasSuffix(".gift") }
+        let fm = FileManager.default
+        guard let e = fm.enumerator(atPath: root) else { return gifts }
+        let skip = [".git/", ".build/", "DerivedData/", "/build/", "Pods/"]
+        let literal = try! NSRegularExpression(pattern: #"LeeoGiftConfig\(\s*productID:\s*"([^"]+)""#)
+        for case let p as String in e where p.hasSuffix(".swift") {
+            if skip.contains(where: p.contains) { continue }
+            guard let src = try? String(contentsOfFile: (root as NSString).appendingPathComponent(p), encoding: .utf8) else { continue }
+            if src.range(of: #"sellsGifts:\s*true"#, options: .regularExpression) != nil { return [] }
+            for m in literal.matches(in: src, range: NSRange(src.startIndex..., in: src)) {
+                if let r = Range(m.range(at: 1), in: src), ids.contains(String(src[r])) { gifts.insert(String(src[r])) }
+            }
+        }
+        return gifts
     }
 
     private static func collectProductIds(_ any: Any, into out: inout Set<String>) {
