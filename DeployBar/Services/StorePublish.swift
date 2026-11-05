@@ -699,21 +699,34 @@ enum StorePublish {
         }
         // 준비된 인앱 구매를 같이 싣는다. 버전만 내면 심사자가 페이월에서 상품을 못 봐
         // 거절될 수 있으므로, 싣지 못하면 **제출하지 않고** 멈춘다 (버전은 묶음에 남아 있다).
+        // 웹에서 버전과 함께 골라야 하는 상품은 모아 두었다가 한 번에 알린다 (팁 3개면 셋 다 보이게).
+        var pickOnWeb: [String] = []
         for purchase in (try? await ASCClient.purchasesReadyToSubmit(appId: appId)) ?? [] {
             do {
                 try await ASCClient.submitPurchase(id: purchase.id)
                 onLog("🛒 인앱 구매 \(purchase.productId) 를 함께 싣습니다")
-            } catch let e as ASCClient.APIError where e.status == 409 && e.body.contains("no pending version") {
-                throw err(app, "심사 제출", "첫 인앱 구매(\(purchase.productId))는 웹에서 버전과 함께 골라야 합니다", [
-                    "App Store Connect ▸ 앱 ▸ v\(v.versionString) ▸ '인앱 구입 및 구독' 에서 \(purchase.productId) 를 고르세요",
-                    "그 페이지의 [심사에 추가] → [심사 제출] 을 누르면 됩니다 — 버전과 빌드는 이미 묶음에 들어 있습니다",
-                    "Apple API 는 앱의 첫 인앱 구매를 버전에 붙이지 못합니다. 두 번째부터는 DeployBar 가 같이 냅니다",
-                ])
+            } catch let e as ASCClient.APIError where e.status == 409 && Self.mustPickOnWeb(e.body) {
+                pickOnWeb.append(purchase.productId)
             }
+        }
+        if !pickOnWeb.isEmpty {
+            let list = pickOnWeb.joined(separator: ", ")
+            throw err(app, "심사 제출", "첫 인앱 구매(\(list))는 웹에서 버전과 함께 골라야 합니다", [
+                "App Store Connect ▸ 앱 ▸ v\(v.versionString) ▸ '인앱 구입 및 구독' 에서 \(list) 를 고르세요",
+                "그 페이지의 [심사에 추가] → [심사 제출] 을 누르면 됩니다 — 버전과 빌드는 이미 묶음에 들어 있습니다",
+                "Apple API 는 앱의 첫 인앱 구매(첫 소모성 상품 포함)를 버전에 붙이지 못합니다. 두 번째부터는 DeployBar 가 같이 냅니다",
+            ])
         }
         try await ASCClient.submit(submissionId: submissionId)
         onLog("✅ v\(v.versionString) 심사 제출 완료")
         return "v\(v.versionString) 를 심사에 제출했습니다"
+    }
+
+    /// Apple 이 "이 상품은 API 로 못 싣고, 웹의 버전 페이지에서 골라야 한다" 고 거절한 것인가.
+    /// 앱의 첫 인앱 구매는 "no pending version for submission" 으로,
+    /// 첫 소모성 상품(팁 등)은 `STATE_ERROR.FIRST_CONSUMABLE_MUST_BE_SUBMITTED_ON_VERSION` 으로 온다.
+    static func mustPickOnWeb(_ body: String) -> Bool {
+        body.contains("no pending version") || body.contains("MUST_BE_SUBMITTED_ON_VERSION")
     }
 
     /// '출시 대기' 를 실제 출시로 — 웹의 [출시] 버튼과 같다.
