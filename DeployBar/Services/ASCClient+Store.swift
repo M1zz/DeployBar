@@ -522,13 +522,25 @@ extension ASCClient {
         return iaps + ((try? await subscriptionProductIds(appId: appId)) ?? [])
     }
 
-    private static func subscriptionProductIds(appId: String) async throws -> [String] {
+    /// App Store Connect 에 자동 갱신 구독이 있나 — 심사 지침 3.1.2 의 이용약관 링크 검사가 쓴다
+    static func subscriptionProductIds(appId: String) async throws -> [String] {
         let j = try await api("GET", "/v1/apps/\(appId)/subscriptionGroups?limit=50&include=subscriptions"
                               + "&fields[subscriptions]=productId&limit[subscriptions]=50")
         let included = j["included"] as? [[String: Any]] ?? []
         return included.compactMap {
             guard $0["type"] as? String == "subscriptions" else { return nil }
             return ($0["attributes"] as? [String: Any])?["productId"] as? String
+        }
+    }
+
+    /// 앱에 **자체** 이용약관(EULA)이 올라가 있나. 있으면 표준 약관 링크를 설명에 넣지 않아도 된다.
+    /// 없으면 애플이 404 로 답한다 — 그건 오류가 아니라 "표준 약관을 쓴다" 는 뜻이다.
+    static func hasCustomEULA(appId: String) async throws -> Bool {
+        do {
+            let j = try await api("GET", "/v1/apps/\(appId)/endUserLicenseAgreement?fields[endUserLicenseAgreements]=agreementText")
+            return j["data"] is [String: Any]
+        } catch let e as APIError where e.status == 404 {
+            return false
         }
     }
 }

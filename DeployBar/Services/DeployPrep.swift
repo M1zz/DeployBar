@@ -112,6 +112,16 @@ enum DeployPrep {
             }
         }
 
+        // 3-0) 구독 앱의 이용약관(EULA) 링크 — 심사 지침 3.1.2. 표준 약관을 쓰면 **모든 언어의 설명**에 링크가 있어야 한다.
+        //      (하늘색 1.0.4 가 이것으로 거절됐다.) 설명이 아예 없는 언어는 위에서 이미 말했으니 여기선 있는 설명만 본다.
+        if let meta, !StorePublish.subscriptionProductIds(app.path).isEmpty {
+            for loc in a.locales {
+                guard let d = meta.entries.first(where: { Locales.sameLanguage($0.key, loc) })?.value.description,
+                      !d.isEmpty, !StorePublish.mentionsStandardEULA(d) else { continue }
+                gap("스토어 문구", "\(Locales.displayName(loc)) 설명에 이용약관(EULA) 링크가 없습니다 — 자동 갱신 구독 앱은 모든 언어 설명에 `\(StorePublish.standardEULA)` 를 넣어야 합니다 (심사 지침 3.1.2)", [loc])
+            }
+        }
+
         // 3-1) 개인정보처리방침 · 소개 페이지는 언어마다 **그 언어 페이지**여야 한다.
         //      한 주소를 모든 언어에 걸면 일본어 페이지에서 눌러도 한국어 방침이 열린다.
         //      같은 언어의 지역 로케일(en-US · en-GB)은 한 페이지를 같이 써도 된다.
@@ -342,6 +352,8 @@ enum DeployPrep {
              그 언어 사용자가 **검색창에 실제로 칠 말**로 고른다(직역 금지). 100자를 거의 다 쓴다.
            - 설명은 첫 두 줄에 핵심을 둔다. 마크다운·이모지를 쓰지 않는다. 앱에 없는 기능을 지어내지 않는다.
            - URL 은 실제로 열려야 한다(심사자가 누른다).
+           - **자동 갱신 구독을 파는 앱**은 모든 언어의 설명에 구독 안내(자동 갱신 · 해지 방법)와
+             표준 이용약관 링크 `\(StorePublish.standardEULA)` 를 넣는다(심사 지침 3.1.2). 없으면 메타데이터 거절이다.
            - **개인정보처리방침 · 소개 페이지(마케팅 URL) · 지원 페이지는 언어마다 그 언어로 쓴 페이지**를 건다.
              GitHub Pages 의 `docs/<언어>/privacy.html · index.html · support.html` (루트는 기본 언어), 페이지끼리 언어 전환 링크와 hreflang.
              한 주소를 모든 언어에 걸지 않는다(같은 언어의 지역 로케일 en-US · en-GB 는 같이 써도 된다).

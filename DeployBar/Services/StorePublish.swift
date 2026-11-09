@@ -535,18 +535,57 @@ enum StorePublish {
 
     /// 코드가 부르는 인앱결제 상품 ID. StoreKit 설정 파일과 소스에서 찾는다.
     private static func iapProductIds(_ root: String) -> [String]? {
-        let fm = FileManager.default
-        guard let e = fm.enumerator(atPath: root) else { return nil }
         var out: Set<String> = []
-        for case let p as String in e {
-            guard p.hasSuffix(".storekit") else { continue }
-            if p.contains(".git/") { continue }
-            guard let data = fm.contents(atPath: (root as NSString).appendingPathComponent(p)),
-                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            collectProductIds(j, into: &out)
-        }
+        for j in storekitFiles(root) { collectProductIds(j, into: &out) }
         out.subtract(unsoldGiftIds(root, among: out))
         return out.isEmpty ? nil : Array(out).sorted()
+    }
+
+    /// 레포의 StoreKit 설정(`*.storekit`)을 전부 읽는다 — 상품 ID 와 구독 여부의 원본
+    private static func storekitFiles(_ root: String) -> [[String: Any]] {
+        let fm = FileManager.default
+        guard let e = fm.enumerator(atPath: root) else { return [] }
+        var out: [[String: Any]] = []
+        for case let p as String in e where p.hasSuffix(".storekit") && !p.contains(".git/") {
+            if let data = fm.contents(atPath: (root as NSString).appendingPathComponent(p)),
+               let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { out.append(j) }
+        }
+        return out
+    }
+
+    // ── 자동 갱신 구독과 이용약관(EULA) — 심사 지침 3.1.2 ──────────────────
+    // 구독을 파는 앱은 **모든 언어의 설명**에 이용약관 링크가 있어야 한다. 자체 약관을 ASC 에 올렸으면 예외.
+    // 하늘색 1.0.4 가 이걸로 거절됐다: 레포 설명엔 링크가 있었는데 배포 뒤에 넣은 거라 스토어엔 옛 글이 남아 있었다.
+    // 그래서 (1) 제출 직전에 레포 문구를 스토어에 맞추고 (2) 맞춘 **스토어 글**에 링크가 있는지 본다.
+    static let standardEULA = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
+
+    /// 애플 표준 이용약관 링크가 글에 있나 (끝 슬래시 · http 여부는 가리지 않는다)
+    static func mentionsStandardEULA(_ text: String) -> Bool {
+        text.contains("apple.com/legal/internet-services/itunes/dev/stdeula")
+    }
+
+    /// 레포 StoreKit 설정의 자동 갱신 구독 상품 ID. 비어 있으면 구독을 팔지 않는 앱이다.
+    static func subscriptionProductIds(_ root: String) -> [String] {
+        var out: Set<String> = []
+        for j in storekitFiles(root) {
+            for g in j["subscriptionGroups"] as? [[String: Any]] ?? [] {
+                for sub in g["subscriptions"] as? [[String: Any]] ?? [] {
+                    if let id = sub["productID"] as? String { out.insert(id) }
+                }
+            }
+        }
+        return out.sorted()
+    }
+
+    /// 구독 앱인데 이용약관 링크가 빠진 **스토어** 설명의 언어. 구독이 없거나 자체 약관이 있으면 빈 배열.
+    static func localesMissingEULA(_ root: String, appId: String, versionId: String) async throws -> [String] {
+        var sells = !subscriptionProductIds(root).isEmpty
+        if !sells { sells = !((try? await ASCClient.subscriptionProductIds(appId: appId)) ?? []).isEmpty }
+        guard sells else { return [] }
+        if try await ASCClient.hasCustomEULA(appId: appId) { return [] }
+        return try await ASCClient.storeTexts(versionId: versionId)
+            .filter { !mentionsStandardEULA($0.description) }
+            .map(\.locale).sorted()
     }
 
     /// 팔지 않는 선물 상품 — 요구하지 않는다.
@@ -688,6 +727,27 @@ enum StorePublish {
         guard v.hasBuild else {
             throw err(app, "심사 제출", "v\(v.versionString) 에 빌드가 연결돼 있지 않습니다",
                       ["[빌드 연결] 을 먼저 누르세요 — 빌드 없는 버전은 제출되지 않습니다"])
+        }
+        // 레포 문구를 스토어에 맞춘다 — 심사자가 읽는 건 스토어 글이고, 원본은 레포다.
+        // 배포 뒤에 APPSTORE.md 를 고쳤으면(설명에 약관 링크를 넣는 식으로) 여기서 올라간다.
+        // 한도 초과 같은 문구 오류는 그대로 던진다 — 옛 글로 심사를 받느니 멈추는 게 낫다.
+        var o = Options()
+        o.screenshots = false; o.previews = false; o.creatives = false; o.attachBuild = false
+        o.ageRating = false; o.accessibility = false; o.createVersion = false; o.manualCheck = false
+        let synced = try await run(app, options: o, onLog: onLog)
+        if !synced.changed.isEmpty {
+            onLog("✏️  스토어 문구를 APPSTORE.md 로 맞췄습니다 — \(synced.changed.joined(separator: " · "))")
+        }
+        for w in synced.warnings { onLog("   ⚠️  \(w)") }
+        // 구독 앱의 이용약관 링크 — 없으면 애플이 메타데이터 거절로 돌려보낸다 (지침 3.1.2)
+        let noEULA = try await localesMissingEULA(app.path, appId: appId, versionId: v.id)
+        if !noEULA.isEmpty {
+            let names = noEULA.map { Locales.displayName($0) }.joined(separator: ", ")
+            throw err(app, "심사 제출", "구독 앱인데 설명에 이용약관(EULA) 링크가 없는 언어 \(noEULA.count)개 — \(names)", [
+                "APPSTORE.md 의 그 언어 `### 설명` 끝에 `\(standardEULA)` 를 한 줄 넣고 커밋하세요 — 제출 때 스토어에 올라갑니다",
+                "자체 약관을 쓴다면 App Store Connect ▸ 앱 정보 ▸ 이용약관(EULA) 에 올리세요 — 그러면 이 검사는 건너뜁니다",
+                "심사 지침 3.1.2: 자동 갱신 구독 앱은 모든 언어의 설명에 이용약관 링크가 있어야 합니다",
+            ])
         }
         // 수출 규정 준수 답이 비어 있으면 버전을 묶음에 넣는 단계에서 409 로 막힌다.
         // 답은 법적 진술이라 **사람이 선언한 것만** 적는다 (deploy.env 의 ENCRYPTION_EXEMPT).
