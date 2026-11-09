@@ -764,6 +764,20 @@ enum StorePublish {
         }
         let submissionId: String
         if let open = try await ASCClient.openSubmission(appId: appId) {
+            if open.state == "UNRESOLVED_ISSUES" {
+                // 심사가 돌려보낸 묶음 — 문구는 위에서 맞췄으니 같은 묶음을 그대로 다시 낸다 (웹의 [다시 제출] 과 같다).
+                // 애플이 받지 않으면(409) 웹에서 눌러야 한다고 말한다.
+                onLog("📮 심사가 돌려보낸 묶음(\(open.state))을 다시 냅니다")
+                do {
+                    try await ASCClient.submit(submissionId: open.id)
+                } catch let e as ASCClient.APIError where e.status == 409 {
+                    throw err(app, "심사 제출", "돌려보낸 묶음을 API 로 다시 내지 못했습니다 (409)",
+                              ["App Store Connect ▸ 앱 ▸ 제출 화면에서 [심사에 다시 제출] 을 누르세요 — 문구는 방금 맞춰 뒀습니다",
+                               e.localizedDescription])
+                }
+                onLog("✅ v\(v.versionString) 심사 다시 제출 완료")
+                return "v\(v.versionString) 를 심사에 다시 제출했습니다"
+            }
             if open.submitted {
                 throw err(app, "심사 제출", "이미 제출돼 있습니다 (\(open.state))",
                           ["결과를 기다리세요 — 다시 내려면 심사를 먼저 취소해야 합니다"])
