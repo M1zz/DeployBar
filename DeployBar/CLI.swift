@@ -374,13 +374,13 @@ enum CLI {
                     print("ASC 에서 앱을 찾지 못했습니다: \(info.bundleId)"); sem.signal(); return
                 }
                 print("\(app.name) · \(info.bundleId) · 로컬 v\(info.marketingVersion)(\(info.buildNumber))")
-                let builds = try await ASCClient.recentBuilds(appId: id)
+                let builds = try await ASCClient.recentBuilds(appId: id, platform: info.platform)
                 for b in builds {
                     print("  v\(b.version) build \(b.build)  \(b.state)  \(b.uploaded)")
                 }
                 // 배포의 '빌드 연결' 칸이 기다릴 때 쓰는 조회 — 번호 하나를 콕 집어 묻는다
                 if let top = builds.first, let n = Int(top.build) {
-                    let hit = try await ASCClient.build(appId: id, marketingVersion: top.version, number: n)
+                    let hit = try await ASCClient.build(appId: id, platform: info.platform, marketingVersion: top.version, number: n)
                     print("  ↳ 빌드 연결 칸이 보는 값: v\(top.version) build \(n) → \(hit?.state ?? "못 찾음")")
                 }
             } catch { print("조회 실패: \(error.localizedDescription)") }
@@ -699,7 +699,7 @@ enum CLI {
             // 다음 배포가 어떤 번호로 올라가는지 — 배포 앞 '버전·빌드번호' 칸과 같은 규칙 (읽기만)
             if let info = try? AppRepo.buildSettings(AppRepo.resolve(app)),
                let id = try? await ASCClient.appId(bundleId: info.bundleId),
-               let vers = try? await ASCClient.appStoreVersions(appId: id) {
+               let vers = try? await ASCClient.appStoreVersions(appId: id, platform: info.platform) {
                 let editable = vers.first { ReleaseNotes.editableStates.contains($0.state) }?.versionString
                 let closed = vers.filter { !ReleaseNotes.editableStates.contains($0.state) }
                     .map(\.versionString).max { Status.cmpVer($0, $1) < 0 }
@@ -819,7 +819,7 @@ enum CLI {
             do {
                 let info = try AppRepo.buildSettings(AppRepo.resolve(app))
                 guard let appId = try await ASCClient.appId(bundleId: info.bundleId) else { print("ASC 에 앱이 없습니다"); sem.signal(); return }
-                let vers = try await ASCClient.appStoreVersions(appId: appId)
+                let vers = try await ASCClient.appStoreVersions(appId: appId, platform: info.platform)
                 guard let v = vers.first(where: { ReleaseNotes.editableStates.contains($0.state) }) ?? vers.first else {
                     print("버전이 없습니다"); sem.signal(); return
                 }

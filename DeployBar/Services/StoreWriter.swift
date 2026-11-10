@@ -78,7 +78,7 @@ enum StoreWriter {
             throw AIWriter.Failure(message: "AI 를 부를 수 없습니다 — Claude Code 를 설치하거나 config.env 에 ANTHROPIC_API_KEY 를 넣으세요")
         }
         // 1) 무엇을 지금 가지고 있나 — 레포 글과 ASC 글을 합친다
-        let asc = await currentStore(bundleId: info.bundleId)
+        let asc = await currentStore(bundleId: info.bundleId, platform: info.platform)
         // 릴리즈노트는 **배포가 쓸 번호**의 절에 써야 읽힌다. 로컬이 2.2.9 여도 스토어에 2.3.0 이
         // 준비돼 있으면 배포는 2.3.0 으로 올린다 — 같은 규칙(planVersion)으로 정한다.
         let version = Deployer.planVersion(local: info.marketingVersion, bump: nil,
@@ -412,10 +412,10 @@ enum StoreWriter {
     }
 
     /// App Store Connect 에 지금 적혀 있는 글. 못 물어보면 비어 있는 채로 — 레포만 보고 쓴다.
-    private static func currentStore(bundleId: String) async -> ASCStore {
+    private static func currentStore(bundleId: String, platform: Platform) async -> ASCStore {
         var out = ASCStore()
         guard let appId = try? await ASCClient.appId(bundleId: bundleId),
-              let vers = try? await ASCClient.appStoreVersions(appId: appId) else { return out }
+              let vers = try? await ASCClient.appStoreVersions(appId: appId, platform: platform) else { return out }
         out.liveVersion = vers.first { $0.state == "READY_FOR_SALE" }?.versionString
         out.editableVersion = vers.first { ReleaseNotes.editableStates.contains($0.state) }?.versionString
         out.closedVersion = vers.filter { !ReleaseNotes.editableStates.contains($0.state) }

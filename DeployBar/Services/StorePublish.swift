@@ -80,7 +80,7 @@ enum StorePublish {
 
         // 1) 편집 가능한 버전 — 없으면 만든다.
         //    여태 "ASC 에서 버전을 먼저 만드세요" 라고 사람에게 떠넘기던 단계다.
-        let versions = try await ASCClient.appStoreVersions(appId: appId)
+        let versions = try await ASCClient.appStoreVersions(appId: appId, platform: info.platform)
         var target = versions.first { ReleaseNotes.editableStates.contains($0.state) }
         if target == nil {
             guard options.createVersion else {
@@ -107,7 +107,7 @@ enum StorePublish {
         if options.attachBuild {
             if version.hasBuild {
                 report.kept.append("빌드는 이미 연결돼 있습니다")
-            } else if let b = try await ASCClient.attachableBuild(appId: appId,
+            } else if let b = try await ASCClient.attachableBuild(appId: appId, platform: info.platform,
                                                                  marketingVersion: version.versionString) {
                 if b.state != "VALID" {
                     report.warnings.append("빌드 \(b.build) 가 아직 처리 중(\(b.state))이라 연결하지 못했습니다 — 몇 분 뒤 다시 누르세요")
@@ -719,7 +719,7 @@ enum StorePublish {
         guard let appId = try await ASCClient.appId(bundleId: info.bundleId) else {
             throw err(app, "심사 제출", "App Store Connect 에서 앱을 찾지 못했습니다", [])
         }
-        let versions = try await ASCClient.appStoreVersions(appId: appId)
+        let versions = try await ASCClient.appStoreVersions(appId: appId, platform: info.platform)
         guard let v = versions.first(where: { ReleaseNotes.editableStates.contains($0.state) }) else {
             throw err(app, "심사 제출", "제출할 수 있는 버전이 없습니다",
                       ["이미 심사 중이거나 판매 중입니다 — 새 버전을 먼저 만드세요"])
@@ -763,7 +763,7 @@ enum StorePublish {
             }
         }
         let submissionId: String
-        if let open = try await ASCClient.openSubmission(appId: appId) {
+        if let open = try await ASCClient.openSubmission(appId: appId, platform: info.platform) {
             if open.state == "UNRESOLVED_ISSUES" {
                 // 심사가 돌려보낸 묶음 — 문구는 위에서 맞췄으니 같은 묶음을 그대로 다시 낸다 (웹의 [다시 제출] 과 같다).
                 // 애플이 받지 않으면(409) 웹에서 눌러야 한다고 말한다.
@@ -833,7 +833,7 @@ enum StorePublish {
         guard let appId = try await ASCClient.appId(bundleId: info.bundleId) else {
             throw err(app, "출시", "App Store Connect 에서 앱을 찾지 못했습니다", [])
         }
-        let versions = try await ASCClient.appStoreVersions(appId: appId)
+        let versions = try await ASCClient.appStoreVersions(appId: appId, platform: info.platform)
         guard let v = versions.first(where: { $0.state == "PENDING_DEVELOPER_RELEASE" }) else {
             throw err(app, "출시", "출시를 기다리는 버전이 없습니다",
                       ["심사를 통과해 '출시 대기' 가 된 버전만 출시할 수 있습니다"])
@@ -881,7 +881,7 @@ enum StorePublish {
             st.human.append("App Store Connect 에 \(info.bundleId) 로 앱 만들기 — API 에 없는 단 하나의 단계입니다")
             return st
         }
-        let vers = (try? await ASCClient.appStoreVersions(appId: appId)) ?? []
+        let vers = (try? await ASCClient.appStoreVersions(appId: appId, platform: info.platform)) ?? []
         return await inspect(app, appId: appId, versions: vers)
     }
 
@@ -1322,7 +1322,7 @@ extension StorePublish {
         let started = Date()
         var ref: ASCClient.BuildRef?
         while true {
-            ref = try? await ASCClient.build(appId: appId, marketingVersion: version, number: build)
+            ref = try? await ASCClient.build(appId: appId, platform: info.platform, marketingVersion: version, number: build)
             if ref?.state == "VALID" { break }
             if let st = ref?.state, ["INVALID", "FAILED"].contains(st) {
                 return stop("애플이 build \(build) 를 받지 않았습니다 (\(st)) — 사유는 개발자 계정 메일로 옵니다")
@@ -1344,7 +1344,7 @@ extension StorePublish {
         // 2) 버전 — 배포 앞에서 맞춰 뒀지만, 그때 못 만들었거나 번호를 못 바꿨으면 여기서 다시
         let versionId: String
         do {
-            let versions = try await ASCClient.appStoreVersions(appId: appId)
+            let versions = try await ASCClient.appStoreVersions(appId: appId, platform: info.platform)
             if let v = versions.first(where: { ReleaseNotes.editableStates.contains($0.state) }) {
                 if v.versionString != version {
                     try await ASCClient.updateVersionString(versionId: v.id, to: version)
@@ -1380,7 +1380,7 @@ extension StorePublish {
             out.summary = "v\(version) build \(build) 연결 완료 — 제출은 사람이 (AUTO_SUBMIT=off)"
             return out
         }
-        let versions = (try? await ASCClient.appStoreVersions(appId: appId)) ?? []
+        let versions = (try? await ASCClient.appStoreVersions(appId: appId, platform: info.platform)) ?? []
         let state = await inspect(app, appId: appId, versions: versions)
         var blockers = state.blocking
         if let n = try? await ReleaseNotes.notesState(versions: versions), !n.firstRelease, !n.missing.isEmpty {

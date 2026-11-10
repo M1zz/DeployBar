@@ -45,7 +45,7 @@ enum Status {
 
         do {
             if let id = try await ASCClient.appId(bundleId: info.bundleId) {
-                let vers = try await ASCClient.appStoreVersions(appId: id)
+                let vers = try await ASCClient.appStoreVersions(appId: id, platform: info.platform)
                 known = DeployPrep.known(versions: vers, local: info.marketingVersion)
                 let ready = vers.first { $0.state == "READY_FOR_SALE" }
                 st.liveVersion = (ready ?? vers.first)?.versionString
@@ -55,7 +55,7 @@ enum Status {
                     st.reviewState = inflight.state
                     st.reviewVersion = inflight.versionString
                 }
-                let upload = try await ASCClient.latestUpload(appId: id)
+                let upload = try await ASCClient.latestUpload(appId: id, platform: info.platform)
                 st.ascBuild = upload?.build
                 st.ascBuildVersion = upload?.version
                 // 릴리즈노트가 비었는지는 **배포 전에** 알아야 한다.

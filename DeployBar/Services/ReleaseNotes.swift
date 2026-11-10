@@ -235,8 +235,8 @@ enum ReleaseNotes {
         var firstRelease: Bool = false
         var ready: Bool { missing.isEmpty && !filled.isEmpty }
     }
-    static func notesState(appId: String) async throws -> NotesState? {
-        try await notesState(versions: try await ASCClient.appStoreVersions(appId: appId))
+    static func notesState(appId: String, platform: Platform) async throws -> NotesState? {
+        try await notesState(versions: try await ASCClient.appStoreVersions(appId: appId, platform: platform))
     }
     /// 이미 조회한 버전 목록으로 판정 — 상태 조회가 같은 요청을 두 번 보내지 않게.
     static func notesState(versions vers: [ASCClient.Version]) async throws -> NotesState? {
@@ -252,7 +252,7 @@ enum ReleaseNotes {
         let r = AppRepo.resolve(app)
         let info = try AppRepo.buildSettings(r)
         guard let id = try await ASCClient.appId(bundleId: info.bundleId) else { return nil }
-        let vers = try await ASCClient.appStoreVersions(appId: id)
+        let vers = try await ASCClient.appStoreVersions(appId: id, platform: info.platform)
         guard let editable = vers.first(where: { editableStates.contains($0.state) }) else { return nil }
         let locs = try await ASCClient.versionLocalizations(versionId: editable.id)
         return EditableVersion(versionId: editable.id, versionString: editable.versionString, locales: locs)

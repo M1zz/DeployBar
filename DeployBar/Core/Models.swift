@@ -51,6 +51,8 @@ enum Platform: String {
     var exportExt: String { self == .macOS ? "pkg" : "ipa" }      // export 산출물 확장자
     /// App Store Connect 가 쓰는 플랫폼 이름 (버전·심사 제출을 만들 때 필요하다)
     var ascPlatform: String { self == .macOS ? "MAC_OS" : "IOS" }
+    /// 빌드 목록을 이 플랫폼 것으로만 좁히는 조건 (/v1/builds 의 쿼리 한 조각)
+    var buildFilter: String { "filter[preReleaseVersion.platform]=\(ascPlatform)" }
 }
 
 struct BuildInfo {

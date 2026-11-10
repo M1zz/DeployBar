@@ -160,7 +160,7 @@ enum DeployPrep {
         // 4) 릴리즈노트 — 배포가 쓸 번호의 절에, 모든 언어
         let store: (version: String, released: Bool)
         if let known { store = (known.version, known.released) }
-        else { store = await storeState(bundleId: info?.bundleId, local: info?.marketingVersion ?? "?") }
+        else { store = await storeState(bundleId: info?.bundleId, platform: info?.platform ?? .iOS, local: info?.marketingVersion ?? "?") }
         a.version = store.version
         let notes = RepoNotes.read(app.path, version: a.version, locales: a.locales)?.texts ?? [:]
         let noNotes = a.locales.filter { l in !notes.keys.contains { Locales.sameLanguage($0, l) } }
@@ -302,9 +302,9 @@ enum DeployPrep {
 
     /// 배포가 쓸 번호(배포와 같은 규칙)와 이미 출시된 적이 있는지. 못 물어보면 로컬 번호 · 출시됨으로 둔다
     /// (출시 여부를 모를 때 연령 등급을 묻지 않는다 — 없는 일을 만들지 않는다).
-    private static func storeState(bundleId: String?, local: String) async -> (version: String, released: Bool) {
+    private static func storeState(bundleId: String?, platform: Platform, local: String) async -> (version: String, released: Bool) {
         guard let bundleId, let appId = try? await ASCClient.appId(bundleId: bundleId),
-              let vers = try? await ASCClient.appStoreVersions(appId: appId) else { return (local, true) }
+              let vers = try? await ASCClient.appStoreVersions(appId: appId, platform: platform) else { return (local, true) }
         let k = known(versions: vers, local: local)
         return (k.version, k.released)
     }

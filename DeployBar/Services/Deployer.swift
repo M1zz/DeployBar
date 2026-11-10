@@ -63,7 +63,7 @@ enum Deployer {
     /// 업로드한 빌드가 App Store Connect 에 실제로 도착했는지 확인한다.
     /// altool 의 말만 믿지 않기 위한 이중 확인 — 도착이 곧 진실이다.
     /// quietMiss: altool 이 성공을 말했고 뒤에서 처리 완료를 따로 기다리는 경우 — 안 보여도 경고가 아니다.
-    private static func confirmOnASC(bundleId: String, marketingVersion: String, build: Int,
+    private static func confirmOnASC(bundleId: String, platform: Platform, marketingVersion: String, build: Int,
                                      quietMiss: Bool = false,
                                      onLog: @escaping @Sendable (String) -> Void) async -> Bool {
         onLog("🔍 App Store Connect 에 빌드 도착 확인 중… (v\(marketingVersion) build \(build))")
@@ -71,7 +71,7 @@ enum Deployer {
         for delay in [3, 7, 15, 25, 40] {
             try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
             guard let id = try? await ASCClient.appId(bundleId: bundleId) else { continue }
-            let latest = (try? await ASCClient.latestBuild(appId: id, marketingVersion: marketingVersion)) ?? nil
+            let latest = (try? await ASCClient.latestBuild(appId: id, platform: platform, marketingVersion: marketingVersion)) ?? nil
             guard let n = latest else { continue }
             if n >= build {
                 onLog("✅ 확인됨 — App Store Connect 에 v\(marketingVersion) build \(n) 이 있습니다")
@@ -202,7 +202,7 @@ enum Deployer {
             var probeError: String?
             do {
                 if let ascId = try await ASCClient.appId(bundleId: info.bundleId) {
-                    notes = try await ReleaseNotes.notesState(appId: ascId)
+                    notes = try await ReleaseNotes.notesState(appId: ascId, platform: info.platform)
                 } else {
                     probeError = "ASC 에서 앱을 찾지 못했습니다 (bundleId \(info.bundleId))"
                 }
@@ -324,10 +324,10 @@ enum Deployer {
         var ascBuild = 0    // 이 마케팅 버전에 올라간 최고 빌드
         var ascMax = 0      // 앱 전체에서 올라간 최고 빌드 (버전 무관)
         if let id = try? await ASCClient.appId(bundleId: info.bundleId) {
-            if let n = try? await ASCClient.latestBuild(appId: id, marketingVersion: marketingVersion) {
+            if let n = try? await ASCClient.latestBuild(appId: id, platform: info.platform, marketingVersion: marketingVersion) {
                 ascBuild = n ?? 0
             }
-            if let n = try? await ASCClient.maxBuild(appId: id) { ascMax = n ?? 0 }
+            if let n = try? await ASCClient.maxBuild(appId: id, platform: info.platform) { ascMax = n ?? 0 }
         }
         let localBuild = Int(info.buildNumber) ?? 0
         let floor = max(ascBuild, ascMax, localBuild)
@@ -441,7 +441,7 @@ enum Deployer {
         if saidBad || !saidOK {
             // 성공 문구가 없다고 바로 실패로 단정하지 않는다 — ASC 에 빌드가 도착했는지 확인한다.
             // (altool 문구가 바뀌었을 뿐인데 배포를 실패로 처리하면 그것대로 사고다)
-            let landed = await confirmOnASC(bundleId: info.bundleId, marketingVersion: marketingVersion,
+            let landed = await confirmOnASC(bundleId: info.bundleId, platform: info.platform, marketingVersion: marketingVersion,
                                             build: newBuild, onLog: onLog)
             if !landed {
                 var itms = uploadOutput.split(separator: "\n").map(String.init)
@@ -465,7 +465,7 @@ enum Deployer {
             }
         } else {
             // 성공 문구가 있어도 실제 도착까지 확인해 둔다
-            _ = await confirmOnASC(bundleId: info.bundleId, marketingVersion: marketingVersion,
+            _ = await confirmOnASC(bundleId: info.bundleId, platform: info.platform, marketingVersion: marketingVersion,
                                    build: newBuild, quietMiss: lane == .appstore, onLog: onLog)
         }
         done(.confirm, "v\(marketingVersion) build \(newBuild)")
@@ -629,7 +629,7 @@ enum Deployer {
         // (2) 그러고도 다시 찍어야 하는가 — 그림이 화면보다 오래됐거나, 아직 한 장도 없거나.
         var state: ASCClient.ShotState?
         if let id = try? await ASCClient.appId(bundleId: info.bundleId) {
-            state = try? await ASCClient.screenshotState(appId: id)
+            state = try? await ASCClient.screenshotState(appId: id, platform: info.platform)
         }
         // 지시문이 이번 배포의 사실(올린 버전·스토어 버전·번들 ID)을 담도록 상태를 꾸려 넘긴다.
         // 이게 없으면 글에 "스토어 미등록" 처럼 틀린 말이 섞인다 — 붙여넣는 쪽은 그걸 믿는다.
@@ -790,7 +790,7 @@ enum Deployer {
                                        onLog: @escaping @Sendable (String) -> Void) async -> String {
         let cmp = Status.cmpVer
         guard let appId = try? await ASCClient.appId(bundleId: bundleId),
-              let versions = try? await ASCClient.appStoreVersions(appId: appId) else {
+              let versions = try? await ASCClient.appStoreVersions(appId: appId, platform: platform) else {
             let v = bump.map { bumpVersion(local, $0) } ?? local
             onLog("⚠️  스토어 버전을 확인하지 못해 로컬 기준으로 정합니다 — v\(v)")
             return v

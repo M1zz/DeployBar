@@ -71,7 +71,10 @@ enum ASCClient {
 
     struct Version { let id: String; let versionString: String; let state: String; var hasBuild: Bool = false }
 
-    static func appStoreVersions(appId: String) async throws -> [Version] {
+    /// 한 앱에 iOS 와 macOS 가 같이 있으면(유니버설 구매) 버전도 빌드도 플랫폼마다 따로 간다.
+    /// 플랫폼을 가리지 않고 읽으면 맥 카드가 iOS 버전을, iOS 카드가 맥 버전을 제 것으로 안다 —
+    /// 그래서 버전과 빌드를 읽는 곳은 모두 플랫폼을 받는다.
+    static func appStoreVersions(appId: String, platform: Platform) async throws -> [Version] {
         // build 관계를 같이 받는다 — '업로드는 했는데 버전에 빌드를 안 붙였다' 를 잡기 위해서다.
         // 이걸 모르면 심사 제출이 안 된 채로 "배포 완료" 로 보인다.
         //
@@ -80,7 +83,7 @@ enum ASCClient {
         //    **모든 버전에서 늘 false** 가 되어, 빌드를 제대로 붙여 놓은 앱에도
         //    "버전에 빌드 미연결" 경고가 영원히 뜬다. 사람이 고칠 수 없는 경고는
         //    체크리스트 전체의 신뢰를 깎으므로, 관계는 include 로 확실히 받는다.
-        let j = try await api("GET", "/v1/apps/\(appId)/appStoreVersions?limit=10"
+        let j = try await api("GET", "/v1/apps/\(appId)/appStoreVersions?limit=10&filter[platform]=\(platform.ascPlatform)"
             + "&fields[appStoreVersions]=versionString,appStoreState,build"
             + "&include=build&fields[builds]=version")
         let data = j["data"] as? [[String: Any]] ?? []
@@ -98,16 +101,13 @@ enum ASCClient {
         }
     }
 
-    static func latestBuild(appId: String) async throws -> String? {
-        try await latestUpload(appId: appId)?.build
-    }
 
     /// 가장 최근에 올라간 빌드 — 빌드번호와 **그 빌드의 마케팅 버전**을 함께.
     /// 마케팅 버전이 있어야 "이 버전 빌드가 아직 안 올라간 것" 과
     /// "올라갔는데 버전에 안 붙인 것" 을 가를 수 있다. 요청은 한 번 그대로다.
     struct Upload { let build: String; let version: String? }
-    static func latestUpload(appId: String) async throws -> Upload? {
-        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&limit=1&sort=-uploadedDate"
+    static func latestUpload(appId: String, platform: Platform) async throws -> Upload? {
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&\(platform.buildFilter)&limit=1&sort=-uploadedDate"
             + "&fields[builds]=version,preReleaseVersion"
             + "&include=preReleaseVersion&fields[preReleaseVersions]=version")
         guard let item = (j["data"] as? [[String: Any]])?.first,
@@ -122,9 +122,9 @@ enum ASCClient {
 
     // 특정 마케팅 버전(preReleaseVersion.version)에 이미 올라간 최신 빌드번호.
     // 그 버전으로 올라간 빌드가 아직 없으면 nil → 호출측에서 1부터 시작한다.
-    static func latestBuild(appId: String, marketingVersion: String) async throws -> Int? {
+    static func latestBuild(appId: String, platform: Platform, marketingVersion: String) async throws -> Int? {
         let v = marketingVersion.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? marketingVersion
-        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&filter[preReleaseVersion.version]=\(v)&limit=200&fields[builds]=version")
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&\(platform.buildFilter)&filter[preReleaseVersion.version]=\(v)&limit=200&fields[builds]=version")
         let data = j["data"] as? [[String: Any]] ?? []
         let nums = data.compactMap { ($0["attributes"] as? [String: Any])?["version"] as? String }.compactMap { Int($0) }
         return nums.max()
@@ -137,8 +137,8 @@ enum ASCClient {
     /// 빌드 1 로 올리면 애플이 409 로 거부한다 —
     /// "must contain a higher version than that of the previously uploaded version [11]".
     /// 더 큰 번호는 iOS 에서도 언제나 유효하므로, 두 플랫폼 다 이 값을 바닥으로 쓴다.
-    static func maxBuild(appId: String) async throws -> Int? {
-        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&limit=200&fields[builds]=version")
+    static func maxBuild(appId: String, platform: Platform) async throws -> Int? {
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&\(platform.buildFilter)&limit=200&fields[builds]=version")
         let data = j["data"] as? [[String: Any]] ?? []
         return data.compactMap { ($0["attributes"] as? [String: Any])?["version"] as? String }
             .compactMap { Int($0) }.max()
@@ -146,8 +146,8 @@ enum ASCClient {
 
     // 최근 업로드된 빌드들 — "방금 올린 게 진짜 도착했나" 를 확인하는 데 쓴다.
     struct BuildInfo { let build: String; let version: String; let state: String; let uploaded: String }
-    static func recentBuilds(appId: String, limit: Int = 8) async throws -> [BuildInfo] {
-        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&limit=\(limit)&sort=-uploadedDate"
+    static func recentBuilds(appId: String, platform: Platform, limit: Int = 8) async throws -> [BuildInfo] {
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&\(platform.buildFilter)&limit=\(limit)&sort=-uploadedDate"
             + "&fields[builds]=version,processingState,uploadedDate,preReleaseVersion"
             + "&include=preReleaseVersion&fields[preReleaseVersions]=version")
         let data = j["data"] as? [[String: Any]] ?? []

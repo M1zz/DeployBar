@@ -57,9 +57,9 @@ extension ASCClient {
 
     /// 이번에 올린 **바로 그 빌드**. attachableBuild 는 '고를 수 있는 아무 빌드' 라서,
     /// 방금 올린 빌드가 처리 중일 때 지난 빌드를 대신 돌려준다 — 그걸 붙이면 옛 바이너리가 심사에 나간다.
-    static func build(appId: String, marketingVersion: String, number: Int) async throws -> BuildRef? {
+    static func build(appId: String, platform: Platform, marketingVersion: String, number: Int) async throws -> BuildRef? {
         let v = marketingVersion.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? marketingVersion
-        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)"
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&\(platform.buildFilter)"
             + "&filter[preReleaseVersion.version]=\(v)&filter[version]=\(number)&limit=5"
             + "&fields[builds]=version,processingState")
         let item = (j["data"] as? [[String: Any]] ?? []).first
@@ -79,9 +79,9 @@ extension ASCClient {
     /// 처리 중(PROCESSING)인 빌드는 버전에 붙일 수 없어서 제외한다 —
     /// 붙이려다 실패하는 것보다 "아직 처리 중입니다" 라고 말하는 편이 낫다.
     struct BuildRef { let id: String; let build: String; let state: String }
-    static func attachableBuild(appId: String, marketingVersion: String) async throws -> BuildRef? {
+    static func attachableBuild(appId: String, platform: Platform, marketingVersion: String) async throws -> BuildRef? {
         let v = marketingVersion.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? marketingVersion
-        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)"
+        let j = try await api("GET", "/v1/builds?filter[app]=\(appId)&\(platform.buildFilter)"
             + "&filter[preReleaseVersion.version]=\(v)&limit=50&sort=-uploadedDate"
             + "&fields[builds]=version,processingState")
         let data = j["data"] as? [[String: Any]] ?? []
@@ -368,8 +368,8 @@ extension ASCClient {
     /// 버전이 있어야 지시문에 "스토어 v1.0" 이라고 사실대로 적을 수 있다.
     struct ShotState { let count: Int?; let storeVersion: String? }
 
-    static func screenshotState(appId: String) async throws -> ShotState {
-        let vers = try await appStoreVersions(appId: appId)
+    static func screenshotState(appId: String, platform: Platform) async throws -> ShotState {
+        let vers = try await appStoreVersions(appId: appId, platform: platform)
         let live = vers.first { $0.state == "READY_FOR_SALE" } ?? vers.first
         guard let editable = vers.first(where: { ReleaseNotes.editableStates.contains($0.state) })
         else { return ShotState(count: nil, storeVersion: live?.versionString) }
@@ -383,12 +383,13 @@ extension ASCClient {
     struct Submission { let id: String; let state: String; let submitted: Bool }
 
     /// 진행 중인 심사 제출 묶음. 같은 앱에 두 개를 만들 수 없어서 먼저 찾아본다.
-    static func openSubmission(appId: String) async throws -> Submission? {
+    /// 묶음은 플랫폼마다 따로다 — iOS 묶음이 열려 있어도 맥은 제 묶음을 새로 만든다.
+    static func openSubmission(appId: String, platform: Platform) async throws -> Submission? {
         // ⚠️ `sort` 를 붙이면 안 된다 — reviewSubmissions 는 정렬을 받지 않고 HTTP 400 을 낸다
         //    ("The parameter 'sort' can not be used with this request"). 상태로만 거르면 충분하다.
         // ⚠️ `submitted` 라는 필드는 없다 — 넣으면 HTTP 400 ("'submitted' is not a valid field name").
         //    냈는지는 submittedDate 가 있거나 상태가 심사 대기·심사 중인지로 본다.
-        let j = try await api("GET", "/v1/reviewSubmissions?filter[app]=\(appId)&limit=10"
+        let j = try await api("GET", "/v1/reviewSubmissions?filter[app]=\(appId)&filter[platform]=\(platform.ascPlatform)&limit=10"
             + "&fields[reviewSubmissions]=state,submittedDate")
         let data = j["data"] as? [[String: Any]] ?? []
         let open = data.compactMap { item -> Submission? in
