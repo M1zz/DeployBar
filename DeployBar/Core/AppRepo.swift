@@ -10,8 +10,22 @@ final class BuildCache: @unchecked Sendable {
     func remove(_ k: String) { lock.lock(); defer { lock.unlock() }; map[k] = nil }
 }
 
+/// 지금 도는 배포가 고른 플랫폼 (앱 경로 → 플랫폼). PLATFORM 에 둘 이상 적힌 앱을 플랫폼마다 한 바퀴씩
+/// 돌릴 때 그 바퀴 동안 buildSettings 가 이 값을 쓴다 — 아래의 모든 호출이 info.platform 하나를 읽으므로
+/// 여기 한 곳만 바꾸면 archive·업로드·버전·스크린샷·제출이 그 플랫폼으로 간다.
+/// `cli` 는 명령줄 `--platform` 이 넣는 값으로 모든 앱에 걸린다 (명령 한 번에 앱 하나).
+final class RunPlatform: @unchecked Sendable {
+    private var map: [String: Platform] = [:]
+    private let lock = NSLock()
+    var cli: Platform?
+    func get(_ k: String) -> Platform? { lock.lock(); defer { lock.unlock() }; return map[k] ?? cli }
+    func set(_ k: String, _ v: Platform) { lock.lock(); defer { lock.unlock() }; map[k] = v }
+    func remove(_ k: String) { lock.lock(); defer { lock.unlock() }; map[k] = nil }
+}
+
 enum AppRepo {
     static let cache = BuildCache()
+    static let runPlatform = RunPlatform()
 
     // 관리 대상 앱들이 모여 있는 루트 — 이 아래에서 앱을 자동 발견한다.
     static let root = "/Users/hyunholee/Documents/workspace/Auto"
@@ -267,7 +281,8 @@ enum AppRepo {
 
     // xcodebuild -showBuildSettings 로 bundleId·버전·팀 획득 (느림 → 캐시)
     static func buildSettings(_ r: ResolvedApp, fresh: Bool = false) throws -> BuildInfo {
-        if !fresh, let hit = cache.get(r.path) { return hit }
+        if !fresh, let hit = cache.get(r.path),
+           runPlatform.get(r.path).map({ $0 == hit.platform }) ?? true { return hit }
         guard r.exists else { throw NSError(domain: "DeployBar", code: 1, userInfo: [NSLocalizedDescriptionKey: "Xcode 프로젝트 없음: \(r.path)"]) }
         // 시간 제한을 둔다. xcodebuild 는 패키지 해석 락 같은 데서 영영 안 돌아오는 일이 있고,
         // 그러면 이 앱 하나 때문에 새로고침 전체가 끝나지 않는다 (git 쪽은 이미 제한이 있다).
@@ -298,20 +313,19 @@ enum AppRepo {
         //    → SUPPORTED_PLATFORMS 에 iphoneos 가 있으면 iOS 로 본다. deploy.env 의 PLATFORM 이 최우선.
         let sdkroot = (bs["SDKROOT"] as? String ?? "").lowercased()
         let supported = (bs["SUPPORTED_PLATFORMS"] as? String ?? "").lowercased()
-        var isMac = supported.isEmpty
+        let isMac = supported.isEmpty
             ? sdkroot.contains("macosx")
             : (supported.contains("macosx") && !supported.contains("iphoneos"))
-        switch r.platformOverride?.lowercased() {
-        case "macos", "mac", "osx": isMac = true
-        case "ios", "iphoneos": isMac = false
-        default: break
-        }
+        let isVisionOnly = supported.contains("xros") && !supported.contains("iphoneos") && !supported.contains("macosx")
+        var platform: Platform = isMac ? .macOS : (isVisionOnly ? .visionOS : .iOS)
+        if let first = r.platforms.first { platform = first }          // deploy.env 의 PLATFORM 이 최우선
+        if let running = runPlatform.get(r.path) { platform = running }  // 이 바퀴가 고른 플랫폼
         let info = BuildInfo(
             bundleId: bid,
             marketingVersion: bs["MARKETING_VERSION"] as? String ?? "?",
             buildNumber: bs["CURRENT_PROJECT_VERSION"] as? String ?? "?",
             team: bs["DEVELOPMENT_TEAM"] as? String,
-            platform: isMac ? .macOS : .iOS
+            platform: platform
         )
         cache.set(r.path, info)
         return info

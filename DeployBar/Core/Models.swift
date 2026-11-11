@@ -27,8 +27,10 @@ struct ResolvedApp {
     // 릴리즈노트 게이트 (deploy.env 의 RELEASE_NOTES_GATE): strict 면 '이 버전의 새로운 기능' 이
     // 비어 있는 채로는 배포하지 않는다. 빈 노트로 나간 버전은 되돌릴 수 없어서 기본값이 strict 다.
     var releaseNotesGate: String = "strict"
-    // 플랫폼 강제 지정 (deploy.env 의 PLATFORM=ios|macos). 자동 판별이 틀릴 때만 쓴다.
+    // 플랫폼 지정 (deploy.env 의 PLATFORM=ios|macos|visionos). 자동 판별이 틀릴 때, 또는 둘 이상일 때 적는다.
     var platformOverride: String?
+    /// PLATFORM 에 적힌 순서대로. 둘 이상이면 배포가 플랫폼마다 한 바퀴씩 돌고, 첫 것이 대표다(카드·상태).
+    var platforms: [Platform] { Platform.parseList(platformOverride) }
     // 업로드가 끝나면 빌드를 버전에 붙이고 심사까지 낼지 (deploy.env 의 AUTO_SUBMIT=off 로 끈다).
     // 사람이 웹에서 [제출] 을 누르던 마지막 칸이다. 막히는 게 남아 있으면 내지 않는다.
     var autoSubmit: Bool = true
@@ -44,15 +46,53 @@ struct ResolvedApp {
 }
 
 // 배포 대상 플랫폼 — archive destination·altool 타입·export 산출물이 다르다.
-enum Platform: String {
-    case iOS, macOS
-    var destination: String { self == .macOS ? "generic/platform=macOS" : "generic/platform=iOS" }
-    var altoolType: String { self == .macOS ? "macos" : "ios" }   // xcrun altool -t
+// 한 앱이 둘 이상이면(deploy.env 의 PLATFORM=ios,visionos) 배포가 플랫폼마다 한 바퀴씩 돈다 (Store+Deploy).
+enum Platform: String, CaseIterable {
+    case iOS, macOS, visionOS
+    var destination: String {
+        switch self {
+        case .iOS: return "generic/platform=iOS"
+        case .macOS: return "generic/platform=macOS"
+        case .visionOS: return "generic/platform=visionOS"
+        }
+    }
+    var altoolType: String {                                      // xcrun altool -t
+        switch self {
+        case .iOS: return "ios"
+        case .macOS: return "macos"
+        case .visionOS: return "visionos"
+        }
+    }
     var exportExt: String { self == .macOS ? "pkg" : "ipa" }      // export 산출물 확장자
     /// App Store Connect 가 쓰는 플랫폼 이름 (버전·심사 제출을 만들 때 필요하다)
-    var ascPlatform: String { self == .macOS ? "MAC_OS" : "IOS" }
+    var ascPlatform: String {
+        switch self {
+        case .iOS: return "IOS"
+        case .macOS: return "MAC_OS"
+        case .visionOS: return "VISION_OS"
+        }
+    }
     /// 빌드 목록을 이 플랫폼 것으로만 좁히는 조건 (/v1/builds 의 쿼리 한 조각)
     var buildFilter: String { "filter[preReleaseVersion.platform]=\(ascPlatform)" }
+    /// deploy.env 의 PLATFORM 에 적는 이름
+    var envName: String { altoolType }
+
+    static func parse(_ s: String) -> Platform? {
+        switch s.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "ios", "iphoneos": return .iOS
+        case "macos", "mac", "osx": return .macOS
+        case "visionos", "xros", "vision": return .visionOS
+        default: return nil
+        }
+    }
+    /// "ios,visionos" → [.iOS, .visionOS]. 모르는 이름은 버리고 중복은 한 번만.
+    static func parseList(_ s: String?) -> [Platform] {
+        var out: [Platform] = []
+        for part in (s ?? "").split(whereSeparator: { $0 == "," || $0 == " " }) {
+            if let p = parse(String(part)), !out.contains(p) { out.append(p) }
+        }
+        return out
+    }
 }
 
 struct BuildInfo {
@@ -91,7 +131,12 @@ struct ShotReport: Codable, Equatable {
     var primary: String? = nil
     /// 안내문에 쓰는 대표 기기 이름 ("아이폰 그림이 없어 …")
     var primaryLabel: String {
-        switch primary { case "iPad": return "아이패드"; case "Mac": return "Mac"; default: return "아이폰" }
+        switch primary {
+        case "iPad": return "아이패드"
+        case "Mac": return "Mac"
+        case "Vision": return "Vision Pro"
+        default: return "아이폰"
+        }
     }
     var ready: Bool { hasPrimary && missingLocales.isEmpty && skipped.isEmpty }
 }

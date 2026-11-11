@@ -694,7 +694,7 @@ extension ReadyItem {
         case "i18n":
             return ".xcstrings 에서 값이 비었거나 state 가 new/stale/needs_review 인 항목을 채워줘. 한국어 원문 기준으로 각 언어에 자연스럽게 옮기고(직역 금지), 한국어가 아닌 언어 값에 한글이 남지 않게 해줘. 복수형·기기별 variations 안까지 봐야 한다."
         case "env":
-            return "앱 폴더 최상단에 deploy.env 를 만들어줘. SCHEME 은 실제 scheme 이름, PLATFORM 은 ios/macos, VERSION_XCCONFIG·PREDEPLOY_SCRIPT·LOCALES 도 이 앱에 맞게 채워줘. fastlane/.env 가 있으면 그 값을 옮겨 오고."
+            return "앱 폴더 최상단에 deploy.env 를 만들어줘. SCHEME 은 실제 scheme 이름, PLATFORM 은 ios/macos/visionos(둘 이상이면 쉼표로), VERSION_XCCONFIG·PREDEPLOY_SCRIPT·LOCALES 도 이 앱에 맞게 채워줘. fastlane/.env 가 있으면 그 값을 옮겨 오고."
         case "gate":
             return "scripts/predeploy.sh 를 만들어줘. 이 앱의 테스트를 돌리고 실패하면 0이 아닌 값으로 끝나야 한다. 테스트 타겟이 없으면 빌드만 확인하는 수준으로 두고 그렇다고 알려줘."
         case "locales":

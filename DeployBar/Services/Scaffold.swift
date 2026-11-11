@@ -235,7 +235,7 @@ enum Scaffold {
                 if next != updated { updated = next; touched.append(k) }
             }
             set("SCHEME", r.scheme, when: !hasSetting(body, "SCHEME"))
-            set("PLATFORM", platform == .macOS ? "macos" : "ios", when: !hasSetting(body, "PLATFORM"))
+            set("PLATFORM", platform.envName, when: !hasSetting(body, "PLATFORM"))
             // 경로가 틀렸거나 안 적혀 있으면 실제 위치로
             let xcBroken = r.versionXcconfig.map { !fm.fileExists(atPath: dir.appendingPathComponent($0).path) } ?? true
             set("VERSION_XCCONFIG", xcconfig ?? "", when: xcconfig != nil && xcBroken)

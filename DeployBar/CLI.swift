@@ -59,6 +59,8 @@ enum CLI {
       --deploy <앱> [--bump patch|minor|major] [--check] [--no-wait] [--quiet] [--timeout <분>]
                                  배포 버튼과 똑같이 배포 — 떠 있는 DeployBar 가 돌리고 결과를 돌려준다
                                  (끝 코드 0 성공 · 2 미완 · 1 실패 · 3 거절). 폰의 Claude Code 에서 부르는 용도
+      --platform <ios|macos|visionos>
+                                 PLATFORM 에 둘 이상 적힌 앱에서 이 명령을 그 플랫폼으로 (--shotplan · --publish · --attach 등)
       --attach <앱>              올라간 빌드를 App Store 버전에 연결
       --pushnotes <앱>           레포 RELEASE_NOTES.md 의 이번 버전 글을 '이 버전의 새로운 기능' 에 올린다
                                  (배포 뒤에 새로 생긴 언어 페이지가 비어 심사 제출이 막혔을 때)
@@ -84,7 +86,7 @@ enum CLI {
         "--storemeta", "--publish", "--dry-run", "--overwrite", "--replace-shots", "--text-only", "--autowrite", "--no-commit", "--attach", "--submit", "--release", "--pushnotes",
         "--shotplan", "--todo", "--prepare", "--lang", "--storetext",
         "--ready", "--deploy", "--bump", "--no-wait", "--quiet", "--timeout",
-        "--dsym",
+        "--dsym", "--platform",
         "--a11y", "--selftest-a11y",
     ]
 
@@ -96,6 +98,14 @@ enum CLI {
     if let unknown = args.first(where: { $0.hasPrefix("--") && !known.contains($0) }) {
         FileHandle.standardError.write(Data("모르는 명령입니다: \(unknown)\n\n\(usage)\n".utf8))
         exit(2)
+    }
+    // --platform: PLATFORM 이 둘 이상인 앱에서 이 명령 한 번을 그 플랫폼으로 돌린다
+    if let i = args.firstIndex(of: "--platform") {
+        guard i + 1 < args.endIndex, let p = Platform.parse(args[i + 1]) else {
+            FileHandle.standardError.write(Data("--platform 은 ios | macos | visionos 중 하나입니다\n".utf8))
+            exit(2)
+        }
+        AppRepo.runPlatform.cli = p
     }
     // 헤드리스 상태 조회 (테스트/CLI 용): DeployBar --status
     if CommandLine.arguments.contains("--status") {

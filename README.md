@@ -126,8 +126,12 @@ open DeployBar.xcodeproj      # Xcode 에서 열고 ⌘R 로 실행
 # 필수: archive 할 scheme
 SCHEME=Rereminder
 
-# 플랫폼 (ios | macos). 자동 판별이 맞으면 지워도 된다.
+# 플랫폼 (ios | macos | visionos). 자동 판별이 맞으면 지워도 된다.
 # 멀티플랫폼 타겟은 SDKROOT 만으로 구분되지 않아 명시해 두는 편이 안전하다.
+# 둘 이상이면 쉼표로 (PLATFORM=ios,visionos): 배포가 플랫폼마다 한 바퀴씩 돈다 — 같은 버전으로
+# archive·업로드·빌드 연결·스크린샷·심사 제출을 따로 한다. 첫 것이 카드에 보이는 대표 플랫폼이다.
+# 스크린샷은 한 폴더(docs/screenshots/<언어>/)에 같이 둔다. 크기로 가르므로 visionOS 그림은
+# 3840×2160(시뮬레이터 캡처 그대로) 이면 된다. 명령줄에서 한 플랫폼만 보려면 --platform visionos.
 PLATFORM=ios
 
 # 권장: 버전·빌드번호의 단일 소스 (앱 폴더 기준 상대경로)

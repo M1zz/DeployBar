@@ -211,6 +211,16 @@ enum ShotPrompt {
 
     // ── 단계 ─────────────────────────────────────────────────────────
     private static func shotsSteps(_ a: Assets, platform: Platform, padOnly: Bool) -> String {
+        if platform == .visionOS {
+            return """
+            1. `xcrun simctl list devices available` 에서 Apple Vision Pro 를 골라 부팅한다.
+            2. `-destination 'platform=visionOS Simulator,id=<UDID>'` 로 빌드해 설치·실행하고, 온보딩·권한 팝업을 먼저 닫는다.
+            3. 화면마다 `xcrun simctl io <UDID> screenshot <파일>` 로 저장한다 — 시뮬레이터가 뱉는 3840×2160 이 그대로 제출 규격이다.
+               창이 방 안에 떠 있는 모습 그대로 찍는다 (목업·합성 없음). 주요 화면 3~5장.
+            4. 각 장을 Read 로 열어 창이 잘리거나 시스템 창이 덮이지 않았는지 확인한다.
+
+            """
+        }
         if platform == .macOS {
             return """
             1. 앱을 Release 로 빌드해 실행하고, 창 크기를 규격 비율(16:10)에 맞춘다.
@@ -242,6 +252,13 @@ enum ShotPrompt {
     }
 
     private static func videoSteps(_ a: Assets, platform: Platform) -> String {
+        if platform == .visionOS {
+            return """
+            1. Apple Vision Pro 시뮬레이터에서 `xcrun simctl io <UDID> recordVideo --codec h264 --force demo.mov` 로 녹화한다.
+            2. 핵심 흐름을 2~4초 간격으로 천천히 시연하고, ffmpeg 로 정지 구간을 잘라 15~30초로 맞춘다.
+
+            """
+        }
         if platform == .macOS {
             return """
             1. 앱을 실행하고 창을 규격 비율에 맞춘 뒤 `screencapture -v` 또는 QuickTime 으로 창만 녹화한다.

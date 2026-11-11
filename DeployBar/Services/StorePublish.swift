@@ -1122,6 +1122,10 @@ enum StorePublish {
                 continue
             }
             guard let type = displayType(w: size.w, h: size.h, platform: platform) else {
+                // 다른 플랫폼의 규격이면 그 플랫폼 바퀴가 올린다 — 한 폴더에 iOS·visionOS 그림을 같이 두므로 조용히 넘긴다
+                if Platform.allCases.contains(where: { $0 != platform && displayType(w: size.w, h: size.h, platform: $0) != nil }) {
+                    continue
+                }
                 skipped.append("\(f.lastPathComponent) \(size.w)×\(size.h) 은 App Store 규격이 아닙니다 — 건너뜁니다")
                 continue
             }
@@ -1151,7 +1155,11 @@ enum StorePublish {
 
     /// 심사 제출에 꼭 있어야 하는 기기 묶음. 아이패드 전용 앱엔 애플이 아이폰 그림을 요구하지 않는다.
     static func primaryFamily(platform: Platform, padOnly: Bool) -> String {
-        platform == .macOS ? "Mac" : (padOnly ? "iPad" : "iPhone")
+        switch platform {
+        case .macOS: return "Mac"
+        case .visionOS: return "Vision"
+        case .iOS: return padOnly ? "iPad" : "iPhone"
+        }
     }
 
     /// 카드 뱃지용 요약. `shotPlan` 을 그대로 줄인 것이라 업로드와 판단이 갈라지지 않는다.
@@ -1181,6 +1189,7 @@ enum StorePublish {
         if type.hasPrefix("APP_WATCH") { return "Watch" }
         if type.hasPrefix("APP_IPAD") { return "iPad" }
         if type == "APP_DESKTOP" { return "Mac" }
+        if type == "APP_APPLE_VISION_PRO" { return "Vision" }
         return "iPhone"
     }
 
@@ -1205,6 +1214,10 @@ enum StorePublish {
         if platform == .macOS {
             let ok = [(1280, 800), (1440, 900), (2560, 1600), (2880, 1800)]
             return ok.contains { $0.0 == b && $0.1 == a } ? "APP_DESKTOP" : nil
+        }
+        // Apple Vision Pro — 시뮬레이터 `simctl io screenshot` 이 뱉는 크기 그대로다
+        if platform == .visionOS {
+            return (a, b) == (2160, 3840) ? "APP_APPLE_VISION_PRO" : nil
         }
         switch (a, b) {
         case (1320, 2868), (1290, 2796), (1284, 2778):  return "APP_IPHONE_67"   // 6.9"·6.7"
@@ -1246,6 +1259,7 @@ enum StorePublish {
         case "APP_WATCH_SERIES_4": return "Apple Watch 44mm"
         case "APP_WATCH_SERIES_3": return "Apple Watch 42mm"
         case "APP_DESKTOP": return "Mac"
+        case "APP_APPLE_VISION_PRO": return "Apple Vision Pro"
         default: return t
         }
     }

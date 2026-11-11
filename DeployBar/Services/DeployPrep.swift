@@ -29,6 +29,8 @@ enum DeployPrep {
         var notes: [String] = []
         var hasWatch = false
         var hasPad = false
+        /// 대표 말고 더 도는 플랫폼 (deploy.env 의 PLATFORM=ios,visionos 의 뒤쪽). 그 플랫폼 그림도 언어마다 있어야 한다.
+        var extraPlatforms: [Platform] = []
         /// 아이패드 전용(TARGETED_DEVICE_FAMILY 가 2 뿐) — 아이폰 그림을 요구하지 않는다
         var padOnly = false
         var ready: Bool { gaps.isEmpty }
@@ -59,6 +61,7 @@ enum DeployPrep {
         // 아이폰 전용 앱도 아이패드 지원으로 잡힌다 (두번알림이 그랬다).
         a.hasPad = info?.platform != .macOS && iosFamily(r, bundleId: info?.bundleId).contains("2")
         a.padOnly = padOnly(r, info: info)
+        a.extraPlatforms = Array(r.platforms.dropFirst())
 
         // 1) 설정
         let envPath = (app.path as NSString).appendingPathComponent("deploy.env")
@@ -196,6 +199,15 @@ enum DeployPrep {
             if a.locales.count > 1, plan.rows.allSatisfy({ $0.locale == "모든 언어" }) {
                 gap("스크린샷", "모든 언어에 같은 그림 한 벌을 씁니다 — 언어마다 그 언어 화면으로 찍어야 합니다 (marketing/<언어>/)")
             }
+            // 더 도는 플랫폼(visionOS 등)은 그 바퀴가 따로 심사에 가므로 그 플랫폼 그림도 언어마다 있어야 한다
+            for p in a.extraPlatforms {
+                guard let extra = StorePublish.shotReport(app.path, platform: p, locales: a.locales) else { continue }
+                if !extra.hasPrimary {
+                    gap("스크린샷", "\(extra.primaryLabel) 제출 규격 그림이 없습니다 — \(p.rawValue) 바퀴가 심사에 못 갑니다")
+                } else if !extra.missingLocales.isEmpty {
+                    gap("스크린샷", "\(extra.primaryLabel) 그림 없는 언어: \(extra.missingLocales.map { Locales.displayName($0) }.joined(separator: ", "))", extra.missingLocales)
+                }
+            }
         } else {
             gap("스크린샷", "docs/screenshots/ 가 없습니다", a.locales)
         }
@@ -329,7 +341,8 @@ enum DeployPrep {
 
     // ── 기준 ────────────────────────────────────────────────────────────
     /// 자동 배포 완비 기준. 해결 프롬프트도 이 글을 붙인다 — 기준이 두 곳에 갈라지지 않게.
-    static func standard(_ app: String, locales: [String], hasWatch: Bool, hasPad: Bool, padOnly: Bool = false) -> String {
+    static func standard(_ app: String, locales: [String], hasWatch: Bool, hasPad: Bool, padOnly: Bool = false,
+                         extraPlatforms: [Platform] = []) -> String {
         let langs = locales.isEmpty ? "deploy.env 의 LOCALES 전부" : locales.joined(separator: ", ")
         // 아이패드 전용 앱은 아이패드 그림이 제출 규격이다 — 아이폰 그림을 요구하지 않는다
         let primary = padOnly
@@ -374,6 +387,9 @@ enum DeployPrep {
         if hasPad && !padOnly {
             s += "   - 이 앱은 **아이패드**를 지원한다: 2064×2752 아이패드 그림도 언어마다 둔다.\n"
         }
+        if extraPlatforms.contains(.visionOS) {
+            s += "   - 이 앱은 **Apple Vision Pro** 에도 나간다: 같은 폴더에 3840×2160(Vision Pro 시뮬레이터 캡처 그대로) 그림도 언어마다 둔다. 합성 없이 창이 방 안에 뜬 모습이면 된다.\n"
+        }
         s += """
            - 확인: `\(cli) --shotplan \(app)` 끝의 `뱃지: ✅ 준비됨` 이어야 하고, '올라가지 않는 파일' 이 없어야 한다.
         5-1. 헤더 · 검색 결과 (iOS) — 스크린샷처럼 **언어마다** 둔다. 제품 페이지 맨 위와 검색 결과에 뜨는 그림이다.
@@ -397,8 +413,10 @@ enum DeployPrep {
         s += "## 앱\n- \(app.name) · 배포할 버전 v\(a.version)\n- 대상 언어 \(a.locales.count)개: \(a.locales.joined(separator: ", "))\n"
         if a.hasWatch { s += "- 워치 앱 있음\n" }
         if a.hasPad { s += "- 아이패드 지원\n" }
+        for p in a.extraPlatforms { s += "- \(p.rawValue) 도 함께 배포 (PLATFORM=\(a.extraPlatforms.isEmpty ? "" : "ios,")\(p.envName))\n" }
         s += "\n"
-        s += standard(app.name, locales: a.locales, hasWatch: a.hasWatch, hasPad: a.hasPad, padOnly: a.padOnly)
+        s += standard(app.name, locales: a.locales, hasWatch: a.hasWatch, hasPad: a.hasPad, padOnly: a.padOnly,
+                      extraPlatforms: a.extraPlatforms)
 
         let mine = a.gaps.filter { !$0.human }
         let human = a.gaps.filter(\.human)
@@ -467,7 +485,7 @@ enum DeployPrep {
         step("앱 번역 — .xcstrings 의 `\(lang)` 값을 전부 채운다(복수형·기기별 variations 안까지). 한국어 원문 기준, 직역 금지. `\(cli) --doctor \(app.name)` 에 이 언어 구멍이 없어야 한다. InfoPlist.xcstrings(권한 문구·앱 이름)도 잊지 마.")
         step("스토어 문구 — `APPSTORE.md` 에 `## \(lang)` 절을 만들고 이름·부제·키워드·프로모션 텍스트·설명·지원 URL·개인정보처리방침 URL 을 **전부** 쓴다. `\(base)` 절을 출발점으로 삼되 그 나라 앱스토어 문체로 새로 쓰고, 키워드는 그 나라 사람이 검색창에 칠 말로 다시 고른다.")
         step("릴리즈노트 — `RELEASE_NOTES.md` 의 `## \(a.version)` 에 `### 앱스토어 (\(lang))` 절(제목의 로케일 코드로 언어를 알아본다). 다른 언어와 항목 수·순서를 맞춘다.")
-        step("스크린샷 — `docs/screenshots/marketing/\(lang)/` 에 이 언어 화면으로 찍는다(시뮬레이터 언어를 `\(lang)` 로). `\(cli) --shots \(app.name)` 의 지시와 appstore-assets 스킬을 따르되 **이 언어만** 찍는다." + (a.hasPad ? " 아이패드 2064×2752 도." : "") + (a.hasWatch ? " 워치 416×496 도." : ""))
+        step("스크린샷 — `docs/screenshots/marketing/\(lang)/` 에 이 언어 화면으로 찍는다(시뮬레이터 언어를 `\(lang)` 로). `\(cli) --shots \(app.name)` 의 지시와 appstore-assets 스킬을 따르되 **이 언어만** 찍는다." + (a.hasPad ? " 아이패드 2064×2752 도." : "") + (a.hasWatch ? " 워치 416×496 도." : "") + (a.extraPlatforms.contains(.visionOS) ? " Vision Pro 3840×2160 도." : ""))
         step("헤더·검색 결과 — `\(StorePublish.canonicalCreativeDir)/\(lang)/header.png`(3840×1646) · `search.png`(3840×2560). 생성 스크립트가 있으면 이 언어의 문구만 더해 다시 돌린다(`\(cli) --shots \(app.name) --creative`).")
         step("확인 — `\(cli) --prepare \(app.name) --lang \(lang)` 의 끝이 `✅ \(name) 완비` 여야 한다. 그다음 커밋한다(메시지에 \(name) 추가라고 적는다).")
 

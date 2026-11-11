@@ -49,11 +49,15 @@ extension Store {
     }
 
     // 앱 하나를 배포하고 로그를 job 에 스트리밍. 결과 반환.
+    /// platform: PLATFORM 에 둘 이상 적힌 앱의 한 바퀴. nil 이면 대표 플랫폼(자동 판별 또는 첫 값).
     func runOneDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump?,
                       into job: Job,
                       batch: (index: Int, total: Int, name: String)? = nil,
-                      deferStore: Bool = false) async -> DeployOutcome {
+                      deferStore: Bool = false,
+                      platform: Platform? = nil) async -> DeployOutcome {
         job.resetProgress(app: app.name, batch: batch)
+        Self.enterPlatform(app, platform)
+        defer { Self.leavePlatform(app, platform) }
         // 어느 DeployBar 로 배포하는지 창에도 남긴다 — 개발용 빌드면 여기서 바로 보이게
         if RunLog.isDevBuild { for line in RunLog.identity { job.lines.append(line) } }
 
@@ -174,7 +178,28 @@ extension Store {
 
     /// 빌드 연결·심사 제출을 돌리고 칸과 로그를 job 에 흘린다.
     /// runOneDeploy 와 같은 이유로 스트림을 쓴다 — 이벤트마다 Task 를 띄우면 칸이 거꾸로 켜진다.
-    func finishOnStore(_ app: ManagedApp, version: String, build: Int, into job: Job) async -> StorePublish.Finish {
+    /// 이 바퀴 동안 buildSettings 가 그 플랫폼을 답하게 한다 (AppRepo.runPlatform). 끝나면 대표 플랫폼으로 돌린다.
+    nonisolated static func enterPlatform(_ app: ManagedApp, _ platform: Platform?) {
+        guard let platform else { return }
+        AppRepo.runPlatform.set(app.path, platform)
+        AppRepo.clearCache(app.path)
+    }
+    nonisolated static func leavePlatform(_ app: ManagedApp, _ platform: Platform?) {
+        guard platform != nil else { return }
+        AppRepo.runPlatform.remove(app.path)
+        AppRepo.clearCache(app.path)
+    }
+
+    /// 한 앱의 배포 바퀴. PLATFORM 이 하나면 [nil] — 지금까지와 같다.
+    nonisolated static func rounds(_ app: ManagedApp) -> [Platform?] {
+        let ps = AppRepo.resolve(app).platforms
+        return ps.count > 1 ? ps : [nil]
+    }
+
+    func finishOnStore(_ app: ManagedApp, version: String, build: Int, into job: Job,
+                       platform: Platform? = nil) async -> StorePublish.Finish {
+        Self.enterPlatform(app, platform)
+        defer { Self.leavePlatform(app, platform) }
         var cont: AsyncStream<String>.Continuation!
         let stream = AsyncStream<String> { cont = $0 }
         let c = cont!
@@ -206,7 +231,25 @@ extension Store {
         let job = Job(title: "\(laneLabel(lane)) · \(app.name)")
         self.job = job
         Task {
-            let outcome = await runOneDeploy(app, lane: lane, versionBump: versionBump, into: job)
+            // PLATFORM 이 둘 이상이면 플랫폼마다 한 바퀴 (iOS → visionOS). 버전은 첫 바퀴가 정하고 뒤 바퀴는 따른다.
+            let rounds = Self.rounds(app)
+            var outcome: DeployOutcome = .failure("시작하지 못했습니다")
+            var storeNotes: [String] = []
+            for (i, p) in rounds.enumerated() {
+                if let p {
+                    job.lines.append("")
+                    job.lines.append("━━━━━━ [\(i + 1)/\(rounds.count)] \(app.name) · \(p.rawValue) ━━━━━━")
+                }
+                outcome = await runOneDeploy(app, lane: lane, versionBump: i == 0 ? versionBump : nil, into: job,
+                                             batch: p.map { (i + 1, rounds.count, "\(app.name) · \($0.rawValue)") },
+                                             platform: p)
+                if case .success(_, _, let note) = outcome, let p, let note { storeNotes.append("\(p.rawValue) \(note)") }
+                if case .failure = outcome { break }
+                if case .incomplete = outcome { break }
+            }
+            if storeNotes.count > 1, case .success(let v, let b, _) = outcome {
+                outcome = .success(version: v, build: b, store: storeNotes.joined(separator: " · "))
+            }
             // 로그 맨 끝에 한 줄로 판정한다 — 수백 줄을 거슬러 올라가지 않아도 되게.
             // '업로드 완료' 와 '스토어에 냈다' 를 섞지 않는다.
             switch outcome {
@@ -287,20 +330,27 @@ extension Store {
             var fails: [String] = []
             var unfinished: [String] = []   // 업로드는 됐지만 심사에 못 낸 앱
             // 업로드가 끝난 앱 — 끝에서 빌드 연결·심사 제출을 이어 한다. 그때 칸을 이어 그리려고 진행 상태도 들고 있는다.
-            var uploaded: [(app: ManagedApp, version: String, build: Int, progress: DeployProgress?)] = []
+            var uploaded: [(app: ManagedApp, version: String, build: Int, progress: DeployProgress?, platform: Platform?)] = []
             for (i, app) in targets.enumerated() {
-                job.lines.append("")
-                job.lines.append("━━━━━━ [\(i + 1)/\(targets.count)] \(app.name) ━━━━━━")
-                switch await runOneDeploy(app, lane: lane, versionBump: nil, into: job,
-                                          batch: (i + 1, targets.count, app.name),
-                                          deferStore: lane == .appstore) {
-                case .success(let v, let b, _):
-                    ok += 1
-                    uploaded.append((app, v, b, job.progress))
-                case .incomplete(_, _, let why):   // deferStore 라 여기 오지 않지만, 오면 미완으로 센다
-                    ok += 1
-                    unfinished.append("\(app.name): \(why)")
-                case .failure(let m): fails.append("\(app.name): \(m)")
+                // PLATFORM 이 둘 이상인 앱은 플랫폼마다 한 바퀴 — 한 바퀴가 실패하면 그 앱의 나머지는 돌지 않는다
+                var counted = false
+                var failed = false
+                for p in Self.rounds(app) {
+                    let label = p.map { "\(app.name) · \($0.rawValue)" } ?? app.name
+                    job.lines.append("")
+                    job.lines.append("━━━━━━ [\(i + 1)/\(targets.count)] \(label) ━━━━━━")
+                    switch await runOneDeploy(app, lane: lane, versionBump: nil, into: job,
+                                              batch: (i + 1, targets.count, label),
+                                              deferStore: lane == .appstore, platform: p) {
+                    case .success(let v, let b, _):
+                        if !counted { ok += 1; counted = true }
+                        uploaded.append((app, v, b, job.progress, p))
+                    case .incomplete(_, _, let why):   // deferStore 라 여기 오지 않지만, 오면 미완으로 센다
+                        if !counted { ok += 1; counted = true }
+                        unfinished.append("\(label): \(why)")
+                    case .failure(let m): fails.append("\(label): \(m)"); failed = true
+                    }
+                    if failed { break }
                 }
             }
             var storeLines: [String] = []
@@ -309,13 +359,15 @@ extension Store {
                 job.lines.append("══════ 빌드 연결 · 심사 제출 — \(uploaded.count)개 ══════")
                 for (i, u) in uploaded.enumerated() {
                     job.lines.append("")
-                    job.lines.append("━━━━━━ [\(i + 1)/\(uploaded.count)] \(u.app.name) · 스토어 ━━━━━━")
+                    let label = u.platform.map { "\(u.app.name) · \($0.rawValue)" } ?? u.app.name
+                    job.lines.append("━━━━━━ [\(i + 1)/\(uploaded.count)] \(label) · 스토어 ━━━━━━")
                     // 이 앱의 업로드까지 칸을 되살려 그 뒤를 이어 칠한다
                     job.progress = u.progress
-                    job.batch = (i + 1, uploaded.count, u.app.name)
-                    let fin = await finishOnStore(u.app, version: u.version, build: u.build, into: job)
-                    storeLines.append("\(u.app.name): \(fin.summary)")
-                    if let why = fin.unfinished { unfinished.append("\(u.app.name): \(why)") }
+                    job.batch = (i + 1, uploaded.count, label)
+                    let fin = await finishOnStore(u.app, version: u.version, build: u.build, into: job,
+                                                  platform: u.platform)
+                    storeLines.append("\(label): \(fin.summary)")
+                    if let why = fin.unfinished { unfinished.append("\(label): \(why)") }
                 }
             }
             job.lines.append("")
