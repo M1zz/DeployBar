@@ -227,12 +227,13 @@ extension Store {
     // versionBump nil = 빌드만 올리기, .patch/.minor/.major = 버전 올려 배포
     /// onFinish: 끝나고 판정이 정해진 뒤 한 번 (명령줄 배포가 결과를 돌려받는 자리 — Store+Remote)
     func startDeploy(_ app: ManagedApp, lane: Deployer.Lane, versionBump: Deployer.VersionBump? = nil,
-                     onFinish: ((Job) -> Void)? = nil) {
+                     only: Platform? = nil, onFinish: ((Job) -> Void)? = nil) {
         let job = Job(title: "\(laneLabel(lane)) · \(app.name)")
         self.job = job
         Task {
             // PLATFORM 이 둘 이상이면 플랫폼마다 한 바퀴 (iOS → visionOS). 버전은 첫 바퀴가 정하고 뒤 바퀴는 따른다.
-            let rounds = Self.rounds(app)
+            // `only` 가 있으면 그 플랫폼 한 바퀴만(명령줄 --platform)
+            let rounds = only.map { [$0] } ?? Self.rounds(app)
             var outcome: DeployOutcome = .failure("시작하지 못했습니다")
             var storeNotes: [String] = []
             for (i, p) in rounds.enumerated() {

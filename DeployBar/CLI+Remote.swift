@@ -34,6 +34,8 @@ enum RemoteCLI {
             print("사용법: DeployBar --deploy <앱> [--bump patch|minor|major] [--check] [--no-wait] [--quiet]"); exit(1)
         }
         var req = ["kind": "deploy", "app": name, "lane": a.contains("--check") ? "check" : "appstore"]
+        // --platform: PLATFORM 이 둘 이상인 앱에서 그 플랫폼 하나만 돌린다(심사 판정도 그 플랫폼 것만 본다)
+        if let p = value("--platform") { req["platform"] = p }
         if let b = value("--bump") {
             guard ["patch", "minor", "major"].contains(b) else { print("--bump 은 patch · minor · major 중 하나"); exit(1) }
             req["bump"] = b

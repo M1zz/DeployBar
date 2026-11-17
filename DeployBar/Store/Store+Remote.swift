@@ -96,9 +96,28 @@ extension Store {
             default: nil
         }
 
+        // --platform: 그 플랫폼 하나만. 심사 중 판정도 그 플랫폼의 버전으로 한다 —
+        // iOS 가 심사 중이어도 Mac 업로드는 그 심사를 건드리지 않는다.
+        var only: Platform?
+        if let raw = info["platform"] {
+            guard let p = Platform.parse(raw), AppRepo.resolve(app).platforms.contains(p) else {
+                return replyRemote(id, "rejected", "\(app.name) 의 PLATFORM 에 '\(raw)' 이 없습니다")
+            }
+            only = p
+        }
+
         // 카드에 남은 값은 몇 분 전 것일 수 있다 — 누르기 직전에 이 앱만 다시 본다 (pull 은 배포가 한다)
-        await refreshApp(app.path, fresh: true, pull: false)
-        guard let st = statuses.first(where: { $0.path == app.path }) else {
+        // 한 플랫폼만이면 카드(앱 전체 기준)를 거치지 않고 그 플랫폼 상태를 직접 읽는다 —
+        // 카드는 전체 조회 중이면 갱신을 건너뛰어 다른 플랫폼의 심사 상태가 남는다.
+        var onePlatform: AppStatus?
+        if let only {
+            Self.enterPlatform(app, only)
+            onePlatform = await Status.of(app, fresh: true, sync: nil)
+            Self.leavePlatform(app, only)
+        } else {
+            await refreshApp(app.path, fresh: true, pull: false)
+        }
+        guard let st = onePlatform ?? statuses.first(where: { $0.path == app.path }) else {
             return replyRemote(id, "rejected", "\(app.name) 상태를 읽지 못했습니다")
         }
         if lane == .appstore {
@@ -118,7 +137,7 @@ extension Store {
             }
         }
 
-        startDeploy(app, lane: lane, versionBump: bump) { [weak self] job in
+        startDeploy(app, lane: lane, versionBump: bump, only: only) { [weak self] job in
             self?.replyRemote(id, "done", job.verdict?.line ?? "끝 — 판정 없음", log: job.logFile?.path ?? "")
         }
         replyRemote(id, "accepted", "\(app.name) \(laneLabel(lane)) 배포를 시작했습니다\(bump.map { " (버전 올리기: \($0))" } ?? "")",
