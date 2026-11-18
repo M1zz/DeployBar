@@ -132,6 +132,9 @@ SCHEME=Rereminder
 # archive·업로드·빌드 연결·스크린샷·심사 제출을 따로 한다. 첫 것이 카드에 보이는 대표 플랫폼이다.
 # 스크린샷은 한 폴더(docs/screenshots/<언어>/)에 같이 둔다. 크기로 가르므로 visionOS 그림은
 # 3840×2160(시뮬레이터 캡처 그대로) 이면 된다. 명령줄에서 한 플랫폼만 보려면 --platform visionos.
+# 플랫폼마다 스킴 · 검사가 따로면(아이폰 앱 + 맥 앱 타깃) 그 바퀴에서만 쓰는 값을 `키_플랫폼` 으로 적는다:
+#   SCHEME_MACOS=WeekBlocks · PREDEPLOY_SCRIPT_MACOS=macOS/scripts/predeploy.sh
+# 어느 키든 된다(VERSION_XCCONFIG_MACOS 도). 없으면 공통 키를 쓴다.
 PLATFORM=ios
 
 # 권장: 버전·빌드번호의 단일 소스 (앱 폴더 기준 상대경로)

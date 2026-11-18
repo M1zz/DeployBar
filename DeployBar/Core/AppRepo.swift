@@ -240,7 +240,13 @@ enum AppRepo {
         }
         let envA = Config.loadEnv(dir.appendingPathComponent("deploy.env"))
         let envB = Config.loadEnv(dir.appendingPathComponent("fastlane/.env"))
-        func pick(_ k: String) -> String? { envA[k] ?? envB[k] }
+        // 플랫폼 바퀴(PLATFORM=ios,macos) 안에서는 `키_플랫폼` 이 먼저다 — SCHEME_MACOS=WeekBlocks 처럼.
+        // 한 레포에 플랫폼마다 타깃 · 스킴이 따로인 앱(아이폰 + 맥 앱)을 위한 것. 없으면 공통 키를 쓴다.
+        let suffix = runPlatform.get(app.path).map { "_" + $0.envName.uppercased() }
+        func pick(_ k: String) -> String? {
+            if let s = suffix, let v = envA[k + s] ?? envB[k + s] { return v }
+            return envA[k] ?? envB[k]
+        }
         // 적지 않았으면 켜짐 — 끄는 쪽이 명시적이어야 한다 (off·false·0·no)
         func isOn(_ v: String?) -> Bool {
             guard let v = v?.trimmingCharacters(in: .whitespaces).lowercased(), !v.isEmpty else { return true }
