@@ -26,6 +26,7 @@ enum StorePublish {
         var previewWait: TimeInterval = 600
         var ageRating = true          // APPSTORE.md 가 "해당 없음" 이라고 적었을 때만
         var accessibility = true      // APPSTORE.md 의 `## 손쉬운 사용` → '앱의 손쉬운 사용' (절이 없으면 안 건드린다)
+        var reviewNotes = true        // APPSTORE.md 의 `## 심사 메모` → 앱 심사 정보 ▸ 메모 (절이 없으면 안 건드린다)
         /// 스토어에 이미 글이 있어도 레포 글로 덮어쓸지. **기본은 덮어쓴다 — 레포가 원본이다.**
         ///
         /// 예전 기본은 false 였다(웹에서 고친 문구를 말없이 되돌리지 않으려고). 그런데 그 탓에
@@ -187,6 +188,33 @@ enum StorePublish {
         if options.accessibility, let repo = A11y.read(app.path) {
             let o = await A11y.sync(appId: appId, repo: repo, dryRun: options.dryRun, onLog: onLog)
             report.changed += o.changed; report.kept += o.kept; report.warnings += o.warnings
+        }
+
+        // 5-2) 심사 메모 — APPSTORE.md `## 심사 메모` 가 원본. 조건이 있어야 보이는 인앱을 심사관이 못 찾아
+        //      2.1(b) 로 멈추는 일을 막는 칸이다. 새 버전은 애플이 이전 메모를 복사해 넣으므로
+        //      키워드처럼 늘 레포가 이긴다(옛 글은 로그에 남긴다).
+        if options.reviewNotes, options.text, let notes = meta?.reviewNotes {
+            if notes.count > StoreMeta.reviewNotesLimit {
+                report.warnings.append("심사 메모가 \(notes.count)자 — \(StoreMeta.reviewNotesLimit)자까지라 올리지 않았습니다")
+            } else {
+                do {
+                    let cur = try await ASCClient.reviewDetail(versionId: version.id)
+                    if cur?.notes == notes {
+                        report.kept.append("심사 메모는 이미 같습니다")
+                    } else if options.dryRun {
+                        report.changed.append("심사 메모 \(notes.count)자 (미리보기)")
+                    } else {
+                        try await ASCClient.setReviewNotes(versionId: version.id, existing: cur, notes: notes)
+                        if let old = cur?.notes, !old.isEmpty {
+                            onLog("📝 심사 메모 교체 — 이전 글:\n\(old)")
+                        }
+                        report.changed.append("심사 메모 \(notes.count)자")
+                        onLog("📝 심사 메모를 APPSTORE.md 로 맞췄습니다")
+                    }
+                } catch {
+                    report.warnings.append("심사 메모를 올리지 못했습니다: \(reason(error))")
+                }
+            }
         }
 
         // 6) 우리가 손댈 수 없는 것들을 **확인만** 해서 알려 준다.

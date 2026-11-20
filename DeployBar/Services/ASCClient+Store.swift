@@ -148,6 +148,38 @@ extension ASCClient {
                           body: try JSONSerialization.data(withJSONObject: payload))
     }
 
+    // ── 앱 심사 정보 ▸ 메모 ─────────────────────────────────────────────
+    // 버전마다 하나. 연락처·데모 계정도 같은 리소스지만 여기선 메모만 다룬다.
+    struct ReviewDetail { let id: String; let notes: String }
+    static func reviewDetail(versionId: String) async throws -> ReviewDetail? {
+        let j: [String: Any]
+        do {
+            j = try await api("GET", "/v1/appStoreVersions/\(versionId)/appStoreReviewDetail"
+                + "?fields[appStoreReviewDetails]=notes")
+        } catch let e as APIError where e.status == 404 { return nil }
+        guard let d = j["data"] as? [String: Any], let id = d["id"] as? String else { return nil }
+        let a = d["attributes"] as? [String: Any] ?? [:]
+        return ReviewDetail(id: id, notes: a["notes"] as? String ?? "")
+    }
+
+    /// 있으면 고치고, 없으면 만든다.
+    static func setReviewNotes(versionId: String, existing: ReviewDetail?, notes: String) async throws {
+        if let existing {
+            let payload: [String: Any] = ["data": [
+                "type": "appStoreReviewDetails", "id": existing.id, "attributes": ["notes": notes],
+            ]]
+            _ = try await api("PATCH", "/v1/appStoreReviewDetails/\(existing.id)",
+                              body: try JSONSerialization.data(withJSONObject: payload))
+        } else {
+            let payload: [String: Any] = ["data": [
+                "type": "appStoreReviewDetails", "attributes": ["notes": notes],
+                "relationships": ["appStoreVersion": ["data": ["type": "appStoreVersions", "id": versionId]]],
+            ]]
+            _ = try await api("POST", "/v1/appStoreReviewDetails",
+                              body: try JSONSerialization.data(withJSONObject: payload))
+        }
+    }
+
     // ── 앱 정보 (이름·부제·개인정보처리방침 URL) ─────────────────────────
     // 버전과 별개로 앱 전체에 붙는 값이다. 그래서 appInfo 라는 다른 리소스를 탄다.
     struct AppInfoRef { let id: String; let state: String }

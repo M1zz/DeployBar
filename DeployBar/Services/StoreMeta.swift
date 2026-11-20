@@ -52,6 +52,9 @@ enum StoreMeta {
         /// 사람이 `## 연령 등급` 절에 "해당 없음" 이라고 적어 뒀나.
         /// 애플에 하는 내용 신고라서 도구가 알아서 정하지 않는다 — 사람의 뜻만 전달한다.
         var ageRatingNone: Bool = false
+        /// `## 심사 메모` 절 — App Store Connect ▸ 앱 심사 정보 ▸ 메모. 언어와 무관한 한 덩어리.
+        /// 조건이 있어야 보이는 인앱(올리기 · 졸업가 등)을 심사관이 찾는 길을 여기 적는다.
+        var reviewNotes: String?
         var locales: [String] { Locales.sorted(Array(entries.keys)) }
     }
 
@@ -79,8 +82,9 @@ enum StoreMeta {
             let path = (dir as NSString).appendingPathComponent(name)
             guard let body = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
             let parsed = parse(body, locales: locales)
-            guard !parsed.entries.isEmpty || parsed.ageRatingNone else { continue }
-            return Found(entries: parsed.entries, source: name, ageRatingNone: parsed.ageRatingNone)
+            guard !parsed.entries.isEmpty || parsed.ageRatingNone || parsed.reviewNotes != nil else { continue }
+            return Found(entries: parsed.entries, source: name, ageRatingNone: parsed.ageRatingNone,
+                         reviewNotes: parsed.reviewNotes)
         }
         return nil
     }
@@ -91,9 +95,11 @@ enum StoreMeta {
     }
 
     private static func parse(_ body: String, locales: [String])
-        -> (entries: [String: Entry], ageRatingNone: Bool) {
+        -> (entries: [String: Entry], ageRatingNone: Bool, reviewNotes: String?) {
         var entries: [String: Entry] = [:]
         var ageRatingNone = false
+        var reviewNotes: String?
+        var inReview = false             // `## 심사 메모` 절 — `###` 까지 본문으로 통째로 받는다
 
         var locale: String?              // 지금 읽고 있는 언어 절
         var inAgeRating = false
@@ -131,19 +137,36 @@ enum StoreMeta {
                 flushField()
                 field = nil
                 let title = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                if isReviewNotesTitle(title) {
+                    inReview = true; locale = nil; inAgeRating = false
+                    continue
+                }
+                if inReview { reviewNotes = nonEmpty(clean(buf)); buf = []; inReview = false }
                 inAgeRating = Locales.normalizeName(title).contains("연령")
                     || title.lowercased().contains("age rating")
                 locale = inAgeRating ? nil : sectionLocale(title, among: locales)
-            } else if line.hasPrefix("###") {
+            } else if line.hasPrefix("###") && !inReview {
                 flushField()
                 field = String(line.drop { $0 == "#" }).trimmingCharacters(in: .whitespaces)
             } else {
                 buf.append(line)
             }
         }
-        flushField()
-        return (entries, ageRatingNone)
+        if inReview { reviewNotes = nonEmpty(clean(buf)) } else { flushField() }
+        return (entries, ageRatingNone, reviewNotes)
     }
+
+    /// `## 심사 메모` · `## App Review Notes` · `## 심사관에게`
+    static func isReviewNotesTitle(_ title: String) -> Bool {
+        let k = Locales.normalizeName(title)
+        return k.contains("심사메모") || k.contains("심사관") || k.contains("reviewnote")
+            || k.contains("appreview")
+    }
+
+    private static func nonEmpty(_ s: String) -> String? { s.isEmpty ? nil : s }
+
+    /// App Review 메모 칸 한도.
+    static let reviewNotesLimit = 4000
 
     /// `## 한국어` · `## ko` · `## App Store (English)` 를 다 알아본다.
     static func sectionLocale(_ title: String, among locales: [String]) -> String? {
@@ -238,6 +261,9 @@ enum StoreMeta {
             s += "\n### 이름\n\n\n### 부제\n\n\n### 설명\n\n\n### 키워드\n\n\n"
             s += "### 지원 URL\n\n\n### 개인정보처리방침 URL\n\n"
         }
+        s += "\n## 심사 메모\n\n"
+        s += "<!-- 앱 심사 정보 ▸ 메모 칸에 그대로 올라간다 (영어로, 4000자까지).\n"
+        s += "     구매해야만 보이는 인앱(올리기 · 졸업가 등)이 있으면 찾는 길을 순서대로 적는다 — 없으면 2.1(b). -->\n"
         s += "\n## 연령 등급\n\n"
         s += "<!-- 내용 문항이 전부 '해당 없음' 인 앱이면 아래 줄의 주석을 풀어라.\n"
         s += "     애플에 하는 내용 신고이므로 사람이 판단해서 적는다. -->\n"
