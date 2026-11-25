@@ -136,9 +136,13 @@ enum Status {
         // 심사에서 거부된 버전 — 고친 빌드를 다시 올리는 게 다음 일이다. 첫 출시 앱은 판매 중인 버전이 없어
         // 거부된 그 버전을 '스토어 버전' 으로 읽으므로, 이게 없으면 "로컬 v1.0 이 이미 스토어에 있음" 으로 잠겼다.
         let rejected = st.reviewState.map(ASCState.isRejected) ?? false
+        // 첫 출시 — 스토어에 빈 버전만 만들어 두고 빌드는 한 번도 올리지 않았다. 그 버전 번호는 '나간 버전' 이 아니다.
+        // (없으면 로컬 v1.0 = 스토어 v1.0 으로 읽어 "올릴 변경 없음" 으로 잠겼다. 조주기능사실기 1.0)
+        let neverUploaded = st.ascError == nil && st.liveVersion != nil
+            && st.liveState != "READY_FOR_SALE" && st.ascBuild == nil
         if st.dirty { st.state = .dev }
         // 기준점이 있으면 변경만 본다. 번호만 올린 커밋도 앱에 들어가는 파일(xcconfig·pbxproj)이라 변경으로 잡힌다.
-        else if base != nil ? (commitsAhead || rejected) : (verAhead || buildAhead || rejected) { st.state = .ready }
+        else if base != nil ? (commitsAhead || rejected) : (verAhead || buildAhead || rejected || neverUploaded) { st.state = .ready }
         else { st.state = .deployed }
 
         st.prepGaps = await DeployPrep.audit(app, known: known).gaps
