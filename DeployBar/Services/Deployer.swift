@@ -356,6 +356,11 @@ enum Deployer {
             for t in StorePublish.encryptionTodo { onLog("   → \(t)") }
         }
 
+        // 서명은 App Store Connect API 키로도 한다. Xcode 계정 로그인만 믿으면, 그 로그인이 풀린 날
+        // archive 는 되고 export 가 "No Accounts · 배포 인증서 없음" 으로 막힌다(배포 인증서는 클라우드 서명이라
+        // 이 맥 키체인에 없다). 키가 있으면 xcodebuild 가 계정 대신 키로 인증서 · 프로파일을 받는다.
+        let signingAuth = Self.signingAuthArgs()
+
         // archive — 플랫폼(iOS/macOS)에 맞는 destination 사용
         onLog("🖥  플랫폼: \(info.platform.rawValue) (destination \(info.platform.destination))")
         let archivePath = workDir.appendingPathComponent("\(r.scheme).xcarchive").path
@@ -366,7 +371,7 @@ enum Deployer {
             "-destination", info.platform.destination,
             "-archivePath", archivePath,
             "-allowProvisioningUpdates", "-quiet",
-        ] + encryptionSetting, cwd: cwd,
+        ] + signingAuth + encryptionSetting, cwd: cwd,
            title: "xcodebuild archive 가 실패했습니다",
            todo: ["로그에서 **첫 번째** `error:` 줄이 원인입니다 (뒤쪽 줄은 그 여파인 경우가 많습니다)",
                   "Xcode 에서 같은 scheme 을 Product ▸ Archive 로 한 번 돌려 보면 같은 오류가 더 잘 보입니다",
@@ -393,7 +398,7 @@ enum Deployer {
             "-exportPath", exportDir.path,
             "-exportOptionsPlist", plist.path,
             "-allowProvisioningUpdates",
-        ], cwd: cwd,
+        ] + signingAuth, cwd: cwd,
            title: "xcodebuild -exportArchive 가 실패했습니다",
            todo: ["아카이브는 됐는데 서명해서 꺼내는 데서 막혔습니다 — 대개 프로비저닝 프로파일 문제입니다",
                   "Xcode ▸ Settings ▸ Accounts 에서 팀(\(info.team ?? "미지정"))이 로그인돼 있는지 확인하세요",
@@ -885,6 +890,16 @@ enum Deployer {
             }
         }
         onLog("⚠️ MARKETING_VERSION 을 찾지 못해 버전 자동 증가를 건너뜀")
+    }
+
+    /// xcodebuild 가 계정 대신 App Store Connect API 키로 서명 자산을 받게 하는 인자. 키가 없으면 비어 있다.
+    static func signingAuthArgs() -> [String] {
+        let asc = Config.asc
+        guard !asc.keyId.isEmpty, !asc.issuer.isEmpty,
+              FileManager.default.fileExists(atPath: asc.keyPath.path) else { return [] }
+        return ["-authenticationKeyPath", asc.keyPath.path,
+                "-authenticationKeyID", asc.keyId,
+                "-authenticationKeyIssuerID", asc.issuer]
     }
 
     private static func writeExportOptions(_ dir: URL, team: String?) throws -> URL {
