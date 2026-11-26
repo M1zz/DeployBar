@@ -796,6 +796,7 @@ enum StorePublish {
                 // 심사가 돌려보낸 묶음 — 문구는 위에서 맞췄으니 같은 묶음을 그대로 다시 낸다 (웹의 [다시 제출] 과 같다).
                 // 애플이 받지 않으면(409) 웹에서 눌러야 한다고 말한다.
                 onLog("📮 심사가 돌려보낸 묶음(\(open.state))을 다시 냅니다")
+                try await attachProducts(app, appId: appId, version: v, onLog: onLog)
                 do {
                     try await ASCClient.resolveRejectedItems(submissionId: open.id)
                     try await ASCClient.submit(submissionId: open.id)
@@ -823,29 +824,54 @@ enum StorePublish {
             // 409 는 '이미 들어 있음' 만이 아니다 — 버전이 아직 낼 수 없는 상태일 때도 409 다. 애플의 말을 그대로 남긴다
             onLog("📮 v\(v.versionString) 를 묶음에 넣지 못했습니다 (409) — \(e.body.prefix(4000))")
         }
-        // 준비된 인앱 구매를 같이 싣는다. 버전만 내면 심사자가 페이월에서 상품을 못 봐
-        // 거절될 수 있으므로, 싣지 못하면 **제출하지 않고** 멈춘다 (버전은 묶음에 남아 있다).
-        // 웹에서 버전과 함께 골라야 하는 상품은 모아 두었다가 한 번에 알린다 (팁 3개면 셋 다 보이게).
+        try await attachProducts(app, appId: appId, version: v, onLog: onLog)
+        try await ASCClient.submit(submissionId: submissionId)
+        onLog("✅ v\(v.versionString) 심사 제출 완료")
+        return "v\(v.versionString) 를 심사에 제출했습니다"
+    }
+
+    /// 아직 애플에 안 낸 인앱 구매 · 구독을 이번 심사에 싣는다. **하나라도 못 실으면 던진다** — 버전만 내면
+    /// 심사자가 페이월에서 유료 요금제를 보고 '인앱 상품 미제출'(지침 2.1(b))로 거절한다.
+    /// 스티키프레젠터 리모컨 1.2.0 이 그렇게 두 번 돌아왔다: 첫 거절 뒤 [다시 제출] 길은 상품을 아예 보지 않았고,
+    /// 구독은 싣는 길(subscriptionSubmissions)이 없었다. 그래서 새 제출 · 다시 제출 모두 여기를 지나고,
+    /// 버전을 내는 건 이 함수가 끝난 **뒤**다.
+    static func attachProducts(_ app: ManagedApp, appId: String, version v: ASCClient.Version,
+                               onLog: @escaping (String) -> Void) async throws {
+        let products: [ASCClient.StoreProduct]
+        do { products = try await ASCClient.storeProducts(appId: appId) } catch {
+            throw err(app, "심사 제출", "인앱 상품 상태를 읽지 못해 제출하지 않았습니다",
+                      ["잠시 뒤 다시 시도하세요 — 상품을 싣지 못한 채 내면 '인앱 미제출' 로 거절됩니다",
+                       error.localizedDescription])
+        }
+        let broken = products.filter(\.needsDeveloper)
+        if !broken.isEmpty {
+            let list = broken.map { "\($0.productId)(\($0.state))" }.joined(separator: ", ")
+            throw err(app, "심사 제출", "심사에 낼 수 없는 인앱 상품이 있습니다 — \(list)", [
+                "App Store Connect ▸ 앱 ▸ 수익화 ▸ 인앱 구입 / 구독 에서 그 상품의 빠진 칸을 채우세요",
+                "흔한 이유: 심사용 스크린샷 · 가격 · 표시 이름(현지화) 빠짐, 또는 지난 심사에서 거절됨",
+                "다 채우면 상태가 '제출 준비 완료' 가 되고, 그다음 배포가 버전과 함께 싣습니다",
+            ])
+        }
         var pickOnWeb: [String] = []
-        for purchase in (try? await ASCClient.purchasesReadyToSubmit(appId: appId)) ?? [] {
+        for p in products where p.readyToSubmit {
             do {
-                try await ASCClient.submitPurchase(id: purchase.id)
-                onLog("🛒 인앱 구매 \(purchase.productId) 를 함께 싣습니다")
+                try await ASCClient.submitProduct(p)
+                onLog("🛒 \(p.kind == .subscription ? "구독" : "인앱 구매") \(p.productId) 를 함께 싣습니다")
             } catch let e as ASCClient.APIError where e.status == 409 && Self.mustPickOnWeb(e.body) {
-                pickOnWeb.append(purchase.productId)
+                pickOnWeb.append(p.productId)
+            } catch {
+                throw err(app, "심사 제출", "\(p.productId) 를 심사에 싣지 못해 제출하지 않았습니다",
+                          ["버전만 내면 '인앱 미제출' 로 거절됩니다", error.localizedDescription])
             }
         }
         if !pickOnWeb.isEmpty {
             let list = pickOnWeb.joined(separator: ", ")
-            throw err(app, "심사 제출", "첫 인앱 구매(\(list))는 웹에서 버전과 함께 골라야 합니다", [
-                "App Store Connect ▸ 앱 ▸ v\(v.versionString) ▸ '인앱 구입 및 구독' 에서 \(list) 를 고르세요",
-                "그 페이지의 [심사에 추가] → [심사 제출] 을 누르면 됩니다 — 버전과 빌드는 이미 묶음에 들어 있습니다",
-                "Apple API 는 앱의 첫 인앱 구매(첫 소모성 상품 포함)를 버전에 붙이지 못합니다. 두 번째부터는 DeployBar 가 같이 냅니다",
+            throw err(app, "심사 제출", "첫 인앱 상품 \(pickOnWeb.count)개는 웹에서 버전과 함께 골라야 합니다 — 제출하지 않았습니다", [
+                "App Store Connect ▸ 앱 ▸ v\(v.versionString) ▸ '인앱 구입 및 구독' ▸ [+] 에서 다음을 모두 고르세요: \(list)",
+                "그다음 [심사에 추가] → [심사 제출] (거절된 묶음이면 [심사에 다시 제출]) — 버전과 빌드는 이미 준비돼 있습니다",
+                "Apple API 는 앱의 첫 인앱 구매 · 첫 구독을 버전에 붙이지 못합니다. 한 번 승인되면 다음부터는 DeployBar 가 같이 냅니다",
             ])
         }
-        try await ASCClient.submit(submissionId: submissionId)
-        onLog("✅ v\(v.versionString) 심사 제출 완료")
-        return "v\(v.versionString) 를 심사에 제출했습니다"
     }
 
     /// Apple 이 "이 상품은 API 로 못 싣고, 웹의 버전 페이지에서 골라야 한다" 고 거절한 것인가.
@@ -967,6 +993,21 @@ enum StorePublish {
             let missing = wanted.filter { !have.contains($0) }
             if !missing.isEmpty {
                 let line = "인앱결제 만들기 — \(missing.joined(separator: ", ")) · 값이 돈이라 도구가 정하지 않습니다. 없으면 페이월이 빈 화면으로 뜨고 심사도 막힙니다"
+                st.human.append(line); st.blocking.append(line)
+            }
+        }
+        // 만들어 두기만 하고 애플에 낸 적 없는 상품. 앱의 **첫** 상품은 API 로 실리지 않아
+        // 웹의 버전 페이지에서 골라야 한다 — 안 고르고 내면 '인앱 미제출'(2.1(b))로 거절된다.
+        if let products = try? await ASCClient.storeProducts(appId: appId) {
+            let broken = products.filter(\.needsDeveloper).map(\.productId)
+            if !broken.isEmpty {
+                let line = "인앱 상품 빠진 칸 채우기 — \(broken.joined(separator: ", ")) · 심사용 스크린샷 · 가격 · 표시 이름을 확인하세요"
+                st.human.append(line); st.blocking.append(line)
+            }
+            let fresh = products.filter(\.readyToSubmit)
+            let neverApproved = !products.contains { ["APPROVED", "WAITING_FOR_REVIEW", "IN_REVIEW"].contains($0.state) }
+            if !fresh.isEmpty && neverApproved {
+                let line = "첫 인앱 상품 \(fresh.count)개를 버전에 붙이기 — App Store Connect ▸ 버전 페이지 ▸ '인앱 구입 및 구독' 에서 모두 고르세요 (API 로는 못 붙입니다. 안 붙이고 내면 '인앱 미제출' 로 거절)"
                 st.human.append(line); st.blocking.append(line)
             }
         }

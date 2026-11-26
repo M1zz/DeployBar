@@ -63,10 +63,15 @@ enum ASCClient {
     }
 
     // ── 조회 헬퍼 ──
+    /// ⚠️ 애플의 `filter[bundleId]` 는 **앞부분 일치**다. `com.leeo.StickyPresenter` 로 물으면
+    /// `com.leeo.StickyPresenter.Remote` 도 같이 오고, 그쪽이 먼저 올 때가 있다.
+    /// 첫 줄을 그대로 쓰면 남의 레코드에서 인앱 상품을 찾아 "없다" 고 하고, 심사에도 싣지 못한다
+    /// (스티키프레젠터 리모컨 1.2.0 이 '인앱 미제출' 로 거절된 까닭). 그래서 글자 그대로 같은 것만 고른다.
     static func appId(bundleId: String) async throws -> String? {
-        let j = try await api("GET", "/v1/apps?filter[bundleId]=\(bundleId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? bundleId)&limit=1")
-        let data = j["data"] as? [[String: Any]]
-        return data?.first?["id"] as? String
+        let j = try await api("GET", "/v1/apps?filter[bundleId]=\(bundleId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? bundleId)&limit=200&fields[apps]=bundleId")
+        let data = j["data"] as? [[String: Any]] ?? []
+        let exact = data.first { ($0["attributes"] as? [String: Any])?["bundleId"] as? String == bundleId }
+        return exact?["id"] as? String
     }
 
     struct Version { let id: String; let versionString: String; let state: String; var hasBuild: Bool = false }

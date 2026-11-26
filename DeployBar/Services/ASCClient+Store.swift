@@ -515,31 +515,65 @@ extension ASCClient {
         } catch { return false }
     }
 
-    /// 인앱결제가 코드에는 있는데 App Store Connect 에 없으면, 심사에서 반드시 막힌다.
-    /// 심사에 낼 준비가 끝난(READY_TO_SUBMIT) 인앱 구매. 버전과 함께 내야 한다.
-    struct PendingPurchase { let id: String; let productId: String }
+    /// App Store Connect 의 상품 하나 — 인앱 구매(소모성·비소모성)와 자동 갱신 구독을 같이 다룬다.
+    /// 구독은 inAppPurchasesV2 에 나오지 않고 구독 그룹 아래에만 있고, 심사에 싣는 길도 따로다.
+    struct StoreProduct {
+        enum Kind { case purchase, subscription }
+        let id: String
+        let productId: String
+        let state: String
+        let kind: Kind
 
-    static func purchasesReadyToSubmit(appId: String) async throws -> [PendingPurchase] {
-        let j = try await api("GET", "/v1/apps/\(appId)/inAppPurchasesV2?limit=50"
-            + "&fields[inAppPurchases]=productId,state")
-        let data = j["data"] as? [[String: Any]] ?? []
-        return data.compactMap { item in
-            let a = item["attributes"] as? [String: Any] ?? [:]
-            guard a["state"] as? String == "READY_TO_SUBMIT", let id = item["id"] as? String else { return nil }
-            return PendingPurchase(id: id, productId: a["productId"] as? String ?? id)
+        /// 아직 애플에 낸 적이 없고, 낼 준비는 끝난 상품. 버전과 함께 싣지 않으면
+        /// 심사자가 페이월을 보고 "인앱 상품이 심사에 안 올라왔다" 로 거절한다 (지침 2.1(b)).
+        var readyToSubmit: Bool { state == "READY_TO_SUBMIT" }
+        /// 정보가 모자라 낼 수도 없는 상품 (심사용 스크린샷 · 가격 · 현지화 빠짐, 또는 거절됨).
+        var needsDeveloper: Bool {
+            ["MISSING_METADATA", "DEVELOPER_ACTION_NEEDED", "REJECTED"].contains(state)
         }
     }
 
-    /// 인앱 구매를 다음 심사에 싣는다. **앱의 첫 인앱 구매는 여기로 실리지 않는다** —
-    /// Apple 이 "no pending version for submission"(409)으로 막고, 웹의 버전 페이지에서
-    /// '인앱 구입 및 구독' 으로 골라야만 붙는다.
-    static func submitPurchase(id: String) async throws {
-        let payload: [String: Any] = ["data": [
-            "type": "inAppPurchaseSubmissions",
-            "relationships": ["inAppPurchaseV2": ["data": ["type": "inAppPurchases", "id": id]]],
-        ]]
-        _ = try await api("POST", "/v1/inAppPurchaseSubmissions",
-                          body: try JSONSerialization.data(withJSONObject: payload))
+    static func storeProducts(appId: String) async throws -> [StoreProduct] {
+        let j = try await api("GET", "/v1/apps/\(appId)/inAppPurchasesV2?limit=200"
+            + "&fields[inAppPurchases]=productId,state")
+        var out = (j["data"] as? [[String: Any]] ?? []).compactMap { item -> StoreProduct? in
+            guard let id = item["id"] as? String else { return nil }
+            let a = item["attributes"] as? [String: Any] ?? [:]
+            return StoreProduct(id: id, productId: a["productId"] as? String ?? id,
+                                state: a["state"] as? String ?? "", kind: .purchase)
+        }
+        let g = try await api("GET", "/v1/apps/\(appId)/subscriptionGroups?limit=50&include=subscriptions"
+                              + "&fields[subscriptions]=productId,state&limit[subscriptions]=50")
+        out += (g["included"] as? [[String: Any]] ?? []).compactMap { item -> StoreProduct? in
+            guard item["type"] as? String == "subscriptions", let id = item["id"] as? String else { return nil }
+            let a = item["attributes"] as? [String: Any] ?? [:]
+            return StoreProduct(id: id, productId: a["productId"] as? String ?? id,
+                                state: a["state"] as? String ?? "", kind: .subscription)
+        }
+        return out
+    }
+
+    /// 상품을 다음 심사에 싣는다. **앱의 첫 인앱 구매 · 첫 구독은 여기로 실리지 않는다** —
+    /// Apple 이 409(`FIRST_…_MUST_BE_SUBMITTED_ON_VERSION`, "no pending version")로 막고,
+    /// 웹의 버전 페이지 '인앱 구입 및 구독' 에서 골라야만 붙는다.
+    static func submitProduct(_ p: StoreProduct) async throws {
+        let payload: [String: Any]
+        switch p.kind {
+        case .purchase:
+            payload = ["data": [
+                "type": "inAppPurchaseSubmissions",
+                "relationships": ["inAppPurchaseV2": ["data": ["type": "inAppPurchases", "id": p.id]]],
+            ]]
+            _ = try await api("POST", "/v1/inAppPurchaseSubmissions",
+                              body: try JSONSerialization.data(withJSONObject: payload))
+        case .subscription:
+            payload = ["data": [
+                "type": "subscriptionSubmissions",
+                "relationships": ["subscription": ["data": ["type": "subscriptions", "id": p.id]]],
+            ]]
+            _ = try await api("POST", "/v1/subscriptionSubmissions",
+                              body: try JSONSerialization.data(withJSONObject: payload))
+        }
     }
 
     /// 버전에 붙은 빌드와, 그 빌드가 수출 규정 준수(암호화) 질문에 답했는지. answer 가 nil 이면 답이 비어 있다.
