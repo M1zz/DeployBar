@@ -866,10 +866,12 @@ enum StorePublish {
         }
         if !pickOnWeb.isEmpty {
             let list = pickOnWeb.joined(separator: ", ")
-            throw err(app, "심사 제출", "첫 인앱 상품 \(pickOnWeb.count)개는 웹에서 버전과 함께 골라야 합니다 — 제출하지 않았습니다", [
-                "App Store Connect ▸ 앱 ▸ v\(v.versionString) ▸ '인앱 구입 및 구독' ▸ [+] 에서 다음을 모두 고르세요: \(list)",
-                "그다음 [심사에 추가] → [심사 제출] (거절된 묶음이면 [심사에 다시 제출]) — 버전과 빌드는 이미 준비돼 있습니다",
-                "Apple API 는 앱의 첫 인앱 구매 · 첫 구독을 버전에 붙이지 못합니다. 한 번 승인되면 다음부터는 DeployBar 가 같이 냅니다",
+            throw err(app, "심사 제출", "첫 인앱 상품 \(pickOnWeb.count)개는 웹에서 심사 초안에 넣어야 합니다 — 제출하지 않았습니다", [
+                "v\(v.versionString) 와 빌드는 이미 'iOS/macOS 제출 초안' 에 들어 있습니다",
+                "App Store Connect ▸ 수익화 ▸ 앱 내 구입 ▸ 상품마다 [심사에 추가 ▾] ▸ 그 제출 초안 — \(list)",
+                "구독은 구독 그룹 페이지에서도 [심사에 추가 ▾] ▸ 제출 초안 (그룹이 빠지면 '자동 갱신 구독은 구독 그룹으로 제출' 경고로 제출이 막힙니다)",
+                "초안 패널의 경고가 사라지면 [심사를 위해 제출]. 버전 페이지에는 '인앱 구입 및 구독' 칸이 없습니다 (2026-11)",
+                "Apple API 는 앱의 첫 인앱 구매 · 첫 구독을 싣지 못합니다. 한 번 승인되면 다음부터는 DeployBar 가 같이 냅니다",
             ])
         }
     }
@@ -1007,7 +1009,7 @@ enum StorePublish {
             let fresh = products.filter(\.readyToSubmit)
             let neverApproved = !products.contains { ["APPROVED", "WAITING_FOR_REVIEW", "IN_REVIEW"].contains($0.state) }
             if !fresh.isEmpty && neverApproved {
-                let line = "첫 인앱 상품 \(fresh.count)개를 버전에 붙이기 — App Store Connect ▸ 버전 페이지 ▸ '인앱 구입 및 구독' 에서 모두 고르세요 (API 로는 못 붙입니다. 안 붙이고 내면 '인앱 미제출' 로 거절)"
+                let line = "첫 인앱 상품 \(fresh.count)개를 심사 초안에 넣기 — 수익화 ▸ 상품마다 · 구독 그룹마다 [심사에 추가 ▾] ▸ 제출 초안 (API 로는 못 넣습니다. 안 넣고 내면 '인앱 미제출' 로 거절)"
                 st.human.append(line); st.blocking.append(line)
             }
         }
