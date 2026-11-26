@@ -57,9 +57,9 @@ struct AppCard: View {
 
     // 버전 줄의 스토어 상태 색도 점·버튼과 같은 뜻이어야 한다.
     //   보라 = 내가 냈고 심사 중 · 빨강 = 거부됨 · 파랑 = 아직 안 낸 상태(제출 준비)
-    private var reviewColor: Color {
-        guard let s = status.reviewState else { return .blue }
-        if s.contains("REJECT") || s == "INVALID_BINARY" { return .red }
+    private var reviewColor: Color { status.reviewState.map { reviewColor($0) } ?? .blue }
+    private func reviewColor(_ s: String) -> Color {
+        if ASCState.isRejected(s) { return .red }
         return ASCState.isSubmitted(s) ? .purple : .blue
     }
 
@@ -161,8 +161,7 @@ struct AppCard: View {
             Text(status.error ?? "오류").font(.subheadline).foregroundStyle(.red).lineLimit(2)
         } else {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                labeled("스토어", status.liveVersion.map { "v\($0)" } ?? "아직 없음",
-                        weight: .regular, color: .secondary)
+                storeColumn
                 if isDone {
                     // 라벨 줄 높이를 맞춰 값끼리 같은 줄에 놓이게 한다
                     VStack(alignment: .leading, spacing: 1) {
@@ -432,6 +431,32 @@ struct AppCard: View {
         .buttonStyle(.plain)
         .disabled(store.job?.running == true)
         .help(help.joined(separator: "\n"))
+    }
+
+    /// 스토어에 나가 있는 버전. 플랫폼이 둘 이상인 앱(iOS + macOS)은 플랫폼마다 한 줄 —
+    /// 대표 플랫폼 하나만 보이면 다른 쪽이 심사 중이거나 거부돼도 카드에서 알 수 없다.
+    @ViewBuilder private var storeColumn: some View {
+        if let rows = status.platformRows, rows.count > 1 {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("스토어").font(.caption2).foregroundStyle(.tertiary)
+                ForEach(rows) { row in
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(row.platform).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            .frame(minWidth: 44, alignment: .leading)
+                        Text(row.liveVersion.map { "v\($0)" } ?? "아직 없음")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                        if let s = row.reviewState {
+                            Text("v\(row.reviewVersion ?? "?") \(ASCState.label(s) ?? s)")
+                                .font(.caption.weight(.semibold)).foregroundStyle(reviewColor(s))
+                        }
+                    }
+                    .lineLimit(1)
+                }
+            }
+        } else {
+            labeled("스토어", status.liveVersion.map { "v\($0)" } ?? "아직 없음",
+                    weight: .regular, color: .secondary)
+        }
     }
 
     private func labeled(_ label: String, _ value: String,

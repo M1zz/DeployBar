@@ -236,14 +236,18 @@ extension Store {
             let rounds = only.map { [$0] } ?? Self.rounds(app)
             var outcome: DeployOutcome = .failure("시작하지 못했습니다")
             var storeNotes: [String] = []
+            let label = { (p: Platform) in "\(app.name) · \(p.rawValue)" }
+            job.queue = rounds.count > 1 ? rounds.compactMap { $0.map { .init(label: label($0)) } } : []
             for (i, p) in rounds.enumerated() {
                 if let p {
                     job.lines.append("")
-                    job.lines.append("━━━━━━ [\(i + 1)/\(rounds.count)] \(app.name) · \(p.rawValue) ━━━━━━")
+                    job.lines.append("━━━━━━ [\(i + 1)/\(rounds.count)] \(label(p)) ━━━━━━")
+                    job.setQueue(label(p), .running)
                 }
                 outcome = await runOneDeploy(app, lane: lane, versionBump: i == 0 ? versionBump : nil, into: job,
-                                             batch: p.map { (i + 1, rounds.count, "\(app.name) · \($0.rawValue)") },
+                                             batch: p.map { (i + 1, rounds.count, label($0)) },
                                              platform: p)
+                if let p { job.setQueue(label(p), outcome.queueState, outcome.queueNote) }
                 if case .success(_, _, let note) = outcome, let p, let note { storeNotes.append("\(p.rawValue) \(note)") }
                 if case .failure = outcome { break }
                 if case .incomplete = outcome { break }
@@ -323,6 +327,11 @@ extension Store {
             return
         }
         batchRunning = true
+        // 대기열: 앱 · 플랫폼 바퀴 전부를 처음부터 세워 둔다 — 무엇이 밀려 있는지 화면에 보이게
+        job.queue = targets.flatMap { app in
+            Self.rounds(app).map { Job.QueueItem(label: $0.map { "\(app.name) · \($0.rawValue)" } ?? app.name) }
+        }
+        job.queueExcluded = excluded.map { "\($0.name) — \(Store.exclusionReason($0))" }
         Task {
             job.lines.append("배포 순서: \(targets.map { $0.name }.joined(separator: " → "))")
             reportExcluded()
@@ -340,9 +349,17 @@ extension Store {
                     let label = p.map { "\(app.name) · \($0.rawValue)" } ?? app.name
                     job.lines.append("")
                     job.lines.append("━━━━━━ [\(i + 1)/\(targets.count)] \(label) ━━━━━━")
-                    switch await runOneDeploy(app, lane: lane, versionBump: nil, into: job,
-                                              batch: (i + 1, targets.count, label),
-                                              deferStore: lane == .appstore, platform: p) {
+                    job.setQueue(label, .running)
+                    let outcome = await runOneDeploy(app, lane: lane, versionBump: nil, into: job,
+                                                     batch: (i + 1, targets.count, label),
+                                                     deferStore: lane == .appstore, platform: p)
+                    // 스토어 제출을 뒤로 미룬 바퀴는 업로드까지만 끝난 것 — 심사 제출 차례를 기다린다
+                    if case .success = outcome, lane == .appstore {
+                        job.setQueue(label, .uploaded, "업로드 끝 · 심사 제출 차례 기다림")
+                    } else {
+                        job.setQueue(label, outcome.queueState, outcome.queueNote)
+                    }
+                    switch outcome {
                     case .success(let v, let b, _):
                         if !counted { ok += 1; counted = true }
                         uploaded.append((app, v, b, job.progress, p))
@@ -365,10 +382,12 @@ extension Store {
                     // 이 앱의 업로드까지 칸을 되살려 그 뒤를 이어 칠한다
                     job.progress = u.progress
                     job.batch = (i + 1, uploaded.count, label)
+                    job.setQueue(label, .running, "심사 제출 중")
                     let fin = await finishOnStore(u.app, version: u.version, build: u.build, into: job,
                                                   platform: u.platform)
                     storeLines.append("\(label): \(fin.summary)")
                     if let why = fin.unfinished { unfinished.append("\(label): \(why)") }
+                    job.setQueue(label, fin.unfinished == nil ? .done : .incomplete, fin.unfinished ?? fin.summary)
                 }
             }
             job.lines.append("")

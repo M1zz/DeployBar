@@ -55,6 +55,15 @@ enum Status {
                     st.reviewState = inflight.state
                     st.reviewVersion = inflight.versionString
                 }
+                // 플랫폼이 둘 이상이면 나머지 플랫폼의 버전도 읽어 카드에 따로 보인다 (대표는 위에서 읽은 것 그대로)
+                if r.platforms.count > 1 {
+                    var rows: [AppStatus.PlatformRow] = []
+                    for p in r.platforms {
+                        let pv = p == info.platform ? vers : try await ASCClient.appStoreVersions(appId: id, platform: p)
+                        rows.append(Self.platformRow(p, pv))
+                    }
+                    st.platformRows = rows
+                }
                 let upload = try await ASCClient.latestUpload(appId: id, platform: info.platform)
                 st.ascBuild = upload?.build
                 st.ascBuildVersion = upload?.version
@@ -151,6 +160,14 @@ enum Status {
         // 상태가 정해진 뒤에 준비 체크리스트를 만든다 (판정 결과를 그대로 쓴다)
         st.readiness = Readiness.evaluate(app, status: st)
         return st
+    }
+
+    /// 한 플랫폼의 버전 목록 → 카드 한 줄 (판매 중 버전과 진행 중 버전). 위의 대표 플랫폼 읽기와 같은 규칙.
+    static func platformRow(_ p: Platform, _ vers: [ASCClient.Version]) -> AppStatus.PlatformRow {
+        let live = vers.first { $0.state == "READY_FOR_SALE" } ?? vers.first
+        let inflight = vers.first { ASCState.isInflight($0.state) }
+        return .init(platform: p.rawValue, liveVersion: live?.versionString, liveState: live?.state,
+                     reviewState: inflight?.state, reviewVersion: inflight?.versionString)
     }
 
     static func all(fresh: Bool = false, pull: Bool = false) async -> [AppStatus] {

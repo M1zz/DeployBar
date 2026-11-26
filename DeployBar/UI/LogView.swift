@@ -83,6 +83,7 @@ struct LogView: View {
 
             // 지금 어디까지 왔나 — 로그를 읽기 전에 이것부터 답한다
             if let job = store.job, job.progress != nil {
+                DeployQueueView(job: job)
                 DeployProgressPanel(job: job)
                 Divider()
             }

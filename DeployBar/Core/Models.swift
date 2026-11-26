@@ -232,6 +232,18 @@ struct AppStatus: Identifiable, Codable {
     /// 옵셔널 — 옛 status-cache.json 에 없어도 읽히게, 배포한 적 없는 앱은 nil.
     var lastDeployAt: Date?
     var lastDeployLabel: String?
+    /// PLATFORM 이 둘 이상인 앱(iOS + macOS 처럼)의 플랫폼별 스토어 상태. deploy.env 에 적힌 순서, 대표가 맨 앞.
+    /// 위의 liveVersion · reviewState 는 대표 플랫폼 것뿐이라, 이게 없으면 Mac 이 심사 중이어도 카드에 안 보인다.
+    /// nil = 플랫폼이 하나뿐(또는 옛 status-cache.json).
+    var platformRows: [PlatformRow]?
+    struct PlatformRow: Codable, Equatable, Identifiable {
+        var platform: String          // Platform.rawValue ("iOS" · "macOS" · "visionOS")
+        var liveVersion: String?
+        var liveState: String?
+        var reviewState: String?
+        var reviewVersion: String?
+        var id: String { platform }
+    }
 
     // "지금 배포하려면 뭐가 필요한가" — 카드에서 바로 보여 주는 체크리스트
     var readiness: Readiness = Readiness()

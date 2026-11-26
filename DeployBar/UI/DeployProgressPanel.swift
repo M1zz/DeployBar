@@ -175,3 +175,118 @@ struct DeployProgressPanel: View {
         }
     }
 }
+
+// 배포 대기열. 전체 배포나 플랫폼이 둘 이상인 배포에서 진행 패널 위에 붙는다.
+//
+// 진행 패널이 "이 바퀴가 어디까지 왔나" 를 말한다면, 이쪽은 "줄 전체가 어떻게 섰나" 를 말한다.
+// 로그의 "배포 순서: A → B → C" 한 줄로는 지금 몇 번째이고 뒤에 무엇이 밀려 있는지 보이지 않았다.
+//   지금   — 도는 바퀴 (굵게)
+//   다음   — 아직 안 돈 바퀴, 그 뒤에 심사 제출 차례를 기다리는 바퀴 (실제로 도는 순서)
+//   끝남   — 결과 표시만 한 줄로 (실패 · 미완은 빨강 · 주황으로 눈에 띄게)
+struct DeployQueueView: View {
+    @ObservedObject var job: Job
+    var compact = false
+    @State private var showAllNext = false
+
+    private typealias Item = Job.QueueItem
+    private let ink = Color.primary.opacity(0.78)
+    private let dim = Color.primary.opacity(0.55)
+
+    private var now: [Item] { job.queue.filter { $0.state == .running } }
+    /// 실제로 돌 순서: 업로드 차례 → 심사 제출 차례
+    private var next: [Item] { job.queue.filter { $0.state == .waiting } + job.queue.filter { $0.state == .uploaded } }
+    private var finished: [Item] { job.queue.filter { [.done, .incomplete, .failed, .skipped].contains($0.state) } }
+
+    var body: some View {
+        if !job.queue.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                header
+                ForEach(now) { row($0, emphasis: true) }
+                nextList
+                if !finished.isEmpty { finishedLine }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.03))
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "list.number").font(.system(size: 11, weight: .semibold)).foregroundStyle(ink)
+            Text("배포 대기열").font(.caption.weight(.semibold))
+            Text("끝 \(finished.count) · 지금 \(now.count) · 남음 \(next.count)")
+                .font(.caption.monospacedDigit()).foregroundStyle(ink)
+            Spacer(minLength: 4)
+            if !job.queueExcluded.isEmpty {
+                Text("빠진 앱 \(job.queueExcluded.count)")
+                    .font(.caption).foregroundStyle(dim)
+                    .help(job.queueExcluded.joined(separator: "\n"))
+            }
+        }
+    }
+
+    @ViewBuilder private var nextList: some View {
+        let limit = compact ? 3 : 6
+        let shown = showAllNext ? next : Array(next.prefix(limit))
+        ForEach(Array(shown.enumerated()), id: \.element.id) { i, item in
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Text("\(i + 1)").font(.caption2.monospacedDigit()).foregroundStyle(dim)
+                    .frame(width: 13, alignment: .trailing)
+                Text(item.label).font(.caption).foregroundStyle(ink).lineLimit(1)
+                if item.state == .uploaded {
+                    Text("업로드 끝 · 심사 제출 차례").font(.caption2).foregroundStyle(.blue)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        if next.count > limit {
+            Button(showAllNext ? "접기" : "외 \(next.count - limit)개 더 보기") { showAllNext.toggle() }
+                .buttonStyle(.plain).font(.caption).foregroundStyle(.blue)
+                .padding(.leading, 20)
+        }
+    }
+
+    private func row(_ item: Item, emphasis: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            ProgressView().controlSize(.mini).scaleEffect(0.8).frame(width: 13)
+            Text(item.label).font(.caption.weight(.semibold)).lineLimit(1)
+            if let n = item.note { Text(n).font(.caption).foregroundStyle(ink).lineLimit(1) }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// 끝난 바퀴는 결과 표시만 — 길게 늘어놓으면 '다음' 이 화면 밖으로 밀려난다
+    private var finishedLine: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(finished) { item in
+                    HStack(spacing: 3) {
+                        Image(systemName: icon(item.state)).font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(color(item.state))
+                        Text(item.label).font(.caption2)
+                            .foregroundStyle(item.state == .done || item.state == .skipped ? dim : color(item.state))
+                    }
+                    .help(item.note ?? "")
+                }
+            }
+        }
+    }
+
+    private func icon(_ s: Item.State) -> String {
+        switch s {
+        case .done: return "checkmark"
+        case .incomplete: return "exclamationmark.triangle.fill"
+        case .failed: return "xmark"
+        default: return "minus"
+        }
+    }
+    private func color(_ s: Item.State) -> Color {
+        switch s {
+        case .done: return .green
+        case .incomplete: return .orange
+        case .failed: return .red
+        default: return dim
+        }
+    }
+}

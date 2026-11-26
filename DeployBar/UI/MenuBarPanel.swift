@@ -75,6 +75,7 @@ struct MenuBarPanel: View {
     // ── 배포 중: 이 화면이 존재하는 첫 번째 이유 ──────────────────────
     // 창을 닫아 놓고도 "지금 어디쯤인가" 를 알 수 있어야 메뉴바가 쓸모를 갖는다.
     @ViewBuilder private func runningSection(_ job: Job) -> some View {
+        DeployQueueView(job: job, compact: true)
         DeployProgressPanel(job: job, compact: true)
         HStack(spacing: 6) {
             Button {

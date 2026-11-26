@@ -8,7 +8,14 @@ final class Job: ObservableObject {
     /// 훅을 append 자리마다 두지 않고 didSet 에 두는 이유는, 새 로그 줄을 더하는
     /// 코드가 앞으로도 여기저기 생길 텐데 그때마다 파일 쓰기를 잊지 않게 하기 위해서다.
     @Published var lines: [String] = [] { didSet { flushToFile() } }
-    @Published var running = true { didSet { if !running { closeFile() } } }
+    @Published var running = true {
+        didSet {
+            guard !running else { return }
+            // 끝났는데 아직 대기인 바퀴는 앞에서 멈춰 돌지 못한 것이다
+            for i in queue.indices where queue[i].state == .waiting { queue[i].state = .skipped }
+            closeFile()
+        }
+    }
     @Published var error: String?
     /// 마지막 실패를 구조로 들고 있는다 — 로그 창이 '지금 할 일' 을 그릴 수 있도록.
     /// 문자열만 남기면 사람이 수백 줄 로그를 거슬러 올라가 원인을 찾아야 한다.
@@ -37,6 +44,25 @@ final class Job: ObservableObject {
     @Published var progress: DeployProgress?
     /// 전체 배포에서 지금 몇 번째 앱인가 (단일 배포면 nil)
     @Published var batch: (index: Int, total: Int, name: String)?
+
+    /// 배포 대기열 — 이번 작업이 돌 바퀴(앱 · 플랫폼) 전부. 하나만 도는 배포면 비어 있다.
+    /// 로그 한 줄("배포 순서: A → B → C")로는 지금 무엇이 밀려 있는지 보이지 않아서 따로 든다.
+    @Published var queue: [QueueItem] = []
+    /// 전체 배포에서 대상에서 빠진 앱과 그 이유 (대기열 아래에 한 줄로)
+    @Published var queueExcluded: [String] = []
+
+    struct QueueItem: Identifiable {
+        enum State { case waiting, running, uploaded, done, incomplete, failed, skipped }
+        let id = UUID()
+        let label: String
+        var state: State = .waiting
+        var note: String?
+    }
+    func setQueue(_ label: String, _ state: QueueItem.State, _ note: String? = nil) {
+        guard let i = queue.firstIndex(where: { $0.label == label }) else { return }
+        queue[i].state = state
+        if let note { queue[i].note = note }
+    }
 
     /// 앱 하나의 배포를 시작할 때 칸을 처음 상태로 되돌린다 (전체 배포는 앱마다 다시 센다)
     func resetProgress(app: String, batch: (index: Int, total: Int, name: String)? = nil) {
@@ -400,5 +426,21 @@ final class Store: ObservableObject {
         /// 업로드는 됐지만 심사에 내지 못했다 — 사람이 이어서 해야 한다
         case incomplete(version: String, build: Int, reason: String)
         case failure(String)
+
+        /// 대기열 한 줄에 쓸 상태와 짧은 설명
+        var queueState: Job.QueueItem.State {
+            switch self {
+            case .success: return .done
+            case .incomplete: return .incomplete
+            case .failure: return .failed
+            }
+        }
+        var queueNote: String {
+            switch self {
+            case .success(let v, let b, _): return "v\(v) (\(b))"
+            case .incomplete(_, _, let why): return why
+            case .failure(let m): return m
+            }
+        }
     }
 }

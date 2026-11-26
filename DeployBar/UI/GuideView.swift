@@ -85,7 +85,7 @@ struct GuideView: View {
 
                 Section(title: "8. deploy.env — 앱의 배포 규칙 전부", icon: "doc.text") {
                     KeyRow("SCHEME", "archive 할 scheme", required: true)
-                    KeyRow("PLATFORM", "ios | macos — 자동 판별이 틀릴 때만")
+                    KeyRow("PLATFORM", "ios | macos | visionos — 자동 판별이 틀릴 때, 또는 둘 이상이면 쉼표로(ios,macos) — 플랫폼마다 한 바퀴")
                     KeyRow("VERSION_XCCONFIG", "버전·빌드번호가 든 xcconfig 경로")
                     KeyRow("PREDEPLOY_SCRIPT", "배포 전 검사 스크립트 (실패하면 배포 중단)")
                     KeyRow("LOCALES", "App Store 언어 — 다국어 검사와 릴리즈노트의 기준")
