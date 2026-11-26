@@ -797,6 +797,7 @@ enum StorePublish {
                 // 애플이 받지 않으면(409) 웹에서 눌러야 한다고 말한다.
                 onLog("📮 심사가 돌려보낸 묶음(\(open.state))을 다시 냅니다")
                 do {
+                    try await ASCClient.resolveRejectedItems(submissionId: open.id)
                     try await ASCClient.submit(submissionId: open.id)
                 } catch let e as ASCClient.APIError where e.status == 409 {
                     throw err(app, "심사 제출", "돌려보낸 묶음을 API 로 다시 내지 못했습니다 (409)",

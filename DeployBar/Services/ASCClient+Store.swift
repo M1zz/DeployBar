@@ -467,6 +467,21 @@ extension ASCClient {
                           body: try JSONSerialization.data(withJSONObject: payload))
     }
 
+    /// 심사가 돌려보낸 묶음(UNRESOLVED_ISSUES)의 거절된 항목을 '해결함' 으로 표시한다.
+    /// 이걸 하지 않고 `submitted: true` 를 보내면 409 ("This resource cannot be reviewed") 다 — 웹의 [다시 제출] 이 하는 일.
+    static func resolveRejectedItems(submissionId: String) async throws {
+        let j = try await api("GET", "/v1/reviewSubmissions/\(submissionId)/items?fields[reviewSubmissionItems]=state")
+        for item in j["data"] as? [[String: Any]] ?? [] {
+            guard let id = item["id"] as? String,
+                  (item["attributes"] as? [String: Any])?["state"] as? String == "REJECTED" else { continue }
+            let payload: [String: Any] = ["data": [
+                "type": "reviewSubmissionItems", "id": id, "attributes": ["resolved": true],
+            ]]
+            _ = try await api("PATCH", "/v1/reviewSubmissionItems/\(id)",
+                              body: try JSONSerialization.data(withJSONObject: payload))
+        }
+    }
+
     static func cancelSubmission(submissionId: String) async throws {
         let payload: [String: Any] = ["data": [
             "type": "reviewSubmissions", "id": submissionId, "attributes": ["canceled": true],

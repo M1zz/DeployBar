@@ -134,6 +134,8 @@ enum StoreMeta {
 
         for line in stripComments(body).components(separatedBy: "\n") {
             if line.hasPrefix("## ") && !line.hasPrefix("### ") {
+                // 심사 메모 절을 먼저 닫는다 — flushField 가 buf 를 비우므로 순서가 바뀌면 메모가 사라진다
+                if inReview { reviewNotes = nonEmpty(clean(buf)); buf = []; inReview = false }
                 flushField()
                 field = nil
                 let title = String(line.dropFirst(3)).trimmingCharacters(in: .whitespaces)
@@ -141,7 +143,6 @@ enum StoreMeta {
                     inReview = true; locale = nil; inAgeRating = false
                     continue
                 }
-                if inReview { reviewNotes = nonEmpty(clean(buf)); buf = []; inReview = false }
                 inAgeRating = Locales.normalizeName(title).contains("연령")
                     || title.lowercased().contains("age rating")
                 locale = inAgeRating ? nil : sectionLocale(title, among: locales)
