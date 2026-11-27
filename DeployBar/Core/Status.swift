@@ -162,9 +162,10 @@ enum Status {
         return st
     }
 
-    /// 한 플랫폼의 버전 목록 → 카드 한 줄 (판매 중 버전과 진행 중 버전). 위의 대표 플랫폼 읽기와 같은 규칙.
+    /// 한 플랫폼의 버전 목록 → 카드 한 줄 (판매 중 버전과 진행 중 버전).
+    /// 판매 중인 버전이 없으면 스토어는 비어 있다 — 제출 준비 중인 버전을 스토어 버전처럼 보이지 않는다.
     static func platformRow(_ p: Platform, _ vers: [ASCClient.Version]) -> AppStatus.PlatformRow {
-        let live = vers.first { $0.state == "READY_FOR_SALE" } ?? vers.first
+        let live = vers.first { $0.state == "READY_FOR_SALE" }
         let inflight = vers.first { ASCState.isInflight($0.state) }
         return .init(platform: p.rawValue, liveVersion: live?.versionString, liveState: live?.state,
                      reviewState: inflight?.state, reviewVersion: inflight?.versionString)

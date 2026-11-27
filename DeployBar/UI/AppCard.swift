@@ -454,7 +454,8 @@ struct AppCard: View {
                 }
             }
         } else {
-            labeled("스토어", status.liveVersion.map { "v\($0)" } ?? "아직 없음",
+            // 판매 중인 버전이 없으면(첫 버전이 제출 준비 · 심사 중) 스토어는 아직 비어 있다
+            labeled("스토어", status.liveState == "READY_FOR_SALE" ? status.liveVersion.map { "v\($0)" } ?? "아직 없음" : "아직 없음",
                     weight: .regular, color: .secondary)
         }
     }
