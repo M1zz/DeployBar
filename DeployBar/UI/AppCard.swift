@@ -134,12 +134,13 @@ struct AppCard: View {
 
     /// 상태를 낱말 하나로. 색은 필터 칩과 같은 규칙을 쓴다.
     private var statusText: String {
+        // 심사 중이 먼저다 — 판매 중 버전과 같은 번호라 '배포됨' 으로 읽혀도 점은 보라였다
+        if inReview, status.state != .loading, status.state != .error { return status.reviewLabel ?? "심사 중" }
         switch status.state {
         case .loading: return "조회 중"
         case .error: return "오류"
         case .deployed: return "배포됨"
         default:
-            if inReview { return status.reviewLabel ?? "심사 중" }
             if !readiness.blockers.isEmpty { return "잠김 \(readiness.blockers.count)" }
             return "배포 가능"
         }
@@ -173,12 +174,13 @@ struct AppCard: View {
                     // 배포가 실제로 쓸 번호 — 로컬이 이미 출시된 번호면 배포가 올린다. 로컬 번호를 그대로 보여 주면
                     // 스토어 v2.1.5 → 올릴 버전 v2.1.5 가 되어 무엇이 나가는지 알 수 없다.
                     // 색은 쓰지 않는다 — 배포가 알아서 올리는 번호라 문제가 아니고, 주황은 '막힘' 의 색이다.
+                    // 로컬 번호는 배포가 알아서 맞추는 내부 사정이라 글자로 늘어놓지 않고 설명에만 둔다.
                     if let next = status.nextVersion, let local = status.localVersion, next != local {
-                        labeled("올릴 버전", "v\(next)  ↑ 로컬 v\(local)", weight: .semibold, color: .primary)
+                        labeled("이번 배포", "v\(next)", weight: .semibold, color: .primary)
+                            .help("지금 레포는 v\(local) — 배포할 때 v\(next) 로 올립니다")
                     } else {
-                        labeled("올릴 버전",
-                                "v\(status.localVersion ?? "?")  빌드 \(status.localBuild ?? "?")",
-                                weight: .semibold, color: .primary)
+                        labeled("이번 배포", "v\(status.localVersion ?? "?")", weight: .semibold, color: .primary)
+                            .help("빌드 \(status.localBuild ?? "?")")
                     }
                 }
                 Spacer(minLength: 0)
@@ -237,6 +239,20 @@ struct AppCard: View {
         let symbol: String
         let label: String
         var count: String? = nil
+        /// 카드에 글자로 붙는 짧은 이름
+        var short: String {
+            // 빈 곳만 보이는 줄이라 '무엇이 어떻다' 로 읽히게 쓴다 (갈래 이름만 쓰면 아래 [릴리즈노트] 버튼과 헷갈린다)
+            switch id {
+            case "code": return "코드 확인"
+            case "build": return "빌드 확인"
+            case "lang": return "언어"
+            case "notes": return "노트 빔"
+            case "text": return "문구 빔"
+            case "creative": return "헤더 그림 없음"
+            case "human": return "사람이 할 일"
+            default: return label
+            }
+        }
         let level: ReadyItem.Level
         let lines: [String]
     }
@@ -276,7 +292,7 @@ struct AppCard: View {
             }
             out.append(Glance(id: g.id, symbol: g.symbol, label: g.label,
                               count: g.id == "lang" && !supportedLocales.isEmpty
-                                ? (localeGapCount > 0 ? "\(supportedLocales.count - localeGapCount)/\(supportedLocales.count)" : "\(supportedLocales.count)")
+                                ? (localeGapCount > 0 ? "\(localeGapCount)개 빔" : "\(supportedLocales.count)")
                                 : nil,
                               level: level, lines: lines))
         }
@@ -297,11 +313,9 @@ struct AppCard: View {
     private var glanceRow: some View {
         HStack(spacing: 10) {
             // 마지막 배포 — 언제, 무엇을
-            HStack(spacing: 3) {
-                Image(systemName: "paperplane")
+            Group {
                 if let at = status.lastDeployAt {
-                    Text(Self.relative.localizedString(for: at, relativeTo: Date()))
-                    if let label = status.lastDeployLabel { Text(label).foregroundStyle(.tertiary) }
+                    Text("\(Self.relative.localizedString(for: at, relativeTo: Date())) 배포")
                 } else {
                     Text("배포 기록 없음")
                 }
@@ -311,16 +325,17 @@ struct AppCard: View {
             .help(status.lastDeployAt.map { "마지막 배포 \(Self.stamp.string(from: $0))\(status.lastDeployLabel.map { " · \($0)" } ?? "")\(status.commitsSinceDeploy > 0 ? "\n그 뒤 앱에 들어가는 커밋 \(status.commitsSinceDeploy)개" : "")" }
                   ?? "이 Mac 의 DeployBar 로 배포한 기록(deploy-* 태그)이 없습니다")
 
-            Divider().frame(height: 11)
-
-            ForEach(glances) { g in
-                HStack(spacing: 2) {
+            // 다 갖춘 갈래는 그리지 않는다 — 아이콘만 늘어서면 무엇인지 마우스를 올려 봐야 안다.
+            // 빈 곳만 글자로 이름을 붙여 보이면, 이 줄은 곧 '남은 일' 목록이 된다.
+            let open = glances.filter { $0.level != .ok }
+            if !open.isEmpty { Divider().frame(height: 11) }
+            ForEach(open) { g in
+                HStack(spacing: 3) {
                     Image(systemName: g.symbol)
-                    if let c = g.count { Text(c).monospacedDigit() }
+                    Text(g.count.map { "\(g.short) \($0)" } ?? g.short).monospacedDigit()
                 }
-                .font(.caption2.weight(g.level == .ok ? .regular : .semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(glanceColor(g.level))
-                .opacity(g.level == .ok ? 0.6 : 1)
                 .contentShape(Rectangle())
                 .help(([g.label] + g.lines).joined(separator: "\n"))
                 .onTapGesture {
@@ -474,12 +489,9 @@ struct AppCard: View {
             withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
         } label: {
             HStack(spacing: 6) {
-                Text(inReview ? "결과 기다리는 중" : readiness.headline)
+                Text(summaryText)
                     .font(.caption)
                     .lineLimit(1)
-                Text("\(readiness.passedCount)/\(readiness.total)")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.system(size: 8)).foregroundStyle(.tertiary)
             }
@@ -487,6 +499,17 @@ struct AppCard: View {
         }
         .buttonStyle(.plain)
         .help("배포에 필요한 \(readiness.total)가지 중 \(readiness.passedCount)가지 준비됨 — 눌러서 항목별로 보기")
+    }
+
+    /// 요약 한 줄. 버전을 올리는 일은 버전 줄(스토어 → 이번 배포)이 이미 말하고 배포가 알아서 하므로
+    /// 여기서 다시 '버전 올려야 함' 이라 하지 않는다 — 초록 글씨로 '해야 함' 이라 쓰면 막힌 건지 헷갈린다.
+    private var summaryText: String {
+        if inReview { return "결과 기다리는 중" }
+        if isDone { return "할 일 없음" }
+        if !readiness.blockers.isEmpty { return readiness.headline }
+        if let review = readiness.needs.first(where: { $0.key == "review" }) { return review.title }
+        let rest = readiness.needs.filter { $0.key != "changes" }.count
+        return rest == 0 ? "준비 완료" : "준비 완료 · 권장 \(rest)건"
     }
 
     private var summaryColor: Color {
@@ -596,7 +619,7 @@ struct AppCard: View {
                 openNotes()
                 Task { await store.loadNotes(app) }
             } label: {
-                Text("노트").font(.caption)
+                Text("릴리즈노트").font(.caption)
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)

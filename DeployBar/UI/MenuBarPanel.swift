@@ -17,13 +17,12 @@ struct MenuBarPanel: View {
     @EnvironmentObject var store: Store
     @Environment(\.openWindow) private var openWindow
 
-    /// 메뉴바에서 배포까지 눌러 볼 앱은 몇 개면 충분하다 — 그 이상은 고르는 화면이라 창의 몫이다
-    private static let maxRows = 5
+    /// 심사 현황은 몇 줄이면 충분하다 — 그 이상은 창의 몫이다
+    private static let maxRows = 6
 
     private var ready: [AppStatus] { store.statuses.filter { $0.deployable } }
     private var blocked: [AppStatus] { store.statuses.filter(AppFilter.blocked.matches) }
     private var reviewing: [AppStatus] { store.statuses.filter(\.inReview) }
-    private var fixable: [AppStatus] { store.statuses.filter(AppFilter.fixable.matches) }
     private var busy: Bool { store.job?.running == true }
 
     var body: some View {
@@ -114,24 +113,64 @@ struct MenuBarPanel: View {
         .help("로그에서 무엇이 멈췄는지 봅니다")
     }
 
-    // ── 대기 중: 지금 누를 수 있는 것만 ───────────────────────────────
+    // ── 대기 중: 현황 ────────────────────────────────────────────────
+    // 예전엔 배포 가능한 앱마다 [배포] 버튼을 늘어놨지만, 한 앱씩 고르는 일은 창에서 했다.
+    // 메뉴바를 여는 이유는 "애플이 지금 무엇을 보고 있고, 그사이 무슨 일이 있었나" 다.
+    // 그래서 분류별 개수 → 심사 현황 → 최근 소식 순서로 보이고, 누르는 일은 [전체 배포] 하나만 둔다.
     @ViewBuilder private var idleSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !ready.isEmpty {
-                ForEach(ready.prefix(Self.maxRows)) { st in
-                    readyRow(st)
-                    Divider().padding(.leading, 12)
+            HStack(spacing: 6) {
+                tile(.ready, ready.count)
+                tile(.review, reviewing.count)
+                tile(.blocked, blocked.count)
+                tile(.done, store.statuses.filter(AppFilter.done.matches).count)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+
+            if !reviewRows.isEmpty {
+                Divider()
+                sectionTitle("심사")
+                ForEach(reviewRows.prefix(Self.maxRows)) { r in
+                    HStack(spacing: 7) {
+                        Circle().fill(r.color).frame(width: 6, height: 6)
+                        Text(r.name).font(.caption.weight(.medium)).lineLimit(1)
+                        if let p = r.platform {
+                            Text(p).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        Text("v\(r.version)").font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        Spacer(minLength: 4)
+                        Text(r.label).font(.caption2.weight(.semibold)).foregroundStyle(r.color)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 3)
                 }
-                if ready.count > Self.maxRows {
-                    Button {
-                        focus(.ready)
-                    } label: {
-                        Text("외 \(ready.count - Self.maxRows)개 더 — 콘솔에서 보기")
-                            .font(.caption).foregroundStyle(.secondary)
+                if reviewRows.count > Self.maxRows {
+                    Button { focus(.review) } label: {
+                        Text("외 \(reviewRows.count - Self.maxRows)개 — 콘솔에서 보기")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .padding(.horizontal, 12).padding(.vertical, 3)
                 }
+                Spacer().frame(height: 6)
+            }
+
+            if !store.notices.isEmpty {
+                Divider()
+                sectionTitle("최근 소식")
+                ForEach(store.notices.prefix(3)) { n in
+                    HStack(spacing: 7) {
+                        Circle().fill(noticeColor(n.kind)).frame(width: 6, height: 6)
+                        Text(n.title).font(.caption).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(ago(n.at)).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 3)
+                }
+                Spacer().frame(height: 6)
+            }
+
+            if !ready.isEmpty {
+                Divider()
                 Button {
                     open("log")
                     store.deployAll(lane: .appstore)
@@ -142,94 +181,64 @@ struct MenuBarPanel: View {
                 }
                 .buttonStyle(.borderedProminent).tint(.green).controlSize(.small)
                 .padding(.horizontal, 12).padding(.vertical, 8)
-            } else {
-                Text(emptyNote)
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12).padding(.vertical, 10)
-            }
-
-            // 심사 중인 앱 — 여기서 새 빌드를 올리면 그 심사가 취소된다.
-            // 배포 목록에는 안 나오지만 "지금 애플이 보고 있는 것" 은 늘 알고 있어야 한다.
-            if !reviewing.isEmpty {
-                Divider()
-                ForEach(reviewing.prefix(3)) { st in
-                    HStack(spacing: 7) {
-                        Circle().fill(AppFilter.review.color).frame(width: 6, height: 6)
-                        Text(st.name).font(.caption.weight(.medium)).lineLimit(1)
-                        Text("v\(st.reviewVersion ?? st.localVersion ?? "?")")
-                            .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
-                        Spacer(minLength: 4)
-                        Text(st.reviewLabel ?? "심사 중")
-                            .font(.caption2).foregroundStyle(AppFilter.review.color)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 4)
-                }
-            }
-
-            // 나머지는 세어서 보여 주기만 하고, 누르면 창에서 그 분류만 걸어 준다.
-            // 메뉴바에서 고치게 하면 결국 창을 그대로 옮겨 놓게 된다.
-            if !blocked.isEmpty || !fixable.isEmpty {
-                Divider()
-                HStack(spacing: 6) {
-                    if !blocked.isEmpty { countChip(.blocked, blocked.count) }
-                    if !fixable.isEmpty { countChip(.fixable, fixable.count) }
-                    Spacer()
-                }
-                .padding(.horizontal, 12).padding(.vertical, 7)
             }
         }
     }
 
-    private var emptyNote: String {
-        if !blocked.isEmpty { return "막힌 앱 \(blocked.count)개가 있습니다 — 콘솔에서 이유를 볼 수 있습니다." }
-        if !reviewing.isEmpty { return "심사 중인 앱만 있습니다. 지금 올리면 심사가 취소됩니다." }
-        return "스토어와 같은 버전입니다 — 올릴 변경이 없습니다."
-    }
-
-    // ── 배포 가능한 앱 한 줄: 이름 · 버전 변화 · [배포] ────────────────
-    @ViewBuilder private func readyRow(_ st: AppStatus) -> some View {
-        HStack(spacing: 8) {
-            Circle().fill(AppFilter.ready.color).frame(width: 6, height: 6)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(st.name).font(.caption.weight(.semibold)).lineLimit(1)
-                Text(versionLine(st))
-                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            Button("배포") {
-                guard let app = store.app(named: st.path) else { return }
-                open("log")
-                store.startDeploy(app, lane: .appstore, versionBump: nil)
-            }
-            .buttonStyle(.bordered).controlSize(.small)
-            .disabled(busy)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-    }
-
-    private func versionLine(_ st: AppStatus) -> String {
-        let local = st.localVersion ?? "?"
-        guard let live = st.liveVersion else { return "v\(local) · 스토어 미등록" }
-        if live == local {
-            // 같은 버전을 다시 올리는 경우 — 달라지는 건 빌드번호다
-            return "v\(local) · 빌드 \(st.localBuild ?? "?") 재업로드"
-        }
-        return "v\(live) → v\(local)"
-    }
-
-    @ViewBuilder private func countChip(_ f: AppFilter, _ n: Int) -> some View {
+    /// 분류 하나 — 큰 숫자와 이름. 누르면 콘솔에서 그 분류만 걸어 준다.
+    private func tile(_ f: AppFilter, _ n: Int) -> some View {
         Button { focus(f) } label: {
-            HStack(spacing: 4) {
-                Text("\(n)").font(.caption.weight(.bold).monospacedDigit())
-                Text(f.label).font(.caption)
+            VStack(spacing: 1) {
+                Text("\(n)").font(.title3.weight(.semibold).monospacedDigit())
+                Text(f.label).font(.caption2)
             }
-            .foregroundStyle(f.color)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(f.color.opacity(0.12)))
+            .foregroundStyle(n > 0 ? f.color : Color.secondary.opacity(0.5))
+            .frame(maxWidth: .infinity).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7).fill((n > 0 ? f.color : .secondary).opacity(0.09)))
         }
         .buttonStyle(.plain)
         .help("콘솔에서 \(f.label) 앱만 보기")
+    }
+
+    private func sectionTitle(_ t: String) -> some View {
+        Text(t).font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+            .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 3)
+    }
+
+    /// 심사 현황 한 줄 — 플랫폼이 둘 이상인 앱은 플랫폼마다. 거부된 것이 맨 위다(할 일이 생긴 것).
+    private struct ReviewRow: Identifiable {
+        let name: String, platform: String?, version: String, state: String
+        var id: String { "\(name)-\(platform ?? "")" }
+        var label: String { ASCState.label(state) ?? state }
+        var rejected: Bool { ASCState.isRejected(state) }
+        var color: Color { rejected ? .red : AppFilter.review.color }
+    }
+    private var reviewRows: [ReviewRow] {
+        var out: [ReviewRow] = []
+        for st in store.statuses {
+            let watch = { (s: String) in ASCState.isSubmitted(s) || ASCState.isRejected(s) }
+            if let rows = st.platformRows, rows.count > 1 {
+                for r in rows {
+                    if let s = r.reviewState, watch(s) {
+                        out.append(.init(name: st.name, platform: r.platform, version: r.reviewVersion ?? "?", state: s))
+                    }
+                }
+            } else if let s = st.reviewState, watch(s) {
+                out.append(.init(name: st.name, platform: nil, version: st.reviewVersion ?? "?", state: s))
+            }
+        }
+        return out.sorted { $0.rejected && !$1.rejected }
+    }
+
+    private func noticeColor(_ k: StatusChange.Kind) -> Color {
+        switch k { case .good: return .green; case .warn: return .orange; case .info: return .blue }
+    }
+    private func ago(_ date: Date) -> String {
+        let s = Int(Date().timeIntervalSince(date))
+        if s < 60 { return "방금" }
+        if s < 3600 { return "\(s / 60)분 전" }
+        if s < 86400 { return "\(s / 3600)시간 전" }
+        return "\(s / 86400)일 전"
     }
 
     // ── 맨 아랫줄: 창으로 가는 문 ─────────────────────────────────────

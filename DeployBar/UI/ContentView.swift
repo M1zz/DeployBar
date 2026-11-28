@@ -124,62 +124,59 @@ struct ContentView: View {
                 .frame(minHeight: 220, idealHeight: 460, maxHeight: .infinity)
             }
 
-            // 루트에 있는데 목록에 없는 폴더 — "내 앱이 왜 안 보이지" 를 여기서 답한다
-            if !store.skipped.isEmpty {
+            // 목록 밖 폴더 — 루트에 있는데 못 올린 폴더와, 사람이 관리에서 뺀 앱.
+            // "내 앱이 왜 안 보이지" 의 답이지만 자주 보는 곳이 아니라 한 줄로 접어 둔다.
+            if !store.skipped.isEmpty || !store.hidden.isEmpty {
                 Divider()
                 DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(store.skipped) { k in
-                            HStack(alignment: .top, spacing: 8) {
-                                Image(systemName: k.fixable ? "exclamationmark.triangle.fill" : "minus.circle")
-                                    .font(.caption2)
-                                    .foregroundStyle(k.fixable ? .orange : .secondary)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(k.name).font(.caption.weight(.medium))
-                                    Text(k.reason).font(.caption2).foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !store.skipped.isEmpty {
+                            Text("올리지 못한 폴더").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(store.skipped) { k in
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Image(systemName: k.fixable ? "exclamationmark.triangle.fill" : "minus.circle")
+                                            .font(.caption2)
+                                            .foregroundStyle(k.fixable ? .orange : .secondary)
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(k.name).font(.caption.weight(.medium))
+                                            Text(k.reason).font(.caption2).foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        Spacer(minLength: 4)
+                                        Button {
+                                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: k.path)
+                                        } label: { Image(systemName: "folder").font(.caption2) }
+                                        .buttonStyle(.borderless).controlSize(.small)
+                                    }
                                 }
-                                Spacer(minLength: 4)
-                                Button {
-                                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: k.path)
-                                } label: { Image(systemName: "folder").font(.caption2) }
-                                .buttonStyle(.borderless).controlSize(.small)
+                                Text("루트 밖(\(AppRepo.root) 아래가 아닌) 앱은 자동 발견되지 않습니다.")
+                                    .font(.caption2).foregroundStyle(.tertiary).padding(.top, 2)
                             }
                         }
-                        Text("루트 밖(\(AppRepo.root) 아래가 아닌) 앱은 자동 발견되지 않습니다.")
-                            .font(.caption2).foregroundStyle(.tertiary).padding(.top, 2)
+                        if !store.hidden.isEmpty {
+                            Text("관리에서 뺀 앱").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                            VStack(spacing: 2) {
+                                ForEach(store.hidden) { app in
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "eye.slash")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                        Text(app.name).font(.subheadline)
+                                        Spacer()
+                                        Button("되돌리기") { store.unhideApp(app.path) }
+                                            .buttonStyle(.borderless)
+                                            .controlSize(.small)
+                                            .help("다시 관리 대상으로 되돌립니다")
+                                    }
+                                    .padding(.vertical, 3)
+                                }
+                            }
+                        }
                     }
                     .padding(.top, 4)
                 } label: {
-                    Text("목록에 없는 폴더 (\(store.skipped.count))")
+                    Text("목록에 없는 앱 (\(store.skipped.count + store.hidden.count))")
                         .font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 14).padding(.vertical, 6)
-            }
-
-            if !store.hidden.isEmpty {
-                Divider()
-                DisclosureGroup {
-                    VStack(spacing: 2) {
-                        ForEach(store.hidden) { app in
-                            HStack(spacing: 8) {
-                                Image(systemName: "eye.slash")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Text(app.name).font(.subheadline)
-                                Spacer()
-                                Button("되돌리기") { store.unhideApp(app.path) }
-                                    .buttonStyle(.borderless)
-                                    .controlSize(.small)
-                                    .help("다시 관리 대상으로 되돌립니다")
-                            }
-                            .padding(.vertical, 3)
-                        }
-                    }
-                    .padding(.top, 4)
-                } label: {
-                    Text("관리 안 함 (\(store.hidden.count))")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 14).padding(.vertical, 6)
             }
@@ -239,9 +236,10 @@ struct ContentView: View {
                 } label: {
                     Label("종료", systemImage: "power").font(.caption.weight(.medium))
                 }
-                .buttonStyle(.bordered)
+                // 드물게 누르는 버튼이라 색으로 눈을 끌지 않는다
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
                 .controlSize(.small)
-                .tint(.red)
                 .keyboardShortcut("q", modifiers: .command)
                 .help("배포 콘솔 종료 (⌘Q)")
                 }
