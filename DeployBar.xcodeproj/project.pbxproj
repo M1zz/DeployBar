@@ -45,6 +45,7 @@
 		AB8666BDB17FBBE8229F42BB /* StatusChange.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C12FC724FA840EF3C06E16 /* StatusChange.swift */; };
 		B0741096AFD7607CE5AD42E9 /* Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EF2112119180659331C2054 /* Config.swift */; };
 		B7E3401B6D8723EFD0C8952F /* ASCClient+Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = F196B888DEF40AB4CE0C68EF /* ASCClient+Store.swift */; };
+		BBF0DD2EF2370A8936884F8C /* DevHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 600E94DA6AEECFBF701B79B7 /* DevHandoff.swift */; };
 		BE11CA6F59E2DED6F0882052 /* GitSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0715E9C60F3E726E17B41401 /* GitSync.swift */; };
 		BF18BE15DFB92E195D89AB53 /* DeployError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB5A3E1CEDA622000143B89 /* DeployError.swift */; };
 		C24B20F9E4AD7FE9BBA24823 /* ChangeBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E55DF12EAD4025F0A9D0BC7 /* ChangeBanner.swift */; };
@@ -96,6 +97,7 @@
 		5250A1BD8E9653A6E81CBEE4 /* DeployPrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeployPrep.swift; sourceTree = "<group>"; };
 		53D60DF5F4B0B291079A4E2C /* Store+StoreWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+StoreWriter.swift"; sourceTree = "<group>"; };
 		5CBDB885BE302FA5EFA62B08 /* ASCClient+Creative.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ASCClient+Creative.swift"; sourceTree = "<group>"; };
+		600E94DA6AEECFBF701B79B7 /* DevHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevHandoff.swift; sourceTree = "<group>"; };
 		60C26F6C4BB01A612A7E9DF5 /* Store+Publish.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Store+Publish.swift"; sourceTree = "<group>"; };
 		65085709851C24489FF05934 /* StoreWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreWriter.swift; sourceTree = "<group>"; };
 		6817E153578A4E00168F8A72 /* AppFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFilter.swift; sourceTree = "<group>"; };
@@ -195,6 +197,7 @@
 				1EF2112119180659331C2054 /* Config.swift */,
 				3AB5A3E1CEDA622000143B89 /* DeployError.swift */,
 				4CF611CBBA4B443D645B90B0 /* DeployProgress.swift */,
+				600E94DA6AEECFBF701B79B7 /* DevHandoff.swift */,
 				A374A6AA5C657BDAE55BFDA7 /* GitInfo.swift */,
 				0715E9C60F3E726E17B41401 /* GitSync.swift */,
 				3EBBC501FF88B330887E3DD0 /* Locales.swift */,
@@ -336,6 +339,7 @@
 				FD6742723D35E3A20487AD5D /* DeployProgress.swift in Sources */,
 				344CC6E35B133E3C4585C065 /* DeployProgressPanel.swift in Sources */,
 				E04B6E4057BE44F914934CD9 /* Deployer.swift in Sources */,
+				BBF0DD2EF2370A8936884F8C /* DevHandoff.swift in Sources */,
 				72111E611219448617778907 /* GitInfo.swift in Sources */,
 				BE11CA6F59E2DED6F0882052 /* GitSync.swift in Sources */,
 				1AC8E331711B872E3219C61B /* GuideView.swift in Sources */,

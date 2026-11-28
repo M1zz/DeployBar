@@ -34,3 +34,30 @@ targets:
         ENABLE_APP_SANDBOX: "NO"
         ENABLE_HARDENED_RUNTIME: "YES"
         COMBINE_HIDPI_IMAGES: "YES"
+
+# Xcode 에서 빌드(⌘B · ⌘R)하면 그 빌드가 곧바로 /Applications 의 DeployBar 가 된다.
+# 쓰는 앱 · 메뉴바 · 명령줄(--deploy)이 모두 /Applications 것이라, DerivedData 에만 있는 빌드는
+# 고친 게 있어도 아무 데서도 쓰이지 않았다. 배포가 도는 중이면(로그 파일이 열려 있으면) 건드리지 않는다.
+schemes:
+  DeployBar:
+    build:
+      targets:
+        DeployBar: all
+      postActions:
+        - name: /Applications 에 설치
+          settingsTarget: DeployBar
+          script: |
+            APP="$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME"
+            DEST="/Applications/$FULL_PRODUCT_NAME"
+            [ -d "$APP" ] || exit 0
+            PIDS=$(pgrep -x DeployBar | paste -sd, -)
+            if [ -n "$PIDS" ] && lsof -p "$PIDS" 2>/dev/null | grep -q "/Application Support/DeployBar/logs/"; then
+              echo "DeployBar 가 배포 중이라 /Applications 는 그대로 둡니다"; exit 0
+            fi
+            pkill -x DeployBar
+            for _ in $(seq 40); do pgrep -x DeployBar >/dev/null || break; sleep 0.25; done
+            rsync -a --delete "$APP/" "$DEST/" && open "$DEST"
+    run:
+      config: Debug
+    archive:
+      config: Release

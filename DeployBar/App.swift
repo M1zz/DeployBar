@@ -6,6 +6,7 @@ struct DeployBarApp: App {
 
     init() {
         CLI.runIfRequested()
+        DevHandoff.runIfNeeded()
 
         // 최초 실행 시 apps.json / 설정 파일이 존재하도록 시드
         _ = AppRepo.registry()
